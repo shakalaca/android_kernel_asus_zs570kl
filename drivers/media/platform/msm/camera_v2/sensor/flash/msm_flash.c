@@ -47,6 +47,8 @@
 #define LED3_TORCH_CURRENT_ADDR 0x07
 
 #define MAX_TORCH_CURRENT 135
+#define ZENFLASH_MAX_FLASHTIME 80
+#define ENABLE_ZENFLASH 1
 
 DEFINE_MSM_MUTEX(msm_flash_mutex);
 
@@ -95,7 +97,6 @@ struct msm_camera_i2c_reg_setting_array settings_off  = {
   .data_type = MSM_CAMERA_I2C_BYTE_DATA,
   .delay = 0,
 };
-
 
 static const struct of_device_id msm_flash_dt_match[] = {
 	{.compatible = "qcom,camera-flash", .data = NULL},
@@ -1201,8 +1202,6 @@ static long msm_flash_subdev_fops_ioctl(struct file *file,
 }
 #endif
 
-
-
 static ssize_t flash_brightness_proc_write(struct file *filp, const char __user *buf, size_t len, loff_t *data)
 {
 	// gfctrl
@@ -1630,13 +1629,145 @@ static const struct file_operations torch_control_fops = {
 	.release = single_release,
 };
 
+#ifdef ENABLE_ZENFLASH
+
+struct msm_camera_i2c_reg_setting_array zenflash_enable  = {
+  .reg_setting_a =
+  {
+    {0x08, 0x08, 0x00},
+  },
+  .size = 1,
+  .addr_type = MSM_CAMERA_I2C_BYTE_ADDR,
+  .data_type = MSM_CAMERA_I2C_BYTE_DATA,
+  .delay = 0,
+};
+
+struct msm_camera_i2c_reg_setting_array zenflash_current  = {
+  .reg_setting_a =
+  {
+    {0x00, 0x00, 0x00},
+    {0x01, 0x43, 0x00},
+    {0x02, 0x00, 0x00},
+  },
+  .size = 3,
+  .addr_type = MSM_CAMERA_I2C_BYTE_ADDR,
+  .data_type = MSM_CAMERA_I2C_BYTE_DATA,
+  .delay = 0,
+};
+
+struct msm_camera_i2c_reg_setting_array zenflash_off  = {
+  .reg_setting_a =
+  {
+    {0x08, 0x00, 0x00},
+  },
+  .size = 1,
+  .addr_type = MSM_CAMERA_I2C_BYTE_ADDR,
+  .data_type = MSM_CAMERA_I2C_BYTE_DATA,
+  .delay = 0,
+};
+
+#define	ZENFLASH_PROC_FILE	"driver/asus_flash_trigger_time"
+static ssize_t zenflash_proc_write(struct file *filp, const char __user *buf, size_t count, loff_t *ppos)
+{
+    struct msm_flash_ctrl_t *flash_ctrl = gfctrl;
+	struct msm_camera_power_ctrl_t *power_info = NULL;
+	int32_t rc = 0;
+	int32_t delayTime = 0;
+	power_info = &(gfctrl->power_info);
+
+	printk("[LED_FLASH]@%s:%d count = %d\n", __func__, __LINE__, (int)count);
+	if( flash_ctrl->flash_state != MSM_CAMERA_FLASH_INIT ){
+		//  set gpio high , to write i2c
+		gpio_set_value_cansleep(
+			power_info->gpio_conf->gpio_num_info->
+			gpio_num[SENSOR_GPIO_FL_EN],
+			GPIO_OUT_HIGH);
+		rc = msm_flash_i2c_write_table(flash_ctrl, &settings_init);
+		if (rc < 0) {
+			pr_err("%s:%d msm_flash_i2c_write_table rc = %d failed\n",
+				__func__, __LINE__, rc);
+			return rc;
+		}
+		flash_ctrl->flash_state = MSM_CAMERA_FLASH_INIT;
+	}
+
+	// write the current to driver , zenflash current reg set 0x2A (504mA)
+	rc = msm_flash_i2c_write_table(flash_ctrl, &zenflash_current);
+	if (rc < 0) {
+		pr_err("%s:%d msm_flash_i2c_write_table rc = %d failed\n",
+			__func__, __LINE__, rc);
+		return rc;
+	}
+
+	// turn ON flash 2
+	rc =  msm_flash_i2c_write_table(flash_ctrl, &zenflash_enable);
+	if (rc < 0) {
+		pr_err("%s:%d msm_flash_i2c_write_table rc = %d failed\n",
+			__func__, __LINE__, rc);
+		return rc;
+	}
+
+	// set delay flash time
+	delayTime = (int)count;
+	if(count > 80 || count < 1)
+		delayTime = ZENFLASH_MAX_FLASHTIME;
+	msleep(delayTime);
+
+	// turn off flash 2
+	rc = msm_flash_i2c_write_table(flash_ctrl, &zenflash_off);
+	if (rc < 0) {
+		pr_err("%s:%d msm_flash_i2c_write_table rc = %d failed\n",
+			__func__, __LINE__, rc);
+		return rc;
+	}
+
+	return count;
+}
+static int zenflash_status;
+static int zenflash_test_time;
+static int zenflash_read(struct seq_file *buf, void *v)
+{
+	seq_printf(buf, "%d %d\n", zenflash_status, zenflash_test_time);
+	return 0;
+}
+
+static int zenflash_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, zenflash_read, NULL);
+}
+
+static const struct file_operations zenflash_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= zenflash_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+	.write		= zenflash_proc_write,
+};
+
+#endif
+
 static void create_proc_file( void )
 {
 	struct proc_dir_entry* proc_entry_flash;
+#ifdef ENABLE_ZENFLASH 
+	struct proc_dir_entry* zenflash_proc_file;
+#endif
 	void* dummy = NULL;
     proc_entry_flash = proc_create_data("driver/asus_flash_brightness", 0666, NULL, &flash_brightness_fops, dummy);
     proc_create("driver/asus_flash_control", 0666, NULL, &flash_control_fops);
     proc_create("driver/asus_torch_control", 0666, NULL, &torch_control_fops);
+
+#ifdef ENABLE_ZENFLASH 
+    zenflash_proc_file = proc_create_data(ZENFLASH_PROC_FILE, 0666, NULL, &zenflash_proc_fops, NULL);
+    if (zenflash_proc_file) {
+      printk("%s zenflash_proc_file sucessed!\n", __func__);
+      zenflash_status = 0;
+      zenflash_test_time = 0;
+    } else {
+      printk("%s zenflash_proc_file failed!\n", __func__);
+    }
+#endif
 //    proc_set_user(proc_entry_flash, 1000, 1000);
     led_ctrl_record = 0;
 }
@@ -1887,6 +2018,10 @@ static struct msm_flash_table msm_i2c_flash_table = {
 		.camera_flash_high = msm_flash_i2c_write_setting_array,
 	},
 };
+
+
+
+
 
 module_init(msm_flash_init_module);
 module_exit(msm_flash_exit_module);

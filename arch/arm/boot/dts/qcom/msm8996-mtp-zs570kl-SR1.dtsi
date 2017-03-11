@@ -357,6 +357,7 @@ bluetooth: bt_sleep {
 };
 
 &mdss_dsi1 {
+        status = "disabled";
 	qcom,dsi-pref-prim-pan = <&dsi_samsung_1080p_cmd>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
 	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;

@@ -521,6 +521,7 @@ int si470x_start(struct si470x_device *radio)
     if (retval < 0)
         goto done;
 
+    reset_rds(radio);
     if (radio->mode == FM_RECV_TURNING_ON) {
         si470x_fm_q_event(radio, SILABS_EVT_RADIO_READY);
         radio->mode = FM_RECV;
@@ -1409,6 +1410,9 @@ static int si470x_vidioc_s_ctrl(struct file *file, void *priv,
                 goto end;
             }
         } else if (ctrl->value == FM_OFF) {
+            flush_workqueue(radio->wqueue);
+            cancel_work_sync(&radio->rds_worker);
+            flush_workqueue(radio->wqueue_rds);
             radio->mode = FM_TURNING_OFF;
             retval = si470x_stop(radio);
             if (retval < 0) {

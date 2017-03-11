@@ -1307,7 +1307,7 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 		enable_irq(chip->soc_irq[DELTA_SOC].irq);
 		enable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
 		enable_irq(chip->soc_irq[FULL_SOC].irq);
-		enable_irq_wake(chip->soc_irq[FULL_SOC].irq);
+		//enable_irq_wake(chip->soc_irq[FULL_SOC].irq);
 		enable_irq(chip->batt_irq[BATT_MISSING].irq);
 		if (!chip->vbat_low_irq_enabled) {
 			enable_irq(chip->batt_irq[VBATT_LOW].irq);
@@ -2138,6 +2138,11 @@ static int get_monotonic_soc_raw(struct fg_chip *chip)
 	if (fg_debug_mask & FG_POWER_SUPPLY)
 		pr_info_ratelimited("raw: 0x%02x\n", cap[0]);
 	return cap[0];
+}
+
+int get_fg_monotonic_soc(void)
+{
+	return get_monotonic_soc_raw(fg_dev);
 }
 
 #define EMPTY_CAPACITY		0
@@ -4254,6 +4259,12 @@ static int fg_power_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_STATUS:
 		chip->prev_status = chip->status;
 		chip->status = val->intval;
+		if ((chip->status == POWER_SUPPLY_STATUS_QUICK_CHARGING)||
+			(chip->status == POWER_SUPPLY_STATUS_NOT_QUICK_CHARGING)) {
+			chip->status = POWER_SUPPLY_STATUS_CHARGING;
+		} else if (chip->status == POWER_SUPPLY_STATUS_NOT_CHARGING) {
+			chip->status = POWER_SUPPLY_STATUS_DISCHARGING;
+		}
 		schedule_work(&chip->status_change_work);
 		check_gain_compensation(chip);
 		break;
@@ -6666,7 +6677,7 @@ static int fg_init_irqs(struct fg_chip *chip)
 			}
 
 			enable_irq_wake(chip->soc_irq[DELTA_SOC].irq);
-			enable_irq_wake(chip->soc_irq[FULL_SOC].irq);
+			//enable_irq_wake(chip->soc_irq[FULL_SOC].irq);
 			if (!chip->use_vbat_low_empty_soc)
 				enable_irq_wake(chip->soc_irq[EMPTY_SOC].irq);
 			break;

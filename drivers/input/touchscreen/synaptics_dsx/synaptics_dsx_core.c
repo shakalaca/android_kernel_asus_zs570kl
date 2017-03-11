@@ -1961,7 +1961,7 @@ static void fts_sw_reset(struct synaptics_rmi4_data *rmi4_data)
     /*********Step 7: reset the new FW***********************/
 	auc_i2c_write_buf[0] = 0x07;
 	cap_i2c_write(rmi4_data, auc_i2c_write_buf, 1);
-	msleep(200);
+	//msleep(200);
 }
 
 static ssize_t fts_fts_sw_reset_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
@@ -3741,6 +3741,31 @@ static irqreturn_t fts_ts_interrupt(int irq, void *data)
 	}
 
 	return IRQ_HANDLED;
+}
+
+static void fts_glove_delay_work_func(struct work_struct *work)
+{
+    int retval;
+    unsigned char cap_buf[2] = {0};
+    struct delayed_work *delayed_work = container_of(work, struct delayed_work, work);
+    struct synaptics_rmi4_data *rmi4_data =	container_of(delayed_work, struct synaptics_rmi4_data, fts_glove_delay_work);
+    
+    if(cap_sel_status == 1) {
+        if(glove_mode == 1) {
+            cap_buf[0] = 0xc0;
+            cap_buf[1] = 0x01;
+            retval = cap_i2c_write(rmi4_data, cap_buf, 2);
+            if(retval < 0)
+                printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
+        }else {
+            cap_buf[0] = 0xc0;
+            cap_buf[1] = 0x00;
+            retval = cap_i2c_write(rmi4_data, cap_buf, 2);
+            if(retval < 0)
+                printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
+        }
+    }
+    printk("%s set glove parameter done\n", __func__);
 }
 //<ASUS_focal->
 
@@ -7025,6 +7050,13 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
             goto err_cap_sensor;
         }
         fts_create_apk_debug_channel();
+        rmi4_data->fts_glove_wq = create_singlethread_workqueue("fts_glove_wq");
+        if (!rmi4_data->fts_glove_wq) 
+        {
+            printk(KERN_ERR "\n%s [FTS]: create fts glove workqueue failed\n", __func__);		
+            goto err_cap_sensor;
+        }
+        INIT_DELAYED_WORK(&rmi4_data->fts_glove_delay_work, fts_glove_delay_work_func);
     }
 err_cap_sensor:
     //<ASUS_focal->
@@ -7271,6 +7303,9 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
     flush_workqueue(rmi4_data->fts_workqueue);
 	destroy_workqueue(rmi4_data->fts_workqueue);
     fts_release_apk_debug_channel();
+    
+    flush_workqueue(rmi4_data->fts_glove_wq);
+	destroy_workqueue(rmi4_data->fts_glove_wq);
     //<ASUS_focal->
 
 	for (attr_count = 0; attr_count < ARRAY_SIZE(attrs); attr_count++) {
@@ -7691,6 +7726,7 @@ static int synaptics_rmi4_resume(struct device *dev)
 	unsigned char buf_reg_val_PR_usb[] = {0x20, 0x07, 0x4c, 0x47, 0x40}; //usb parameter
 	unsigned char buf_reg_val_PR_glove[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove parameter
 	unsigned char buf_reg_val_PR_glove_usb[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove and usb parameter	
+    unsigned long onesec = msecs_to_jiffies(1500);
 
 	
 	if(cap_sel_status == 0) {
@@ -7798,6 +7834,15 @@ static int synaptics_rmi4_resume(struct device *dev)
 	//<ASUS_COVER->
 	//<ASUS_Glove+>
 	synaptics_rmi4_set_glove_param(rmi4_data);
+    if(cap_sel_status == 1) {
+        retval = work_busy(&rmi4_data->fts_glove_delay_work.work);
+        if(retval == WORK_BUSY_PENDING) {
+            cancel_delayed_work_sync(&rmi4_data->fts_glove_delay_work);					
+        }
+        retval = queue_delayed_work(rmi4_data->fts_glove_wq, &rmi4_data->fts_glove_delay_work, onesec);
+        if(retval < 0)
+            printk("%s ret = %d glove delay queue failure\n", __func__, retval);
+    }
 	//<ASUS_Glove->
 	
 	if (rmi4_data->stay_awake)

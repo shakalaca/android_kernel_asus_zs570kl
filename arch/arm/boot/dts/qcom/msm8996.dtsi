@@ -217,6 +217,13 @@
 			reg = <0 0xb1c00000 0 0x23ff000>;
 			label = "cont_splash_mem_hdmi";
 		};
+
+                pstore_reserve_mem: pstore_reserve_mem_region@0 {
+                        compatible = "removed-dma-pool";
+                        no-map;
+                        reg = <0x0 0x9ff00000 0x0 0x00200000>;
+                        label = "pstore_reserve_mem";
+                };
 	};
 };
 

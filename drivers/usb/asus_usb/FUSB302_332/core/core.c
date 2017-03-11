@@ -24,10 +24,12 @@ extern USBTypeCCurrent  SinkCurrent;
 /*
  * Call this function to initialize the core.
  */
-void core_initialize(void)
+//void core_initialize(void)
+void core_initialize(USBTypeCPort portype)
 {
-    InitializeTypeCVariables();                     // Initialize the TypeC variables for the state machine
-    InitializePDProtocolVariables();                // Initialize the USB PD variables
+    //InitializeTypeCVariables();                     // Initialize the TypeC variables for the state machine
+    InitializeTypeCVariables(portype);              // Initialize the TypeC variables for the state machine
+	InitializePDProtocolVariables();                // Initialize the USB PD variables
     InitializePDPolicyVariables();                  // Initialize the USB PD variables
     InitializeTypeC();
 }
@@ -224,6 +226,27 @@ void core_set_state_unattached(void)
 {
     SetStateUnattached();
 }
+
+ConnectionState core_get_connecting_state(void)
+{
+	return StateMachineGetConnectingState();
+}
+
+FSC_BOOL core_mask_irq(FSC_BOOL mask)
+{
+	return typec_mask_irq(mask);
+}
+
+FSC_BOOL core_enable_statemachine(FSC_BOOL enable)
+{
+	return typec_enable_statemachine(enable);
+}
+
+FSC_BOOL core_rd_rp_disable(void)
+{
+	return typec_rd_rp_disable();
+}
+
 
 FSC_U16 core_get_advertised_current(void)
 {

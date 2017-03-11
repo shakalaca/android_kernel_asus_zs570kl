@@ -1,6 +1,9 @@
 #ifndef __FUSB_PLATFORM_HELPERS_H_
 #define __FUSB_PLATFORM_HELPERS_H_
 
+#include <linux/usb/typec.h>
+#include "../core/TypeC_Types.h"
+#include "../core/TypeC.h"
 #define INIT_DELAY_MS   500     // Time to wait before initializing the device, in ms
 #define RETRIES_I2C 3           // Number of retries for I2C reads/writes
 
@@ -234,5 +237,13 @@ void fusb_StopThreads(void);
 void fusb_ScheduleWork(void);
 
 #endif  // FSC_INTERRUPT_TRIGGERED, else
-
+	
+/* mapping  */
+enum typec_attached_state fusb_get_connecting_state(void);
+void fusb_reinitialize(enum typec_port_mode mode);
+void fusb_enable(FSC_BOOL enable, FSC_U8 flag, enum typec_port_mode mode);
+void fusb_vbus_off(void);
+void fusb_disabled_state_enter(void);
+void fusb_notify_state_chaged(ConnectionState previous_state, ConnectionState current_state);
+void fusb_revert_to_drp_mode(void);
 #endif  // __FUSB_PLATFORM_HELPERS_H_

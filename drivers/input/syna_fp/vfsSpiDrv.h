@@ -123,6 +123,8 @@
 #define VFSSPI_IOCTL_REGISTER_SCREEN_DETECTION_SIGNAL    _IOW(VFSSPI_IOCTL_MAGIC,      \
 							 22, unsigned int)
 
+#define VFSSPI_IOCTL_FREE_SYSTEM_WAKE_LOCK   _IOW(VFSSPI_IOCTL_MAGIC,   \
+								 23, unsigned int)
 
 /*
  * Used by IOCTL command:

@@ -1146,7 +1146,7 @@ int smb1351_parallel_init_setting(void)
 		goto out;
 	}
 
-	rc = smb1351_masked_write(smb1351_dev, 0x08, BIT(0), BIT(1));
+	rc = smb1351_masked_write(smb1351_dev, 0x08, BIT(0), BIT(0));
 	if (rc) {
 		pr_err("Couldn't set watchdog timer enable rc=%d\n", rc);
 		goto out;

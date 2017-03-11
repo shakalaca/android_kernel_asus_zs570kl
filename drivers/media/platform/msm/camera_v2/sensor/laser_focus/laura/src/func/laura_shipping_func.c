@@ -592,11 +592,11 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 		confidence_level_formula3 = ((long)ITB*(long)CONF_A - ((long)(INT_Time - ITB) * (long)(CONF_C - CONF_A))) / ITB;
 		LOG_Handler(LOG_DBG, "confidence_level_formula:%d, confidence_level_formula3:%d\n",confidence_level_formula,confidence_level_formula3);
 
-		if ( INT_Time < ITB && confidence_level < CONF_A && error_status == NO_ERROR) {
+		if ( INT_Time < ITB && confidence_level < CONF_A) {
 			Range = OUT_OF_RANGE;
 			errcode = RANGE_ERR_NOT_ADAPT;
 			err_case = 1;
-		} else if ( INT_Time >= ITB  && confidence_level < confidence_level_formula3 && error_status == NO_ERROR) {
+		} else if ( INT_Time >= ITB  && confidence_level < confidence_level_formula3) {
 			Range = OUT_OF_RANGE;
 			errcode = RANGE_ERR_NOT_ADAPT;
 			err_case = 2;

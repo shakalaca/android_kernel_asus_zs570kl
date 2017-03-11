@@ -427,6 +427,8 @@ struct synaptics_rmi4_data {
     //<ASUS_focal+>
     struct workqueue_struct *fts_workqueue;
     struct work_struct 	fts_touch_event_work;	
+    struct workqueue_struct *fts_glove_wq;
+	struct delayed_work fts_glove_delay_work;
     //<ASUS_focal->
 	//<ASUS_cap_sensor+>
 	struct workqueue_struct *cap_wq;

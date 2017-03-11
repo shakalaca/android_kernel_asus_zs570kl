@@ -11,6 +11,8 @@
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/of_irq.h>
+#include <linux/completion.h>
+#include <linux/usb/class-dual-role.h>
 
 #include "fusb30x_global.h"                                                     // Chip structure access
 #include "../core/core.h"                                                       // Core access
@@ -3111,7 +3113,8 @@ static ssize_t _fusb_Sysfs_Reinitialize_fusb302(struct device* dev, struct devic
 #endif // FSC_INTERRUPT_TRIGGERED
 
     fusb_StopTimers();
-    core_initialize();
+    //core_initialize();
+	core_initialize(USBTypeC_UNDEFINED);
     pr_debug ("FUSB  %s - Core is initialized!\n", __func__);
     fusb_StartTimers();
     core_enable_typec(TRUE);
@@ -3197,7 +3200,8 @@ void fusb_InitializeCore(void)
 {
     fusb_StartTimers();
     pr_debug("FUSB  %s - Timers are started!\n", __func__);
-    core_initialize();
+    //core_initialize();
+	core_initialize(USBTypeC_UNDEFINED);
     pr_debug("FUSB  %s - Core is initialized!\n", __func__);
     core_enable_typec(TRUE);
     pr_debug("FUSB  %s - Type-C State Machine is enabled!\n", __func__);
@@ -3319,6 +3323,10 @@ static irqreturn_t _fusb_isr_intn(FSC_S32 irq, void *dev_id)
         pr_err("FUSB  %s - Error: Chip structure is NULL!\n", __func__);
         return IRQ_NONE;
     }
+
+    /* wait until core initialized and dual_role class registered */
+    while(!chip->dual_role)
+            platform_delay_10us(1000);
 
     wake_lock(&chip->fusb302_wakelock);                                 // wake lock protection
 
@@ -3455,4 +3463,171 @@ void fusb_ScheduleWork(void)
 }
 
 #endif // FSC_INTERRUPT_TRIGGERED, else
+enum typec_attached_state fusb_get_connecting_state(void)
+{
+	unsigned long timeout = jiffies + (3*HZ);
+	ConnectionState cstate;
 
+	do {
+		cstate = core_get_connecting_state();
+		switch (cstate) {
+		case AttachedSink:
+			return TYPEC_ATTACHED_AS_UFP;
+		case AttachedSource:
+			return TYPEC_ATTACHED_AS_DFP;
+		case UnsupportedAccessory:
+			pr_err("%s: UnsupportedAccessory detected\n", __func__);
+		case AudioAccessory:
+		case PoweredAccessory:
+		case DebugAccessorySource:
+                case DebugAccessorySink:
+			return TYPEC_ATTACHED_TO_ACCESSORY;
+		case ErrorRecovery:
+		case AttachWaitSink:
+		case AttachWaitSource:
+		case TrySource:
+		case TryWaitSink:
+		case TrySink:
+		case TryWaitSource:
+		case AttachWaitAccessory:
+		case UnattachedSource:
+			pr_debug("%s: connecting state not stable. try again\n", __func__);
+			msleep(100);
+			break;
+		default:
+			/*
+			Disabled
+			Unattached
+			DelayUnattached
+			*/
+			return TYPEC_NOT_ATTACHED;
+		}
+	} while (time_before(jiffies, timeout));
+
+	pr_err("%s: connecting state not stable. timed out\n", __func__);
+	return TYPEC_NOT_ATTACHED;
+}
+
+/**
+ * Assume statmachine, timer, host irq, chip irq has been stopped or masked
+ */
+void fusb_reinitialize(enum typec_port_mode mode)
+{
+	USBTypeCPort portype;
+
+	struct fusb30x_chip* chip = fusb30x_GetChip();
+	if (chip == NULL)
+	{
+		//return sprintf(buf, "FUSB302 Error: Internal chip structure pointer is NULL!\n");
+		pr_err("FUSB302 Error: Internal chip structure pointer is NULL!\n");
+		return;
+	}
+
+#ifndef FSC_HAVE_DRP
+#error "should be configured with FSC_HAVE_DRP"
+#endif
+
+	if (mode == TYPEC_UFP_MODE) {
+		portype = USBTypeC_Sink;
+	} else if (mode == TYPEC_DFP_MODE) {
+		portype = USBTypeC_Source;
+	} else {
+		portype = USBTypeC_DRP;
+	}
+	core_initialize(portype);
+	pr_info("FUSB  %s - Core is initialized with PortType %d\n", __func__, portype);
+	//fusb_StartTimers();
+	fusb_enable(true, FUSB_EN_F_MASK_IRQ, mode);
+	core_enable_typec(TRUE);
+	pr_debug("FUSB  %s - Type-C State Machine is enabled!\n", __func__);
+
+#ifdef FSC_INTERRUPT_TRIGGERED
+	enable_irq(chip->gpio_IntN_irq);
+#else
+	// Schedule to kick off the main working thread
+	schedule_work(&chip->worker);
+#endif // FSC_INTERRUPT_TRIGGERED
+}
+
+void fusb_enable(FSC_BOOL enable, FSC_U8 flag, enum typec_port_mode mode)
+{
+	struct fusb30x_chip* chip = fusb30x_GetChip();
+	if (!chip) {
+		pr_err("FUSB  %s - Error: Chip structure is NULL!\n", __func__);
+		return;
+	}
+	if (enable && (flag == FUSB_EN_F_ALL)) {
+		fusb_reinitialize(mode);
+		return;
+	}
+        if(enable){
+                if (flag & FUSB_EN_F_HOST_IRQ) {
+			enable_irq(chip->gpio_IntN_irq);
+		}
+                if (flag & FUSB_EN_F_MASK_IRQ) {
+                        core_mask_irq(false);
+		}
+                if (flag & FUSB_EN_F_SM) {
+                        core_enable_statemachine(true);
+                }
+        } else {
+                if (flag & FUSB_EN_F_SM) {
+#ifndef FSC_INTERRUPT_TRIGGERED
+			fusb_StopThreads();                 // Waits for current work to complete, then cancels scheduled work and flushed the work queue
+#endif // FSC_INTERRUPT_TRIGGERED
+			core_enable_statemachine(false);
+		}
+                if (flag & FUSB_EN_F_MASK_IRQ) {
+                        core_mask_irq(true);
+                }
+                if (flag & FUSB_EN_F_HOST_IRQ) {
+                        disable_irq(chip->gpio_IntN_irq);
+                }
+	}
+}
+
+void fusb_vbus_off(void)
+{
+	fusb_GPIO_Set_VBus5v(false);
+	fusb_GPIO_Set_VBusOther(false);
+}
+
+void fusb_disabled_state_enter(void)
+{
+	/* disable Rp, Rd */
+	core_rd_rp_disable();
+	mdelay(50);
+}
+ 
+void fusb_notify_state_chaged(ConnectionState previous_state, ConnectionState current_state)
+{
+	struct fusb30x_chip* chip = fusb30x_GetChip();
+	if (!chip) {
+		pr_err("FUSB  %s - Error: Chip structure is NULL!\n", __func__);
+		return;
+	}
+
+	if (chip->reverse_state == REVERSE_ATTEMPT) {
+		switch (current_state) {
+		case AttachedSink:
+		case AttachedSource:
+		case UnsupportedAccessory:
+		case AudioAccessory:
+		case PoweredAccessory:
+		case DebugAccessorySource:
+                case DebugAccessorySink:
+			pr_err("FUSB  %s - reverse completed\n", __func__);
+			chip->reverse_state = REVERSE_COMPLETE;
+			complete(&chip->reverse_completion);
+			break;
+		default:;
+		}
+	}
+        /* notify userspace that the state might have changed. */
+        dual_role_instance_changed(chip->dual_role);
+}
+
+void fusb_revert_to_drp_mode(void)
+{
+        typec_revert_to_drp_mode();
+}

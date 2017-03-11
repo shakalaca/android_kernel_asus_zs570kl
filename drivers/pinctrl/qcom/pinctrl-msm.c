@@ -33,7 +33,6 @@
 #include "../pinconf.h"
 #include "pinctrl-msm.h"
 #include "../pinctrl-utils.h"
-#include <linux/syscore_ops.h>
 
 #define MAX_NR_GPIO 300
 #define PS_HOLD_OFFSET 0x820
@@ -76,7 +75,6 @@ struct msm_pinctrl {
 	const struct msm_pinctrl_soc_data *soc;
 	void __iomem *regs;
 };
-struct msm_pinctrl *g_pctrl;
 
 static inline struct msm_pinctrl *to_msm_pinctrl(struct gpio_chip *gc)
 {
@@ -882,26 +880,7 @@ struct irq_chip mpm_pinctrl_extn = {
 	.irq_set_wake	= NULL,
 	.irq_disable	= NULL,
 };
-static void msm_tlmm_gp_irq_resume(void)
-{
-	u32 val,i;
-	const struct msm_pingroup *g;
 
-	//[+++]Add GPIO wakeup information
-	for_each_set_bit(i, g_pctrl->enabled_irqs, g_pctrl->chip.ngpio)
-	{
-		g = &g_pctrl->soc->groups[i];
-		val = readl(g_pctrl->regs + g->intr_status_reg);
-		if (val & BIT(g->intr_status_bit)) {
-			printk(KERN_EMERG "[PM] GPIO: %d resume triggered\n", i);
-		}
-	}
-	//[---]Add GPIO wakeup information
-}
-
-static struct syscore_ops msm_tlmm_irq_syscore_ops = {
-	.resume = msm_tlmm_gp_irq_resume,
-};
 
 
 static int msm_gpio_init(struct msm_pinctrl *pctrl)
@@ -948,7 +927,6 @@ static int msm_gpio_init(struct msm_pinctrl *pctrl)
 	gpiochip_set_chained_irqchip(chip, &msm_gpio_irq_chip, pctrl->irq,
 				     msm_gpio_irq_handler);
 	of_mpm_init();
-	register_syscore_ops(&msm_tlmm_irq_syscore_ops);
 
 	return 0;
 }
@@ -1047,7 +1025,6 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	pctrl->irq_chip_extn = &mpm_pinctrl_extn;
 	platform_set_drvdata(pdev, pctrl);
 
-	g_pctrl = pctrl;
 
 	dev_dbg(&pdev->dev, "Probed Qualcomm pinctrl driver\n");
 

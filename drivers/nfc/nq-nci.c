@@ -103,6 +103,8 @@ static void nqx_disable_irq(struct nqx_dev *nqx_dev)
 {
 	unsigned long flags;
 
+        //pr_info("nq-nci: %s", __func__);
+
 	spin_lock_irqsave(&nqx_dev->irq_enabled_lock, flags);
 	if (nqx_dev->irq_enabled) {
 		disable_irq_nosync(nqx_dev->client->irq);
@@ -114,6 +116,8 @@ static void nqx_disable_irq(struct nqx_dev *nqx_dev)
 static void nqx_enable_irq(struct nqx_dev *nqx_dev)
 {
 	unsigned long flags;
+
+        //pr_info("nq-nci: %s", __func__);
 
 	spin_lock_irqsave(&nqx_dev->irq_enabled_lock, flags);
 	if (!nqx_dev->irq_enabled) {
@@ -327,6 +331,10 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 		/* hardware dependent delay */
 		msleep(100);
 	} else if (arg == 1) {
+                u32 old_ven_val=0;
+
+                old_ven_val = gpio_get_value(nqx_dev->en_gpio);
+
 		dev_dbg(&nqx_dev->client->dev,
 			"gpio_set_value enable: %s: info: %p\n",
 			__func__, nqx_dev);
@@ -337,6 +345,9 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 		if (r < 0)
 			dev_err(&nqx_dev->client->dev, "unable to enable clock\n");
 
+                if (!old_ven_val) {
+                        nqx_enable_irq(nqx_dev);
+                }
 		msleep(20);
 	} else if (arg == 2) {
 		/* We are switching to Dowload Mode, toggle the enable pin
@@ -351,6 +362,7 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 		msleep(100);
 		gpio_set_value(nqx_dev->en_gpio, 1);
 		msleep(20);
+		nqx_enable_irq(nqx_dev);
 	} else {
 		r = -ENOIOCTLCMD;
 	}

@@ -308,7 +308,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 	}
 
 	//printk(KERN_EMERG"[DEBUG]%s bin.busy_time = %lld, bin.total_time = %lld;  \n",__func__, priv->bin.busy_time, priv->bin.total_time);
-	if(6*priv->bin.busy_time > priv->bin.total_time)
+	if(4*priv->bin.busy_time > priv->bin.total_time)
 		priv->bin.busy_time = priv->bin.total_time;
 
 	/*

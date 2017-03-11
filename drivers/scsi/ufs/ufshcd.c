@@ -244,7 +244,8 @@ static u32 ufs_query_desc_max_size[] = {
 	QUERY_DESC_RFU_MAX_SIZE,
 	QUERY_DESC_GEOMETRY_MAZ_SIZE,
 	QUERY_DESC_POWER_MAX_SIZE,
-	QUERY_DESC_RFU_MAX_SIZE,
+	//QUERY_DESC_RFU_MAX_SIZE,
+	QUERY_DESC_HEALTH_MAX_SIZE,
 };
 
 enum {
@@ -6699,6 +6700,32 @@ static void ufshcd_apply_pm_quirks(struct ufs_hba *hba)
 	}
 }
 
+int ufshcd_get_health(struct ufs_hba *hba)
+{
+	int ret;//buff_len;
+	uint8_t buffer[QUERY_DESC_HEALTH_MAX_SIZE];
+
+	ret = ufshcd_read_desc(hba, QUERY_DESC_IDN_HEALTH, 0, buffer, QUERY_DESC_HEALTH_MAX_SIZE);
+	if (ret) {
+		dev_err(hba->dev,
+			"%s: Failed reading health descriptor, ret = %d",
+			__func__, ret);
+		//return ret;
+		hba->ufs_health_info = 0xff;
+		hba->ufs_health_time_est_A = 0xff;
+		hba->ufs_health_time_est_B = 0xff;
+		return ret;
+	}
+
+	hba->ufs_health_info = buffer[0x02];
+	hba->ufs_health_time_est_A = buffer[0x03];
+	hba->ufs_health_time_est_B = buffer[0x04];
+
+	pr_info("ufs health: 0x%x, 0x%x, 0x%x, ufs version %x \n",
+		hba->ufs_health_info, hba->ufs_health_time_est_A, hba->ufs_health_time_est_B, hba->ufs_spec_version);
+	return 0;
+}
+
 int ufshcd_get_total_size(struct ufs_hba *hba)
 {
 	int ret,buff_len;
@@ -6814,6 +6841,11 @@ static int ufshcd_probe_hba(struct ufs_hba *hba)
 		ret = ufshcd_get_total_size(hba);
 		if (ret) {
 			dev_err(hba->dev, "ufshcd_get_total_size failed, ret = %d\n", ret);
+		}
+		ret = ufshcd_get_health(hba);
+		if (ret) {
+			dev_err(hba->dev, "ufshcd_get_total_size failed, ret = %d\n", ret);
+			ret = 0;
 		}
 		pm_runtime_put_sync(hba->dev);
 	}
@@ -8475,12 +8507,71 @@ static void ufshcd_add_ufs_total_size_sysfs_nodes(struct ufs_hba *hba)
 		dev_err(hba->dev, "Failed to create sysfs for ufs_total_size\n");
 }
 
+static ssize_t ufshcd_ufs_spec_ver_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "0x%x\n", hba->ufs_spec_version);
+}
+
+static void ufshcd_add_ufs_spec_ver_sysfs_nodes(struct ufs_hba *hba)
+{
+	hba->ufs_spec_ver_attr.show = ufshcd_ufs_spec_ver_show;
+	hba->ufs_spec_ver_attr.store = NULL;
+	sysfs_attr_init(&hba->ufs_spec_ver_attr.attr);
+	hba->ufs_spec_ver_attr.attr.name = "ufs_spec_ver";
+	hba->ufs_spec_ver_attr.attr.mode = S_IRUGO;
+	if (device_create_file(hba->dev, &hba->ufs_spec_ver_attr))
+		dev_err(hba->dev, "Failed to create sysfs for ufs_spec_ver\n");
+}
+
+
+static ssize_t ufshcd_ufs_health_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "0x%x, 0x%x, 0x%x\n",
+		hba->ufs_health_info, hba->ufs_health_time_est_A, hba->ufs_health_time_est_B);
+}
+
+static void ufshcd_add_ufs_health_sysfs_nodes(struct ufs_hba *hba)
+{
+	hba->ufs_health_attr.show = ufshcd_ufs_health_show;
+	hba->ufs_health_attr.store = NULL;
+	sysfs_attr_init(&hba->ufs_health_attr.attr);
+	hba->ufs_health_attr.attr.name = "ufs_health";
+	hba->ufs_health_attr.attr.mode = S_IRUGO;
+	if (device_create_file(hba->dev, &hba->ufs_health_attr))
+		dev_err(hba->dev, "Failed to create sysfs for ufs_health\n");
+}
+
+static ssize_t ufshcd_ufs_manfid_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "0x%x\n", hba->ufs_manfid);
+}
+
+static void ufshcd_add_ufs_manfid_sysfs_nodes(struct ufs_hba *hba)
+{
+	hba->ufs_manfid_attr.show = ufshcd_ufs_manfid_show;
+	hba->ufs_manfid_attr.store = NULL;
+	sysfs_attr_init(&hba->ufs_manfid_attr.attr);
+	hba->ufs_manfid_attr.attr.name = "ufs_manfid";
+	hba->ufs_manfid_attr.attr.mode = S_IRUGO;
+	if (device_create_file(hba->dev, &hba->ufs_manfid_attr))
+		dev_err(hba->dev, "Failed to create sysfs for ufs_manfid\n");
+}
+
 static inline void ufshcd_add_sysfs_nodes(struct ufs_hba *hba)
 {
 	ufshcd_add_rpm_lvl_sysfs_nodes(hba);
 	ufshcd_add_spm_lvl_sysfs_nodes(hba);
 	ufshcd_add_total_size_sysfs_nodes(hba);
 	ufshcd_add_ufs_total_size_sysfs_nodes(hba);
+	ufshcd_add_ufs_manfid_sysfs_nodes(hba);
+	ufshcd_add_ufs_health_sysfs_nodes(hba);
+	ufshcd_add_ufs_spec_ver_sysfs_nodes(hba);
 }
 
 /**

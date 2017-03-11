@@ -412,7 +412,7 @@ static long audio_cal_shared_ioctl(struct file *file, unsigned int cmd,
 			pr_err("%s: [HI-RES] fail to copy is_hires\n", __func__);
 			ret = -EFAULT;
 		} else {
-			pr_err("%s: [HI-RES] set hires state=%s\n", __func__, is_hires ? "true" : "false");
+			pr_info("%s: [HI-RES] set hires state=%s\n", __func__, is_hires ? "true" : "false");
 			switch_set_state(&hires_sdev, is_hires ? 2 : 0); /* need to sync with WiredAccessoryManager.java */
 		}
 		mutex_unlock(&audio_cal.cal_mutex[AUDIO_SET_HIRES_STATE_TYPE]);

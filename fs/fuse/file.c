@@ -18,6 +18,9 @@
 #include <linux/swap.h>
 #include <linux/aio.h>
 #include <linux/falloc.h>
+#include <linux/statfs.h>
+
+#define data_free_size_th (50*1024*1024)
 
 static const struct file_operations fuse_direct_io_file_operations;
 
@@ -180,7 +183,6 @@ int fuse_do_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
 		if (!err) {
 			ff->fh = outarg.fh;
 			ff->open_flags = outarg.open_flags;
-
 		} else if (err != -ENOSYS || isdir) {
 			fuse_file_free(ff);
 			return err;
@@ -1250,6 +1252,8 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t err;
 	loff_t endbyte = 0;
 	loff_t pos = iocb->ki_pos;
+	struct kstatfs stat;
+	long long store = 0;
 
 	if (get_fuse_conn(inode)->writeback_cache) {
 		/* Update size (EOF optimization) and mode (SUID clearing) */
@@ -1280,7 +1284,23 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	err = file_update_time(file);
 	if (err)
 		goto out;
+	if (ff->open_flags & FOPEN_INTERNAL) {
+		if (vfs_statfs(&file->f_path, &stat)) {
+			pr_info("get fs status fail \n");
+			err = -ENOSPC;
+			goto out;
+		} else {
+			store = stat.f_bfree * stat.f_bsize;
+			//pr_info("initialize data free size when acess sdcard0 ,store = %lld, count = %ld\n", store, count);
+			store -= count;
 
+			if (store <= data_free_size_th) {
+				pr_info("free_size = %lld, less than 50MB ,no space for write!\n", store);
+				err = -ENOSPC;
+				goto out;
+			}
+		}
+	}
 	if (ff && ff->shortcircuit_enabled && ff->rw_lower_file) {
 		written = fuse_shortcircuit_write_iter(iocb, from);
 		goto out;

@@ -399,7 +399,7 @@ static irqreturn_t vfsspi_irq(int irq, void *context)
 	if the interrupt handler has been called actually by DRDY
 	interrupt and it's not a previous interrupt re-play */
 	if (gpio_get_value(vfsspi_device->drdy_pin) == DRDY_ACTIVE_STATUS) {
-		wake_lock_timeout(&vfsspi_device->wake_lock, 100);
+		wake_lock_timeout(&vfsspi_device->wake_lock, 150);
 		vfsspi_sendDrdyNotify(vfsspi_device);
 	}
 
@@ -624,6 +624,12 @@ static long vfsspi_ioctl(struct file *filp, unsigned int cmd,
 			*((unsigned int *)arg) = 0;
 			ret_val = -EFAULT;
 		}
+		break;
+	}
+	case VFSSPI_IOCTL_FREE_SYSTEM_WAKE_LOCK:
+	{
+		printk("VFSSPI_IOCTL_FREE_SYSTEM_WAKE_LOCK\n");
+		wake_unlock(&vfsspi_device->wake_lock);
 		break;
 	}
 	default:

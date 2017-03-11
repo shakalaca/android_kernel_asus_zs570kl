@@ -15,6 +15,9 @@
 #include <linux/types.h>                                                        // Kernel datatypes
 #include <linux/errno.h>                                                        // EINVAL, ERANGE, etc
 #include <linux/of_device.h>                                                    // Device tree functionality
+#include <linux/usb/typec.h>
+#include <linux/usb/class-dual-role.h>
+#include <linux/completion.h>
 
 /* Driver-specific includes */
 #include "fusb30x_global.h"                                                     // Driver-specific structures/types
@@ -23,6 +26,8 @@
 #include "../core/fusb30X.h"
 
 #include "../core/PD_Types.h"
+
+static enum typec_attached_state fusb302_attatched_state_detect(void);
 
 /* ASUS_BSP : For GPIO/adb(proc file)/log in FUSB302 +++ */
 	/* include for proc file/kernel log */
@@ -664,6 +669,335 @@ void fusb302_update_sink_capabilities(unsigned int * PDSinkCaps)
         isVBUSOverVoltage(VBUS_MDAC_15P96);		// this will trigger INT_N so that isr will run
 }
 EXPORT_SYMBOL(fusb302_update_sink_capabilities);
+/* ASUS_BSP : power supply mode file operations +++ */
+ /* Callback for "cat /sys/class/dual_role_usb/otg_default/<property>" */
+static int fusb302_dual_role_get_local_prop(struct dual_role_phy_instance *dual_role,
+					    enum dual_role_property prop,
+					    unsigned int *val)
+{
+	struct fusb30x_chip* chip = dual_role_get_drvdata(dual_role);
+	enum typec_attached_state attached_state;
+
+	if (!chip)
+	return -EINVAL;
+
+	attached_state = fusb302_attatched_state_detect();
+
+	/* TODO.
+	 * Should we need to have modification if we are full PD capability? */
+	if (attached_state == TYPEC_ATTACHED_AS_DFP) {
+		if (prop == DUAL_ROLE_PROP_MODE)
+			*val = DUAL_ROLE_PROP_MODE_DFP;
+		else if (prop == DUAL_ROLE_PROP_PR)
+			*val = DUAL_ROLE_PROP_PR_SRC;
+		else if (prop == DUAL_ROLE_PROP_DR)
+			*val = DUAL_ROLE_PROP_DR_HOST;
+		else
+			return -EINVAL;
+	} else if (attached_state == TYPEC_ATTACHED_AS_UFP) {
+		if (prop == DUAL_ROLE_PROP_MODE)
+			*val = DUAL_ROLE_PROP_MODE_UFP;
+		else if (prop == DUAL_ROLE_PROP_PR)
+			*val = DUAL_ROLE_PROP_PR_SNK;
+		else if (prop == DUAL_ROLE_PROP_DR)
+			*val = DUAL_ROLE_PROP_DR_DEVICE;
+		else
+			return -EINVAL;
+	} else {
+		if (prop == DUAL_ROLE_PROP_MODE)
+			*val = DUAL_ROLE_PROP_MODE_NONE;
+		else if (prop == DUAL_ROLE_PROP_PR)
+			*val = DUAL_ROLE_PROP_PR_NONE;
+		else if (prop == DUAL_ROLE_PROP_DR)
+			*val = DUAL_ROLE_PROP_DR_NONE;
+		else
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+/* 1. Check to see if current attached_state is same as requested state
+ * if yes, then, return.
+ * 2. Disonect current session
+ * 3. Set approrpriate mode (dfp or ufp)
+ * 4. wait for 1.5 secs to see if we get into the corresponding target state
+ * if yes, return
+ * 5. if not, fallback to Try.SNK
+ * 6. wait for 1.5 secs to see if we get into one of the attached states
+ * 7. return -EIO
+ * Also we have to fallback to Try.SNK state machine on cable disconnect
+ *
+ * Callback for "echo <value> > /sys/class/dual_role_usb/otg_default/<property>"
+ *    'prop' may be one of 'mode', 'data_role', 'power_role'
+ *          DUAL_ROLE_PROP_MODE: 'val' could be
+ *               0: DUAL_ROLE_PROP_MODE_UFP
+ *               1: DUAL_ROLE_PROP_MODE_DFP
+ *               2: DUAL_ROLE_PROP_MODE_NONE
+ *               3: DUAL_ROLE_PROP_MODE_TOTAL (invalid)
+ *
+ *          DUAL_ROLE_PROP_PR: 'val' could be
+ *               0: DUAL_ROLE_PROP_PR_SRC
+ *               1: DUAL_ROLE_PROP_PR_SNK
+ *               2: DUAL_ROLE_PROP_PR_NONE
+ *               3: DUAL_ROLE_PROP_PR_TOTAL (invalid)
+ *
+ *          DUAL_ROLE_PROP_DR: 'val' could be
+ *               0: DUAL_ROLE_PROP_DR_HOST
+ *               1: DUAL_ROLE_PROP_DR_DEVICE
+ *               2: DUAL_ROLE_PROP_DR_NONE
+ *               3: DUAL_ROLE_PROP_DR_TOTAL (invalid)
+ */
+#define DUAL_ROLE_SET_MODE_WAIT_MS 3000
+static int fusb302_dual_role_set_mode_prop(struct dual_role_phy_instance *dual_role,
+				   enum dual_role_property prop,
+				   const unsigned int *val)
+{
+	struct fusb30x_chip* chip = dual_role_get_drvdata(dual_role);
+	enum typec_attached_state attached_state = TYPEC_NOT_ATTACHED;
+	int timeout = 0;
+	int ret = 0;
+
+	if (!chip)
+		return -EINVAL;
+
+	if (prop != DUAL_ROLE_PROP_MODE) {
+		pr_err("unsupport prop setter - prop:%d with value:%d\n", prop, *val);
+		return -EINVAL;
+	}
+	if (*val != DUAL_ROLE_PROP_MODE_DFP && *val != DUAL_ROLE_PROP_MODE_UFP)
+		return -EINVAL;
+
+	attached_state = fusb302_attatched_state_detect();
+
+	if (attached_state != TYPEC_ATTACHED_AS_DFP
+	    && attached_state != TYPEC_ATTACHED_AS_UFP)
+		return 0;	/* NOP if attached state is unattached or accessory */
+
+	if (attached_state == TYPEC_ATTACHED_AS_DFP
+	    && *val == DUAL_ROLE_PROP_MODE_DFP)
+		return 0;	/* ignore due to current attached_state is same as requested state */
+
+	if (attached_state == TYPEC_ATTACHED_AS_UFP
+	    && *val == DUAL_ROLE_PROP_MODE_UFP)
+		return 0;	/* ignore due to current attached_state is same as requested state */
+
+	pr_info("%s: start\n", __func__);
+
+	/* AS DFP now, try reversing, form Source to Sink */
+	if (attached_state == TYPEC_ATTACHED_AS_DFP) {
+
+		pr_err("%s: try reversing, form Source to Sink\n", __func__);
+		fusb_enable(false, FUSB_EN_F_HOST_IRQ|FUSB_EN_F_MASK_IRQ|FUSB_EN_F_SM,
+			    TYPEC_MODE_ACCORDING_TO_PROT);
+		//fusb_vbus_off();
+		power_supply_set_usb_otg(usb_psy,0);
+		power_supply_set_usb_otg(usb_parallel_psy,0);
+		fusb_disabled_state_enter();
+		chip->reverse_state = REVERSE_ATTEMPT;
+		fusb_enable(true, FUSB_EN_F_ALL, TYPEC_UFP_MODE);
+	}
+	/* AS UFP now, try reversing, form Source to Sink */
+	else if (attached_state == TYPEC_ATTACHED_AS_UFP) {
+
+		pr_err("%s: try reversing, form Sink to Source\n", __func__);
+		fusb_enable(false, FUSB_EN_F_HOST_IRQ|FUSB_EN_F_MASK_IRQ|FUSB_EN_F_SM,
+			    TYPEC_MODE_ACCORDING_TO_PROT);
+		//fusb_vbus_off();
+		power_supply_set_usb_otg(usb_psy,0);
+		power_supply_set_usb_otg(usb_parallel_psy,0);
+		fusb_disabled_state_enter();
+		chip->reverse_state = REVERSE_ATTEMPT;
+		fusb_enable(true, FUSB_EN_F_ALL, TYPEC_DFP_MODE);
+	} else {
+		pr_err("%s: attached state is not ether ATTACHED_AS_DFP or ATTACHED_AS_UFP, but got %d\n",
+		       __func__, attached_state);
+	}
+
+	INIT_COMPLETION(chip->reverse_completion);
+	timeout =
+	    wait_for_completion_timeout(&chip->reverse_completion,
+					msecs_to_jiffies
+					(DUAL_ROLE_SET_MODE_WAIT_MS));
+	if (!timeout) {
+		/* If falling back to here, disable everything and reinitialie them within DRP */
+		fusb_enable(false, FUSB_EN_F_HOST_IRQ|FUSB_EN_F_MASK_IRQ|FUSB_EN_F_SM,
+			    TYPEC_MODE_ACCORDING_TO_PROT);
+		pr_err("%s: reverse failed, set mode to DRP\n", __func__);
+		chip->reverse_state = 0;
+		fusb_reinitialize(TYPEC_DRP_MODE); /* to DRP mode */
+		INIT_COMPLETION(chip->reverse_completion);
+		wait_for_completion_timeout(&chip->reverse_completion,
+					    msecs_to_jiffies
+					    (DUAL_ROLE_SET_MODE_WAIT_MS));
+
+		ret = -EIO;
+	}
+        else {
+                /* reverse complete, set DRP mode */
+                fusb_revert_to_drp_mode();
+        }
+	pr_err("%s: end ret = %d\n", __func__, ret);
+
+	return ret;
+}
+
+/* Callback for "echo <value> >
+ *                      /sys/class/dual_role_usb/<name>/<property>"
+ * Block until the entire final state is reached.
+ * Blocking is one of the better ways to signal when the operation
+ * is done.
+ * This function tries to switch to Attached.SRC or Attached.SNK
+ * by forcing the mode into SRC or SNK.
+ * On failure, we fall back to Try.SNK state machine.
+ */
+static int fusb302_dual_role_set_prop(struct dual_role_phy_instance *dual_role,
+				      enum dual_role_property prop,
+				      const unsigned int *val)
+{
+	if (prop == DUAL_ROLE_PROP_MODE)
+		return fusb302_dual_role_set_mode_prop(dual_role, prop, val);
+	else
+		/* TODO.
+		 * Implement PR_swap and DR_swap here. */
+		return -EINVAL;
+}
+ 
+static enum dual_role_property fusb302_drp_properties[] = {
+	DUAL_ROLE_PROP_MODE,
+	DUAL_ROLE_PROP_PR,
+	DUAL_ROLE_PROP_DR,
+};
+
+/* Decides whether userspace can change a specific property */
+static int fusb302_dual_role_is_writeable(struct dual_role_phy_instance *drp,
+					  enum dual_role_property prop)
+{
+	/* TODO.
+	 * MODE switch only. Because DP is under developing */
+	if (prop == DUAL_ROLE_PROP_MODE)
+		return 1;
+	else
+		return 0;
+}
+
+static enum typec_current_mode fusb302_current_mode_detect(void)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	return TYPEC_CURRENT_MODE_DEFAULT;
+}
+
+static enum typec_attached_state fusb302_attatched_state_detect(void)
+{
+	return fusb_get_connecting_state();
+}
+
+static enum typec_current_mode fusb302_current_advertise_get(void)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	return TYPEC_CURRENT_MODE_DEFAULT;
+}
+
+static int fusb302_current_advertise_set(enum typec_current_mode current_mode)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	return 0;
+}
+/* call from 'cat /sys/class/typec/typec_device/port_mode_ctrl'
+ * Besides BSP/ATD tools, no one will access it. */
+static enum typec_port_mode fusb302_port_mode_get(void)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	return TYPEC_MODE_ACCORDING_TO_PROT;
+}
+/* call from 'echo 0|1|2|3 > /sys/class/typec/typec_device/port_mode_ctrl'
+ *  0: TYPEC_MODE_ACCORDING_TO_PROT
+ *  1: TYPEC_UFP_MODE
+ *  2: TYPEC_DFP_MODE
+ *  3: TYPEC_DRP_MODE
+ * Besides BSP/ATD tools, no one will access it.
+ * */
+static int fusb302_port_mode_set(enum typec_port_mode port_mode)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+return 0;
+}
+/* call from 'cat > /sys/class/typec/typec_device/dump_regs'
+ * Besides BSP/ATD tools, no one will access it.
+ * */
+static ssize_t fusb302_dump_regs(char *buf)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	return 0;
+}
+/* call from 'cat > /sys/class/typec/typec_device/i2c_status'
+ * Besides BSP/ATD tools, no one will access it.
+ * */
+//static ssize_t fusb302_i2c_status(char *buf)
+static bool fusb302_i2c_status(void)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	//return 0;
+        return false;
+}
+/* call from 'cat > /sys/class/typec/typec_device/cc_status'
+ * Besides BSP/ATD tools, no one will access it.
+ * */
+//static ssize_t fusb302_cc_status(char *buf)
+static int fusb302_cc_status(void)
+{
+	WARN(1, "unimplement foo - %s\n", __func__);
+	return 0;
+}
+
+struct typec_device_ops fusb302_typec_ops = {
+	.current_detect = fusb302_current_mode_detect,
+	.attached_state_detect = fusb302_attatched_state_detect,
+	.current_advertise_get = fusb302_current_advertise_get,
+	.current_advertise_set = fusb302_current_advertise_set,
+	.port_mode_get = fusb302_port_mode_get,
+	.port_mode_set = fusb302_port_mode_set,
+	.dump_regs = fusb302_dump_regs,
+	.i2c_status = fusb302_i2c_status,
+	.cc_status = fusb302_cc_status,
+};
+
+void register_typec_device(struct fusb30x_chip* chip)
+{
+	int ret = 0;
+	struct dual_role_phy_desc *desc;
+	struct dual_role_phy_instance *dual_role;
+
+	chip->dev = &chip->client->dev;
+
+	if (IS_ENABLED(CONFIG_DUAL_ROLE_USB_INTF)) {
+		desc = devm_kzalloc(chip->dev, sizeof(struct dual_role_phy_desc),
+				    GFP_KERNEL);
+		if (!desc) {
+			pr_err("unable to allocate dual role descriptor\n");
+		return;
+		}
+
+		desc->name = "otg_default";
+		desc->supported_modes = DUAL_ROLE_SUPPORTED_MODES_DFP_AND_UFP;
+		desc->get_property = fusb302_dual_role_get_local_prop;
+		desc->set_property = fusb302_dual_role_set_prop;
+		desc->properties = fusb302_drp_properties;
+		desc->num_properties = ARRAY_SIZE(fusb302_drp_properties);
+		desc->property_is_writeable = fusb302_dual_role_is_writeable;
+		dual_role =
+		    devm_dual_role_instance_register(chip->dev, desc);
+		dual_role->drv_data = chip;
+		chip->dual_role = dual_role;
+		chip->desc = desc;
+	}
+
+	ret = add_typec_device(chip->dev, &fusb302_typec_ops);
+	if (ret < 0) {
+		pr_err("%s: add_typec_device fail\n", __func__);
+	}
+}
+/* ASUS_BSP : power supply mode file --- */
 /* ASUS_BSP : apply device tree setting --- pull up interrupt pin(58) +++ */
 static void set_pinctrl(struct device *dev)
 {
@@ -783,6 +1117,8 @@ static int fusb30x_probe (struct i2c_client* client,
     i2c_set_clientdata(client, chip);
     pr_debug("FUSB  %s - I2C client data set!\n", __func__);
 
+	init_completion(&chip->reverse_completion);
+	
     /* Verify that our device exists and that it's what we expect */
     if (!fusb_IsDeviceValid())
     {
@@ -834,7 +1170,7 @@ static int fusb30x_probe (struct i2c_client* client,
     fusb_ScheduleWork();
     pr_debug("FUSB  %s - Workers initialized and scheduled!\n", __func__);
 #endif  // ifdef FSC_POLLING elif FSC_INTERRUPT_TRIGGERED
-
+	register_typec_device(chip);
     dev_info(&client->dev, "FUSB  %s - FUSB30X Driver loaded successfully!\n", __func__);
 
         /* ASUS_BSP : make sure interrupt GPIO value after intilization +++ */

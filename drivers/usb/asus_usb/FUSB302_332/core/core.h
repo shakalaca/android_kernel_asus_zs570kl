@@ -6,11 +6,13 @@
 #ifndef _FSC_CORE_H
 #define	_FSC_CORE_H
 
+#include "TypeC_Types.h"
 #include "platform.h"
 
 extern SourceOrSink sourceOrSink;
 
-void core_initialize(void);
+//void core_initialize(void);
+void core_initialize(USBTypeCPort portype);
 void core_state_machine(void);
 void core_tick(void);
 void core_enable_typec(FSC_BOOL enable);
@@ -80,6 +82,11 @@ FSC_U8 core_get_cc_orientation(void);
 
 
 #endif // FSC_DEBUG
+
+ConnectionState core_get_connecting_state(void);
+FSC_BOOL core_mask_irq(FSC_BOOL mask);
+FSC_BOOL core_enable_statemachine(FSC_BOOL enable);
+FSC_BOOL core_rd_rp_disable(void);
 
 #endif	/* _FSC_CORE_H */
 

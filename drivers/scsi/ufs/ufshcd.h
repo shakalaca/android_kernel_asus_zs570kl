@@ -716,6 +716,9 @@ struct ufs_hba {
 	struct device_attribute spm_lvl_attr;
 	struct device_attribute total_size_attr;
 	struct device_attribute ufs_total_size_attr;
+	struct device_attribute ufs_manfid_attr;
+	struct device_attribute ufs_health_attr;
+	struct device_attribute ufs_spec_ver_attr;
 	int pm_op_in_progress;
 
 	struct ufshcd_lrb *lrb;
@@ -729,6 +732,10 @@ struct ufs_hba {
 	int nutmrs;
 	u32 ufs_version;
 	u32 ufs_spec_version;
+	u32 ufs_manfid;
+	u16 ufs_health_info;
+	u16 ufs_health_time_est_A;
+	u16 ufs_health_time_est_B;
 	struct ufs_hba_variant *var;
 	void *priv;
 	unsigned int irq;

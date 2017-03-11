@@ -168,10 +168,23 @@ void InitializeRegisters(void)
  * Return:          None
  * Description:     Initializes the TypeC state machine variables
  ******************************************************************************/
-void InitializeTypeCVariables(void)
+//void InitializeTypeCVariables(void)
+void InitializeTypeCVariables(USBTypeCPort prefer_portype)
 {
     InitializeRegisters();              // Copy 302 registers to register struct
-    
+
+    /* port type is specified */
+    if (prefer_portype == USBTypeC_DRP)
+	    Registers.Control.MODE = 0b01;
+    else if(prefer_portype == USBTypeC_Sink)
+	    Registers.Control.MODE = 0b10;
+    else if (prefer_portype == USBTypeC_Source)
+	    Registers.Control.MODE = 0b11;
+    DeviceWrite(regControl2, 1, &Registers.Control.byte[2]);	
+
+    Registers.Measure.MEAS_VBUS = 0;                                            // clear MEAS_VBUS to ensure
+                                                                                // we are starting with MEAS_VBUS = 0
+ 
     Registers.Mask.byte = 0xFF;                                                 // Mask all before global unmask
     DeviceWrite(regMask, 1, &Registers.Mask.byte);
     Registers.MaskAdv.byte[0] = 0xFF;
@@ -191,7 +204,7 @@ void InitializeTypeCVariables(void)
 //    Registers.Switches.SPECREV = 0b10;                                          // Set Spec Rev to v3.0
 //    DeviceWrite(regSwitches1, 1, &Registers.Switches.byte[1]);
     
-    SourceCurrent = utcc1p5A;            // Set 1.5A host current
+    SourceCurrent = utccDefault;            // Set 0.5A host current
     updateSourceCurrent();
     
     blnSMEnabled = FALSE;                // Enable the TypeC state machine by default
@@ -217,15 +230,52 @@ void InitializeTypeCVariables(void)
 //    g_Force_Exit = FALSE;
     g_I2C_Fail = FALSE;
     
-
+// Try setting this based on 302 config
+    PortType = USBTypeC_UNDEFINED;
+ 
+    switch (Registers.Control.MODE)
+    {
+        case 0b10:
+#ifdef FSC_HAVE_SNK
+            PortType = USBTypeC_Sink;
+#endif // FSC_HAVE_SNK
+            break;
+        case 0b11:
+#ifdef FSC_HAVE_SRC
+            PortType = USBTypeC_Source;
+#endif // FSC_HAVE_SRC
+            break;
+        case 0b01:
 #ifdef FSC_HAVE_DRP
             PortType = USBTypeC_DRP;
-#elif FSC_HAVE_SRC
-        PortType = USBTypeC_Source;
-#elif FSC_HAVE_SNK
-    PortType = USBTypeC_Sink;
-#endif // FSC_HAVE_DRP / FSC_HAVE_SRC / FSC_HAVE_SNK
-    
+//#elif FSC_HAVE_SRC
+//        PortType = USBTypeC_Source;
+//#elif FSC_HAVE_SNK
+//    PortType = USBTypeC_Sink;
+//#endif // FSC_HAVE_DRP / FSC_HAVE_SRC / FSC_HAVE_SNK
+#endif // FSC_HAVE_DRP
+            break;
+        default:
+#ifdef FSC_HAVE_DRP
+            PortType = USBTypeC_DRP;
+#endif // FSC_HAVE_DRP
+            break;
+    }
+
+// If the setting isn't supported... One of these has to work.
+// Note that this gives an implicit priority of SNK->SRC->DRP.
+    if( PortType == USBTypeC_UNDEFINED )
+    {
+        #ifdef FSC_HAVE_SNK
+            PortType = USBTypeC_Sink;
+        #endif // FSC_HAVE_SNK
+        #ifdef FSC_HAVE_SRC
+            PortType = USBTypeC_Source;
+        #endif // FSC_HAVE_SRC
+        #ifdef FSC_HAVE_DRP
+            PortType = USBTypeC_DRP;
+        #endif // FSC_HAVE_DRP
+    }    
 
     ConnState = Disabled;               // Initialize to the disabled state    
     blnCCPinIsCC1 = FALSE;              // Clear the flag to indicate CC1 is CC
@@ -273,6 +323,33 @@ void EnableTypeCStateMachine(void)
 #endif // FSC_DEBUG
 }
 
+static const char* connState_str(ConnectionState s)
+{
+        const char *state_str[]        = {
+                [Disabled]             = "Disabled",
+                [ErrorRecovery]        = "ErrorRecovery",
+                [Unattached]           = "Unattached",
+                [AttachWaitSink]       = "AttachWaitSink",
+                [AttachedSink]         = "AttachedSink",
+                [AttachWaitSource]     = "AttachWaitSource",
+                [AttachedSource]       = "AttachedSource",
+                [TrySource]            = "TrySource",
+                [TryWaitSink]          = "TryWaitSink",
+                [TrySink]              = "TrySink",
+                [TryWaitSource]        = "TryWaitSource",
+                [AudioAccessory]       = "AudioAccessory",
+                [DebugAccessorySource] = "DebugAccessorySource",
+                [DebugAccessorySink]   = "DebugAccessorySink",
+                [AttachWaitAccessory]  = "AttachWaitAccessory",
+                [PoweredAccessory]     = "PoweredAccessory",
+                [UnsupportedAccessory] = "UnsupportedAccessory",
+                [DelayUnattached]      = "DelayUnattached",
+                [UnattachedSource]     = "UnattachedSource",
+        };
+        //BUG_ON(s > UnattachedSource);
+        return state_str[s];
+}
+
 /*******************************************************************************
  * Function:        StateMachineTypeC
  * Input:           None
@@ -285,6 +362,7 @@ void EnableTypeCStateMachine(void)
  ******************************************************************************/
 void StateMachineTypeC(void)
 {
+	ConnectionState previous_state;
 #ifdef  FSC_INTERRUPT_TRIGGERED
 //	unsigned long timeout;
 //	timeout = jiffies + msecs_to_jiffies(20000); //20s
@@ -315,7 +393,7 @@ void StateMachineTypeC(void)
             
         }
 
-        
+        previous_state = ConnState;
         switch (ConnState)
         {
             case Disabled:
@@ -425,7 +503,11 @@ void StateMachineTypeC(void)
         }
         Registers.Status.Interrupt1 = 0;            // Clear the interrupt register once we've gone through the state machines
         Registers.Status.InterruptAdv = 0;          // Clear the advanced interrupt registers once we've gone through the state machines
-
+	if (ConnState != previous_state) {
+ 		pr_info("[USB] FUSB  %s ConnState changed: %s -> %s\n", __func__,
+ 			 connState_str(previous_state), connState_str(ConnState));
+		platform_notify_state_chaged(previous_state, ConnState);
+	}
 #ifdef  FSC_INTERRUPT_TRIGGERED
 //USB_FUSB302_331_INFO("%s --- Exiting Type-C State Machine! TCState: %d, CC1: %d, CC2: %d \n", __func__, ConnState, blnCCPinIsCC1 == TRUE ? 1 : 0, blnCCPinIsCC2 == TRUE ? 1 : 0);
 
@@ -2903,6 +2985,49 @@ void toggleCurrentSwap(void)
     {
         toggleCurrent = utccDefault;
     }
+}
+
+ConnectionState StateMachineGetConnectingState(void)
+{
+	/* TODO.
+	 * dealing concurrent access to 'ConnState' */
+	return ConnState;
+}
+
+FSC_BOOL typec_mask_irq(FSC_BOOL mask)
+{
+	pr_info("[USB] %s: %s irq\n", __func__, mask ? "mask" : "unmask");
+	Registers.Control.INT_MASK = mask ? 1 : 0;
+	return DeviceWrite(regControl0, 1, &Registers.Control.byte[0]);
+}
+
+FSC_BOOL typec_enable_statemachine(FSC_BOOL enable)
+{
+	pr_info("[USB] %s: %s statemachine\n", __func__, enable ? "enable" : "disable");
+
+	if (enable) {
+		EnableTypeCStateMachine();
+		platform_enable_timer(TRUE);
+	} else {
+		platform_enable_timer(FALSE);
+		DisableTypeCStateMachine();
+	}
+	return TRUE;
+}
+
+FSC_BOOL typec_rd_rp_disable(void)
+{
+	pr_info("[USB] %s\n", __func__);
+
+	Registers.Switches.byte[0] = 0;
+	return DeviceWrite(regSwitches0, 1, &Registers.Switches.byte[0]);
+}
+
+void typec_revert_to_drp_mode(void)
+{
+        Registers.Control.MODE = 0b01;
+        DeviceWrite(regControl2, 1, &Registers.Control.byte[2]);
+        PortType = USBTypeC_DRP;
 }
 
 #ifdef FSC_ILLEGAL_CABLE

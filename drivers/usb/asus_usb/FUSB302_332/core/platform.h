@@ -162,6 +162,8 @@ void platform_enable_timer(FSC_BOOL enable);
  ******************************************************************************/
 void platform_delay_10us(FSC_U32 delayCount);
 
+void platform_notify_state_chaged(ConnectionState previous_state, ConnectionState current_tate);
+
 /*******************************************************************************
 * Function:        platform_notify_cc_orientation
 * Input:           orientation - Orientation of CC (NONE, CC1, CC2)

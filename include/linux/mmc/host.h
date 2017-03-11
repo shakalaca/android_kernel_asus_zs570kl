@@ -344,6 +344,7 @@ struct mmc_host {
 	struct device		class_dev;
 	struct mmc_devfeq_clk_scaling	clk_scaling;
 	int			index;
+	int			cd_gpio;
 	const struct mmc_host_ops *ops;
 	const struct mmc_cmdq_host_ops *cmdq_ops;
 	unsigned int		f_min;

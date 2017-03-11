@@ -1393,6 +1393,7 @@ int mmc_attach_sd(struct mmc_host *host)
 	err = mmc_send_app_op_cond(host, 0, &ocr);
 	if (err)
 		return err;
+	pr_info("%s: mmc_attach_sd, SD card is attached\n", mmc_hostname(host));
 
 	mmc_attach_bus(host, &mmc_sd_ops);
 	if (host->ocr_avail_sd)

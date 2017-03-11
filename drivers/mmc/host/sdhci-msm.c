@@ -4255,6 +4255,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		 * configuring it as an IRQ. Otherwise, it can be in some
 		 * weird/inconsistent state resulting in flood of interrupts.
 		 */
+		host->mmc->cd_gpio = msm_host->pdata->status_gpio;
 		sdhci_msm_setup_pins(msm_host->pdata, true);
 
 		/*

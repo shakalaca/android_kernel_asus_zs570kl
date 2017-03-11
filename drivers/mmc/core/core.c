@@ -32,6 +32,7 @@
 #include <linux/of.h>
 #include <linux/pm.h>
 #include <linux/jiffies.h>
+#include <linux/of_gpio.h>
 
 #include <trace/events/mmc.h>
 
@@ -2801,7 +2802,8 @@ static void _mmc_detect_change(struct mmc_host *host, unsigned long delay,
 	WARN_ON(host->removed);
 	spin_unlock_irqrestore(&host->lock, flags);
 #endif
-
+	pr_info("%s: mmc_detect_change, SD card slot is %s\n",
+		mmc_hostname(host), gpio_get_value(host->cd_gpio) ? "non-present" : "present");
 	/*
 	 * If the device is configured as wakeup, we prevent a new sleep for
 	 * 5 s to give provision for user space to consume the event.

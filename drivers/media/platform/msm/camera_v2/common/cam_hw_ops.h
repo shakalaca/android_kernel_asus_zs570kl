@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+#ifndef __CAM_HW_OPS_H__
+#define __CAM_HW_OPS_H__
+
 enum cam_ahb_clk_vote {
 	/* need to update the voting requests
 	 * according to dtsi entries.
@@ -37,3 +40,4 @@ enum cam_ahb_clk_client {
 int cam_config_ahb_clk(struct device *dev, unsigned long freq,
 	enum cam_ahb_clk_client id, enum cam_ahb_clk_vote vote);
 int cam_ahb_clk_init(struct platform_device *pdev);
+#endif /* __CAM_HW_OPS_H__ */

@@ -209,6 +209,7 @@ struct fuse_file_lock {
 #define FOPEN_DIRECT_IO		(1 << 0)
 #define FOPEN_KEEP_CACHE	(1 << 1)
 #define FOPEN_NONSEEKABLE	(1 << 2)
+#define FOPEN_INTERNAL		(1 << 3)
 
 /**
  * INIT request/reply flags

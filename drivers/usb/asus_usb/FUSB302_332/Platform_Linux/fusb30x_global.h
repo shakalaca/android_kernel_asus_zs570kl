@@ -11,6 +11,7 @@
 
 #include <linux/i2c.h>                              // i2c_client, spinlock_t
 #include <linux/hrtimer.h>                          // hrtimer
+#include <linux/completion.h>
 #include "FSCTypes.h"                               // FUSB30x custom types
 #include <linux/gpio.h>		                    // Asus GPIO
 #include <linux/wakelock.h>                         // wake lock protection
@@ -86,6 +87,11 @@ struct fusb30x_chip                                 // Contains data required by
     /* Timers */
     struct hrtimer timer_state_machine;             // High-resolution timer for the state machine
     struct wake_lock fusb302_wakelock;              // wake lock protection
+	struct device *dev;
+	struct dual_role_phy_instance *dual_role;
+	struct dual_role_phy_desc *desc;
+	FSC_S32 reverse_state;
+	struct completion reverse_completion;
 };
 
 extern struct fusb30x_chip* g_chip;

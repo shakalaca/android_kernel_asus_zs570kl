@@ -86,7 +86,8 @@ extern FSC_BOOL                 mode_entered;
 void TypeCTick(void);
 
 void InitializeRegisters(void);
-void InitializeTypeCVariables(void);
+//void InitializeTypeCVariables(void);
+void InitializeTypeCVariables(USBTypeCPort prefer_portype);
 void InitializeTypeC(void);
 
 void DisableTypeCStateMachine(void);
@@ -261,6 +262,14 @@ void ProcessReadTypeCStateLog(FSC_U8* MsgBuffer, FSC_U8* retBuffer);
 void setAlternateModes(FSC_U8 mode);
 FSC_U8 getAlternateModes(void);
 #endif // FSC_DEBUG
+
+#define REVERSE_ATTEMPT 1
+#define REVERSE_COMPLETE 2
+ConnectionState StateMachineGetConnectingState(void);
+FSC_BOOL typec_mask_irq(FSC_BOOL mask);
+FSC_BOOL typec_enable_statemachine(FSC_BOOL enable);
+FSC_BOOL typec_rd_rp_disable(void);
+void typec_revert_to_drp_mode(void);
 
 void toggleCurrentSwap(void);
 

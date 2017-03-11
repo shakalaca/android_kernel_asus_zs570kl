@@ -43,15 +43,40 @@
 #include <asm/unaligned.h>
 
 
-#define FMDBG(fmt, args...) pr_debug("silabs_radio: " fmt, ##args)
-#define FMDERR(fmt, args...) pr_err("silabs_radio: " fmt, ##args)
+#define FMDBG(fmt, args...) pr_debug("si470x_radio: " fmt, ##args)
+#define FMDERR(fmt, args...) pr_err("si470x_radio: " fmt, ##args)
 
 #define FM_RDS_BUF 100
+#define RDS_TYPE_0A     (0 * 2 + 0)
+#define RDS_TYPE_0B     (0 * 2 + 1)
+#define RDS_TYPE_2A     (2 * 2 + 0)
+#define RDS_TYPE_2B     (2 * 2 + 1)
+#define RDS_TYPE_3A     (3 * 2 + 0)
 #define STD_BUF_SIZE               (256)
 
 #define TUNE_STEP_SIZE 10
 
 #define TUNE_PARAM 16
+
+#define OFFSET_OF_GRP_TYP 11
+
+#define NO_OF_RDS_BLKS 4
+#define MAX_RT_LEN 64
+#define END_OF_RT 0x0d
+#define MAX_PS_LEN 8
+#define OFFSET_OF_PS 5
+#define PS_VALIDATE_LIMIT 2
+#define RT_VALIDATE_LIMIT 2
+#define PS_EVT_DATA_LEN (MAX_PS_LEN + OFFSET_OF_PS)
+#define NO_OF_PS 1
+#define OFFSET_OF_RT 5
+#define OFFSET_OF_PTY 5
+#define MAX_LEN_2B_GRP_RT 32
+#define CNT_FOR_2A_GRP_RT 4
+#define CNT_FOR_2B_GRP_RT 2
+#define PS_MASK 0x3
+#define PTY_MASK 0x1F
+#define NO_OF_CHARS_IN_EACH_ADD 2
 
 /* Search direction */
 #define SRCH_DIR_UP                 (1)
@@ -354,6 +379,22 @@ struct si470x_device {
     int int_gpio;
     int irq;
 
+    u16 pi;
+    u8 pty;
+    u16 block[NO_OF_RDS_BLKS];
+	u8 rt_display[MAX_RT_LEN];   /* RT that will be displayed */
+	u8 rt_tmp0[MAX_RT_LEN]; /* high probability RT */
+	u8 rt_tmp1[MAX_RT_LEN]; /* low probability RT */
+	u8 rt_cnt[MAX_RT_LEN];  /* high probability RT's hit count */
+	u8 rt_flag;          /* A/B flag of RT */
+	bool valid_rt_flg;     /* validity of A/B flag */
+    u8 ps_display[MAX_PS_LEN];
+    u8 ps_tmp0[MAX_PS_LEN];
+    u8 ps_tmp1[MAX_PS_LEN];
+    u8 ps_cnt[MAX_PS_LEN];
+
+	bool is_af_tune_in_progress;
+
 	/* driver management */
 	atomic_t users;
 
@@ -466,4 +507,5 @@ void si470x_scan(struct work_struct *work);
 void si470x_fm_q_event(struct si470x_device *radio,
                        enum silabs_evt_t event);
 
+void reset_rds(struct si470x_device *radio);
 

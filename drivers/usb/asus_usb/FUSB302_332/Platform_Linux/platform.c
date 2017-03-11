@@ -7,6 +7,8 @@
 #include<linux/delay.h>
 /* for smbcharger */
 #include <linux/power_supply.h>
+
+extern SourceOrSink            sourceOrSink;       // Are we currently a source or a sink?
 /*******************************************************************************
 * Function:        platform_set/get_vbus_lvl_enable
 * Input:           VBUS_LVL - requested voltage
@@ -25,8 +27,11 @@ void platform_set_vbus_lvl_enable(VBUS_LVL level, FSC_BOOL blnEnable, FSC_BOOL b
     case VBUS_LVL_5V:
         // Enable/Disable the 5V Source
         fusb_GPIO_Set_VBus5v(blnEnable == TRUE ? true : false);
-        power_supply_set_usb_otg(usb_psy, blnEnable == TRUE ? 1 : 0);                                // Enable or Disable VBUS from pmic
-        power_supply_set_usb_otg(usb_parallel_psy, blnEnable == TRUE ? 1 : 0);                   // Enable or Disable VBUS from smb1351
+        if(sourceOrSink == SOURCE) // only OTG set VBUS property
+        {
+                power_supply_set_usb_otg(usb_psy, blnEnable == TRUE ? 1 : 0);                           // Enable or Disable VBUS from pmic
+                power_supply_set_usb_otg(usb_parallel_psy, blnEnable == TRUE ? 1 : 0);                  // Enable or Disable VBUS from smb1351
+        }
         break;
     case VBUS_LVL_12V:
         // Enable/Disable the 12V Source
@@ -256,7 +261,7 @@ EXPORT_SYMBOL(platform_fusb302_is_otg_present);
 ******************************************************************************/
 
 extern FSC_U16 core_get_advertised_current(void);
-extern SourceOrSink            sourceOrSink;       // Are we currently a source or a sink?
+//extern SourceOrSink            sourceOrSink;       // Are we currently a source or a sink?
 
 void platform_notify_cc_orientation(CC_ORIENTATION orientation)
 {
@@ -416,4 +421,15 @@ EXPORT_SYMBOL(platform_fusb302_report_attached_capabilities);
 void platform_notify_bist(FSC_BOOL bistEnabled)
 {
     /* if(bistEnabled) doSomething; */
+}
+
+/*******************************************************************************
+ * Function:        platform_notify_state_chaged
+ * Input:           ConnectionState previous_state, ConnectionState current_tate
+ * Return:          None
+ * Description:     Send event to framework
+ *******************************************************************************/
+void platform_notify_state_chaged(ConnectionState previous_state, ConnectionState current_tate)
+{
+        fusb_notify_state_chaged(previous_state, current_tate);
 }

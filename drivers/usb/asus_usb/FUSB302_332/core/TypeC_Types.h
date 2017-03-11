@@ -83,4 +83,15 @@ typedef enum {
     utcc3p0A
 } USBTypeCCurrent;
 
+enum {
+	EN_F_HOST_IRQ = 0,		/* enable or disable irq (host side) */
+	EN_F_MASK_IRQ,			/* mask or unmask irq (chip side) */
+	EN_F_SM				/* enable disable state machine includes workqueue */
+};
+
+#define FUSB_EN_F_HOST_IRQ (1 << EN_F_HOST_IRQ)
+#define FUSB_EN_F_MASK_IRQ (1 << EN_F_MASK_IRQ)
+#define FUSB_EN_F_SM (1 << EN_F_SM)
+#define FUSB_EN_F_ALL 0xff
+
 #endif // __FSC_TYPEC_TYPES_H__

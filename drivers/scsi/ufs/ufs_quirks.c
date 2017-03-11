@@ -53,7 +53,7 @@ static int ufs_get_device_info(struct ufs_hba *hba,
 	 */
 	card_data->wmanufacturerid = desc_buf[DEVICE_DESC_PARAM_MANF_ID] << 8 |
 				     desc_buf[DEVICE_DESC_PARAM_MANF_ID + 1];
-
+	hba->ufs_manfid = card_data->wmanufacturerid;
 	model_index = desc_buf[DEVICE_DESC_PARAM_PRDCT_NAME];
 	hba->ufs_spec_version = desc_buf[DEVICE_DESC_PARAM_SPEC_VER] << 8 |
 				     desc_buf[DEVICE_DESC_PARAM_SPEC_VER + 1];

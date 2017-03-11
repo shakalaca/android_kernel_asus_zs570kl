@@ -162,3 +162,8 @@ config POWER_RESET_SYSCON
 
 endif
 
+config USER_BUILD
+        bool "User build"
+        depends on POWER_RESET
+        help
+          ASUS User build config
