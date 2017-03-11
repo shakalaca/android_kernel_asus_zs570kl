@@ -1,0 +1,50 @@
+
+qcom,2407408_asus_taurus_2900mah_averaged_masterslave_may17th2016 {
+	/* #2407408_Asus_Taurus_2900mAh_averaged_MasterSlave_May17th2016*/
+	qcom,max-voltage-uv = <4380000>;
+	qcom,nom-batt-capacity-mah = <2900>;
+	qcom,batt-id-kohm = <10>;
+	qcom,battery-beta = <3435>;
+	qcom,battery-type = "2407408_asus_taurus_2900mah_averaged_masterslave_may17th2016";
+	qcom,chg-rslow-comp-c1 = <2571728>;
+	qcom,chg-rslow-comp-c2 = <2772866>;
+	qcom,chg-rs-to-rslow = <1454285>;
+	qcom,chg-rslow-comp-thr = <0x99>;
+	qcom,checksum = <0x22CC>;
+	qcom,gui-version = "PMI8996GUI - 1.1.0.0";
+	qcom,fg-profile-data = [
+		 8C 81 98 82 
+		 69 86 EA 79 
+		 27 83 F9 78 
+		 A5 85 A3 81 
+		 C6 81 08 A0 
+		 9D BF 32 D1 
+		 A8 0E 02 88 
+		 8B 7D 65 81 
+		 D7 77 7B 83 
+		 21 7C C1 8B 
+		 0F 96 38 82 
+		 08 99 21 B7 
+		 BF C2 58 15 
+		 06 0B 5A 59 
+		 91 6F 9A F9 
+		 12 44 BB 47 
+		 E2 42 00 00 
+		 3C 47 DE 2E 
+		 AF 39 00 00 
+		 00 00 00 00 
+		 00 00 00 00 
+		 9A 72 72 71 
+		 30 50 D4 81 
+		 0D 75 16 68 
+		 A2 40 6F 78 
+		 90 6F 81 60 
+		 19 74 D9 A2 
+		 24 66 63 92 
+		 64 A0 71 0C 
+		 28 00 FF 36 
+		 F0 11 30 03 
+		 00 00 00 0C 
+	];
+};
+
