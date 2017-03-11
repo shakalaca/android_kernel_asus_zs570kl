@@ -4688,7 +4688,10 @@ static void interrupt_mode_init(void)
 		thermal_monitor_init();
 		msm_thermal_add_cx_nodes();
 		msm_thermal_add_gfx_nodes();
-	}
+	} else { //restart event
+                pr_info("%s: Reset cpu limit freq", __func__);
+		disable_msm_thermal();
+        }
 }
 
 static int __ref set_enabled(const char *val, const struct kernel_param *kp)

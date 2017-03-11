@@ -151,7 +151,7 @@
 #define POLL_TIME_AUTO_RES_ERR_NS	(5 * NSEC_PER_MSEC)
 
 #define LRA_PEROID_MAX 0x365
-#define LRA_PEROID_MIN 0x320
+#define LRA_PEROID_MIN 0x300
 #define LRA_AUTO_RES_FIX_HI 0x30
 #define LRA_AUTO_RES_FIX_LO 0x41
 #define AUTO_RES_COUNT_MAX 10
@@ -1457,6 +1457,11 @@ static int qpnp_hap_auto_res_enable(struct qpnp_hap *hap, int enable)
 	return 0;
 }
 
+int cal_freq(int lra_auto_res)
+{
+	return 19200000/96/lra_auto_res;
+}
+
 static void update_lra_frequency(struct qpnp_hap *hap)
 {
 	u8 lra_auto_res_lo = 0, lra_auto_res_hi = 0;
@@ -1467,6 +1472,10 @@ static void update_lra_frequency(struct qpnp_hap *hap)
 				QPNP_HAP_LRA_AUTO_RES_HI(hap->base));
 
 	lra_auto_res = (lra_auto_res_hi << 4) + lra_auto_res_lo;
+
+	if(lra_auto_res > 0)
+		pr_info("hap update_lra_frequency lra_auto_res = %dHz\n", cal_freq(lra_auto_res));
+
 	if((lra_auto_res > LRA_PEROID_MAX) || (lra_auto_res < LRA_PEROID_MIN)) {
 		lra_auto_res_hi = LRA_AUTO_RES_FIX_HI;
 		lra_auto_res_lo = LRA_AUTO_RES_FIX_LO;
@@ -1479,9 +1488,9 @@ static void update_lra_frequency(struct qpnp_hap *hap)
 		lra_auto_res_avg = lra_auto_res_avg/lra_auto_res_avg_count;
 		lra_auto_res_hi = (lra_auto_res_avg >> 8) << 4;
 		lra_auto_res_lo = lra_auto_res_avg % 256;
+		pr_info("hap update_lra_frequency lra_auto_res_avg = %dHz, lra_auto_res_avg_count = %d\n", 
+			cal_freq(lra_auto_res_avg), lra_auto_res_avg_count);
 	}
-
-	pr_info("hap update_lra_frequency lra_auto_res_avg = 0x%x, lra_auto_res_avg_count = %d\n", lra_auto_res_avg, lra_auto_res_avg_count);
 
 	if (lra_auto_res_lo && lra_auto_res_hi) {
 		qpnp_hap_write_reg(hap, &lra_auto_res_lo,
