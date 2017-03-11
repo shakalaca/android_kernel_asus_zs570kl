@@ -4180,11 +4180,17 @@ static inline int mdss_mdp_resume_sub(struct mdss_data_type *mdata)
 	return 0;
 }
 
+extern int alstate;
 #ifdef CONFIG_PM_SLEEP
-int mdss_mdp_pm_suspend(struct device *dev)
+static int mdss_mdp_pm_suspend(struct device *dev)
 {
 	struct mdss_data_type *mdata;
-
+	if(alstate) {
+		printk(KERN_EMERG"[DEBUG]%s Skip\n",__func__);
+                return 0;
+	}else{
+		printk(KERN_EMERG"[DEBUG]%s\n",__func__);
+	}
 	mdata = dev_get_drvdata(dev);
 	if (!mdata)
 		return -ENODEV;
@@ -4194,9 +4200,15 @@ int mdss_mdp_pm_suspend(struct device *dev)
 	return mdss_mdp_suspend_sub(mdata);
 }
 
-int mdss_mdp_pm_resume(struct device *dev)
+static int mdss_mdp_pm_resume(struct device *dev)
 {
 	struct mdss_data_type *mdata;
+	if(alstate) {
+		printk(KERN_EMERG"[DEBUG]%s Skip\n",__func__);
+                return 0;
+	}else{
+		printk(KERN_EMERG"[DEBUG]%s\n",__func__);
+	}
 
 	mdata = dev_get_drvdata(dev);
 	if (!mdata)
@@ -4300,7 +4312,7 @@ static int mdss_mdp_runtime_suspend(struct device *dev)
 #endif
 
 static const struct dev_pm_ops mdss_mdp_pm_ops = {
-//	SET_SYSTEM_SLEEP_PM_OPS(mdss_mdp_pm_suspend, mdss_mdp_pm_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(mdss_mdp_pm_suspend, mdss_mdp_pm_resume)
 	SET_RUNTIME_PM_OPS(mdss_mdp_runtime_suspend,
 			mdss_mdp_runtime_resume,
 			mdss_mdp_runtime_idle)

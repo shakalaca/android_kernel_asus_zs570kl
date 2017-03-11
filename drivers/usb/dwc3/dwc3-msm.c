@@ -2173,6 +2173,7 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
  */
 static void dwc3_ext_event_notify(struct dwc3_msm *mdwc)
 {
+        printk(KERN_EMERG "[USB] %s - start\n",__func__);
 	/* Flush processing any pending events before handling new ones */
 	if (mdwc->init)
 		flush_delayed_work(&mdwc->sm_work);
@@ -2210,6 +2211,7 @@ static void dwc3_ext_event_notify(struct dwc3_msm *mdwc)
 
 		complete(&mdwc->dwc3_xcvr_vbus_init);
 		dev_dbg(mdwc->dev, "XCVR: BSV init complete\n");
+                printk(KERN_EMERG "[USB] %s - return event\n",__func__);
 		return;
 	}
 
@@ -2223,6 +2225,7 @@ static void dwc3_resume_work(struct work_struct *w)
 							resume_work.work);
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 
+        printk(KERN_EMERG "[USB] %s - start\n",__func__);
 	dev_dbg(mdwc->dev, "%s: dwc3 resume work\n", __func__);
 
 	/*
@@ -2233,11 +2236,13 @@ static void dwc3_resume_work(struct work_struct *w)
 	 * only in case of power event irq in lpm.
 	 */
 	if (mdwc->resume_pending) {
+                printk(KERN_EMERG "[USB] %s - resume_pending = %d\n",__func__,mdwc->resume_pending);
 		dwc3_msm_resume(mdwc);
 		mdwc->resume_pending = false;
 	}
 
 	if (atomic_read(&mdwc->pm_suspended)) {
+                printk(KERN_EMERG "[USB] %s - return event\n",__func__);
 		dbg_event(0xFF, "RWrk PMSus", 0);
 		/* let pm resume kick in resume work later */
 		return;
@@ -2389,15 +2394,21 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 								usb_psy);
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 	int ret;
+        int resume_wq;
 
+        printk(KERN_EMERG "[USB] %s - start , psp = %d\n",__func__,psp);
 	switch (psp) {
 	case POWER_SUPPLY_PROP_USB_OTG:
 		/* Let OTG know about ID detection */
 		mdwc->id_state = val->intval ? DWC3_ID_GROUND : DWC3_ID_FLOAT;
 		dbg_event(0xFF, "id_state", mdwc->id_state);
+                printk(KERN_EMERG "[USB] %s - POWER_SUPPLY_PROP_USB_OTG , id_state = %d , is_drd = %d\n",__func__,mdwc->id_state,dwc->is_drd);
 		if (dwc->is_drd)
-			queue_delayed_work(mdwc->dwc3_wq,
+                {
+			resume_wq = queue_delayed_work(mdwc->dwc3_wq,
 					&mdwc->resume_work, 0);
+                        printk(KERN_EMERG "[USB] %s - resume_wq = %d\n",__func__,resume_wq);
+                }
 		break;
 	/* PMIC notification for DP_DM state */
 	case POWER_SUPPLY_PROP_DP_DM:
@@ -3481,6 +3492,8 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	unsigned long delay = 0;
 	const char *state;
 
+        printk(KERN_EMERG "[USB] %s - start\n",__func__);
+
 	if (mdwc->dwc3)
 		dwc = platform_get_drvdata(mdwc->dwc3);
 
@@ -3493,9 +3506,12 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	dev_dbg(mdwc->dev, "%s state\n", state);
 	dbg_event(0xFF, state, 0);
 
+        printk(KERN_EMERG "[USB] %s - otg_state = %d\n",__func__,mdwc->otg_state);
+
 	/* Check OTG state */
 	switch (mdwc->otg_state) {
 	case OTG_STATE_UNDEFINED:
+                printk(KERN_EMERG "[USB] %s - OTG_STATE_UNDEFINED\n",__func__);
 		dwc3_init_sm(mdwc);
 		if (!test_bit(ID, &mdwc->inputs)) {
 			dbg_event(0xFF, "undef_host", 0);
@@ -3565,7 +3581,8 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		break;
 
 	case OTG_STATE_B_IDLE:
-		if (!test_bit(ID, &mdwc->inputs)) {
+                printk(KERN_EMERG "[USB] %s - OTG_STATE_B_IDLE\n",__func__);
+                if (!test_bit(ID, &mdwc->inputs)) {
 			dev_dbg(mdwc->dev, "!id\n");
 			mdwc->otg_state = OTG_STATE_A_IDLE;
 			work = 1;
@@ -3609,6 +3626,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		break;
 
 	case OTG_STATE_B_PERIPHERAL:
+                printk(KERN_EMERG "[USB] %s - OTG_STATE_B_PERIPHERAL\n",__func__);
 		if (!test_bit(B_SESS_VLD, &mdwc->inputs) ||
 				!test_bit(ID, &mdwc->inputs)) {
 			dev_dbg(mdwc->dev, "!id || !bsv\n");
@@ -3643,6 +3661,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		break;
 
 	case OTG_STATE_B_SUSPEND:
+                printk(KERN_EMERG "[USB] %s - OTG_STATE_B_SUSPEND\n",__func__);
 		if (!test_bit(B_SESS_VLD, &mdwc->inputs)) {
 			dev_dbg(mdwc->dev, "BSUSP: !bsv\n");
 			mdwc->otg_state = OTG_STATE_B_IDLE;
@@ -3663,6 +3682,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		break;
 
 	case OTG_STATE_A_IDLE:
+                printk(KERN_EMERG "[USB] %s - OTG_STATE_A_IDLE\n",__func__);
 		/* Switch to A-Device*/
 		if (test_bit(ID, &mdwc->inputs)) {
 			dev_dbg(mdwc->dev, "id\n");
@@ -3692,6 +3712,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		break;
 
 	case OTG_STATE_A_HOST:
+                printk(KERN_EMERG "[USB] %s - OTG_STATE_A_HOST\n",__func__);
 		if (test_bit(ID, &mdwc->inputs)) {
 			dev_dbg(mdwc->dev, "id\n");
 			dwc3_otg_start_host(mdwc, 0);
@@ -3707,6 +3728,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		break;
 
 	default:
+                printk(KERN_EMERG "[USB] %s - invalid otg-state\n",__func__);
 		dev_err(mdwc->dev, "%s: invalid otg-state\n", __func__);
 
 	}

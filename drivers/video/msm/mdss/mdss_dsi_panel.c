@@ -26,6 +26,7 @@
 #include <linux/seq_file.h>
 #include <asm/uaccess.h>
 
+#include "mdss_fb.h"
 #include "mdss_dsi.h"
 #include "mdss_dba_utils.h"
 #define DT_CMD_HDR 6
@@ -38,6 +39,8 @@ DEFINE_LED_TRIGGER(bl_led_trigger);
 void read_tcon_cabc(int panel_reg, char *rbuf);
 
 extern struct mdss_panel_data *g_mdss_pdata;
+extern struct msm_fb_data_type *g_mfd;
+
 static struct dsi_panel_cmds alpm_on_cmd;
 static struct dsi_panel_cmds alpm_off_cmd;
 static struct dsi_panel_cmds alpm_on10_cmd;
@@ -285,6 +288,7 @@ void read_tcon_cabc(int panel_reg, char *rbuf)
 	}
 }
 EXPORT_SYMBOL(read_tcon_cabc);
+
 int set_tcon_cabc(int panel_reg, char mode)
 {
     struct dcs_cmd_req cmdreq;
@@ -316,6 +320,7 @@ int set_tcon_cabc(int panel_reg, char mode)
 			mutex_unlock(&cmd_mutex);
 			break;
 		case ALPM:
+			mutex_lock(&g_mfd->update.lock);
 			if (mode == 4)
 				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_change10_cmd, CMD_REQ_COMMIT);
 			if (mode == 3)
@@ -326,6 +331,7 @@ int set_tcon_cabc(int panel_reg, char mode)
 			    mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_on_cmd, CMD_REQ_COMMIT);
 			if (mode == 0)
 			    mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_off_cmd, CMD_REQ_COMMIT);
+			mutex_unlock(&g_mfd->update.lock);
 			break;
 		case HBM:
 			if (dsi_power_state == 0) {
@@ -334,6 +340,7 @@ int set_tcon_cabc(int panel_reg, char mode)
 				break;
 			}
 		    mutex_lock(&cmd_mutex);
+		    mutex_lock(&g_mfd->update.lock);
 			hbm_mode[1] = mode;
 		    if (g_mdss_pdata->panel_info.panel_power_state == MDSS_PANEL_POWER_ON) {
 		        printk("Write hbm mode = 0x%x\n", hbm_mode[1]);
@@ -349,6 +356,7 @@ int set_tcon_cabc(int panel_reg, char mode)
 		        printk("HBM Set Fail: mode=%d\n", mode);
 				ret = 1;
 		    }
+			mutex_unlock(&g_mfd->update.lock);
 			mutex_unlock(&cmd_mutex);
 			break;
 		default:;

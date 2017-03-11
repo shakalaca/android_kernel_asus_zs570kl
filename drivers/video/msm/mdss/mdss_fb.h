@@ -20,6 +20,7 @@
 #include <linux/types.h>
 #include <linux/notifier.h>
 #include <linux/leds.h>
+#include <linux/wakelock.h>
 
 #include "mdss_panel.h"
 #include "mdss_mdp_splash_logo.h"
@@ -56,7 +57,6 @@
 
 #define MDP_PP_AD_BL_LINEAR	0x0
 #define MDP_PP_AD_BL_LINEAR_INV	0x1
-#define MAX_LAYER_COUNT		0xC
 
 /**
  * enum mdp_notify_event - Different frame events to indicate frame update state
@@ -275,6 +275,7 @@ struct msm_fb_data_type {
 	int idle_time;
 	u32 idle_state;
 	struct delayed_work idle_notify_work;
+	struct delayed_work pm_resume_delay_work;
 
 	bool validate_pending;
 
@@ -308,7 +309,8 @@ struct msm_fb_data_type {
 	u32 bl_level_scaled;
 	struct mutex bl_lock;
 	bool ipc_resume;
-
+	struct mutex resume_hold;
+	struct wake_lock wakelock;
 	struct platform_device *pdev;
 
 	u32 mdp_fb_page_protection;

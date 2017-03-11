@@ -25,6 +25,8 @@ extern FSC_BOOL blnCCPinIsCC2;
 //extern FSC_BOOL g_Force_Exit;
 extern FSC_BOOL g_I2C_Fail;
 
+extern FSC_BOOL g_Unattach_Fail;
+extern FSC_BOOL g_Illegal_Cable;
 
 extern FSC_U32          SinkRequestMaxVoltage;
 extern FSC_U32          SinkRequestMaxPower;
@@ -97,7 +99,7 @@ FSC_S32 fusb_InitializeGPIO(void)
     gpio_export_link(&chip->client->dev, FUSB_DT_GPIO_INTN, chip->gpio_IntN);
 #endif // FSC_DEBUG
 
-    pr_info("FUSB  %s - INT_N GPIO initialized as pin '%d'\n", __func__, chip->gpio_IntN);
+    USB_FUSB302_331_INFO("%s - INT_N GPIO initialized as pin '%d'\n", __func__, chip->gpio_IntN);
 
     /* ASUS_BSP : Request MUX/Re-Driver GPIO +++ */
     ret = gpio_request_array(fusb302_gpios, USB_ASUS_NUM_GPIOS); // Request gpios
@@ -142,7 +144,7 @@ FSC_S32 fusb_InitializeGPIO(void)
         }
         else
         {
-            pr_info("FUSB  %s - Debug GPIO initialized as pin '%d' and is set to '%d'\n", __func__, chip->dbg_gpio_StateMachine, chip->dbg_gpio_StateMachine_value ? 1 : 0);
+            USB_FUSB302_331_INFO("%s - Debug GPIO initialized as pin '%d' and is set to '%d'\n", __func__, chip->dbg_gpio_StateMachine, chip->dbg_gpio_StateMachine_value ? 1 : 0);
         }
 
         // Export to sysfs
@@ -180,7 +182,7 @@ void fusb_GPIO_Set_VBus5v(FSC_BOOL set)
         	gpio_set_value(chip->gpio_VBus5V, set ? 1 : 0);
     	}
     	chip->gpio_VBus5V_value = set;
-    	pr_debug("FUSB  %s - VBus 5V set to: %d\n", __func__, chip->gpio_VBus5V_value ? 1 : 0);
+    	USB_FUSB302_331_INFO("%s - VBus 5V set to: %d\n", __func__, chip->gpio_VBus5V_value ? 1 : 0);
 	}
 }
 
@@ -224,7 +226,7 @@ FSC_BOOL fusb_GPIO_Get_VBus5v(void)
 
     if (!gpio_is_valid(chip->gpio_VBus5V))
     {
-        pr_debug("FUSB  %s - Error: VBus 5V pin invalid! Pin value: %d\n", __func__, chip->gpio_VBus5V);
+        USB_FUSB302_331_INFO("%s - Error: VBus 5V pin invalid! Pin value: %d\n", __func__, chip->gpio_VBus5V);
     }
 */
     return chip->gpio_VBus5V_value;
@@ -551,7 +553,7 @@ FSC_BOOL fusb_I2C_WriteData(FSC_U8 address, FSC_U8 length, FSC_U8* data)
 	if (i == chip->numRetriesI2C)                                           // g_I2C_Fail after chip->numRetriesI2C fails
         {
             g_I2C_Fail = TRUE;
-            USB_FUSB302_331_INFO("I2C Read/Write Error : try max times(retry 3 times) for i2c read/write.\n");
+            USB_FUSB302_331_INFO("%s - I2C Read/Write Error : try max times(retry 3 times) for i2c read/write.\n", __func__);
             platform_delay_10us(I2C_RETRY_DELAY);
         }
     }
@@ -656,7 +658,7 @@ FSC_BOOL fusb_I2C_ReadData(FSC_U8 address, FSC_U8* data)
 	if (i == chip->numRetriesI2C)                                           // g_I2C_Fail after chip->numRetriesI2C fails
         {
             g_I2C_Fail = TRUE;
-            USB_FUSB302_331_INFO("I2C Read/Write Error : try max times(retry 3 times) for i2c read/write.\n");
+            USB_FUSB302_331_INFO("%s - I2C Read/Write Error : try max times(retry 3 times) for i2c read/write.\n", __func__);
             platform_delay_10us(I2C_RETRY_DELAY);
         }
     }
@@ -765,7 +767,7 @@ FSC_BOOL fusb_I2C_ReadBlockData(FSC_U8 address, FSC_U8 length, FSC_U8* data)
 	if (i == chip->numRetriesI2C)                                   // g_I2C_Fail after chip->numRetriesI2C fails
         {
             g_I2C_Fail = TRUE;
-            USB_FUSB302_331_INFO("I2C Read/Write Error : try max times(retry 3 times) for i2c read/write.\n");
+            USB_FUSB302_331_INFO("%s - I2C Read/Write Error : try max times(retry 3 times) for i2c read/write.\n", __func__);
             platform_delay_10us(I2C_RETRY_DELAY);
         }
     }
@@ -830,7 +832,7 @@ void fusb_InitializeTimer(void)
     hrtimer_init(&chip->timer_state_machine, CLOCK_MONOTONIC, HRTIMER_MODE_REL);            // Init the timer structure
     chip->timer_state_machine.function = _fusb_TimerHandler;                                // Assign the callback to call when time runs out
 
-    USB_FUSB302_331_INFO("FUSB  %s - Timer initialized!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Timer initialized!\n", __func__);
 }
 
 void fusb_StartTimers(void)
@@ -868,15 +870,15 @@ void fusb_StopTimers(void)
     if (hrtimer_active(&chip->timer_state_machine) != 0)
     {
         ret = hrtimer_cancel(&chip->timer_state_machine);
-        pr_debug("%s - Active state machine hrtimer canceled: %d\n", __func__, ret);
+        USB_FUSB302_331_INFO("%s - Active state machine hrtimer canceled: %d\n", __func__, ret);
     }
     if (hrtimer_is_queued(&chip->timer_state_machine) != 0)
     {
         ret = hrtimer_cancel(&chip->timer_state_machine);
-        pr_debug("%s - Queued state machine hrtimer canceled: %d\n", __func__, ret);
+        USB_FUSB302_331_INFO("%s - Queued state machine hrtimer canceled: %d\n", __func__, ret);
     }
     mutex_unlock(&chip->lock);
-    pr_debug("FUSB  %s - Timer stopped!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Timer stopped!\n", __func__);
 }
 
 // Get the max value that we can delay in 10us increments at compile time
@@ -3115,10 +3117,10 @@ static ssize_t _fusb_Sysfs_Reinitialize_fusb302(struct device* dev, struct devic
     fusb_StopTimers();
     //core_initialize();
 	core_initialize(USBTypeC_UNDEFINED);
-    pr_debug ("FUSB  %s - Core is initialized!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Core is initialized!\n", __func__);
     fusb_StartTimers();
     core_enable_typec(TRUE);
-    pr_debug ("FUSB  %s - Type-C State Machine is enabled!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Type-C State Machine is enabled!\n", __func__);
 
 #ifdef FSC_INTERRUPT_TRIGGERED
     enable_irq(chip->gpio_IntN_irq);
@@ -3185,7 +3187,7 @@ void fusb_Sysfs_Init(void)
     ret = sysfs_create_group(&chip->client->dev.kobj, &fusb302_sysfs_attr_grp);
     if (ret)
     {
-        USB_FUSB302_331_INFO("FUSB %s - Error creating sysfs attributes!\n", __func__);
+        USB_FUSB302_331_INFO("%s - Error creating sysfs attributes!\n", __func__);
     }
 }
 
@@ -3199,12 +3201,12 @@ void fusb_Sysfs_Init(void)
 void fusb_InitializeCore(void)
 {
     fusb_StartTimers();
-    pr_debug("FUSB  %s - Timers are started!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Timers are started!\n", __func__);
     //core_initialize();
 	core_initialize(USBTypeC_UNDEFINED);
-    pr_debug("FUSB  %s - Core is initialized!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Core is initialized!\n", __func__);
     core_enable_typec(TRUE);
-    pr_debug("FUSB  %s - Type-C State Machine is enabled!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Type-C State Machine is enabled!\n", __func__);
 }
 
 FSC_BOOL fusb_IsDeviceValid(void)
@@ -3317,7 +3319,7 @@ FSC_S32 fusb_EnableInterrupts(void)
 static irqreturn_t _fusb_isr_intn(FSC_S32 irq, void *dev_id)
 {
     struct fusb30x_chip* chip = dev_id;
-	USB_FUSB302_331_INFO("[USB]_fusb_isr_intn start!\n");
+	USB_FUSB302_331_INFO("%s - start!\n", __func__);
     if (!chip)
     {
         pr_err("FUSB  %s - Error: Chip structure is NULL!\n", __func__);
@@ -3340,23 +3342,36 @@ static irqreturn_t _fusb_isr_intn(FSC_S32 irq, void *dev_id)
 #endif  // FSC_DEBUG
 //    g_Force_Exit = FALSE;                                               // Init the escape flag
 
-    USB_FUSB302_331_INFO("[_fusb_isr_intn]before core state machine\n");
+    USB_FUSB302_331_INFO("%s - before core state machine\n", __func__);
     do {
         /* ASUS - if I2C previously failed, check I2C again.  If good, re-initialize state machine, else disable state machine */
         if (g_I2C_Fail) {
             if (i2c_smbus_read_byte_data(chip->client, (u8)0x01)) {
-                USB_FUSB302_331_INFO("[Recovery_Mechanism] I2C check success - calling fusb_InitializeCore().\n");
+                USB_FUSB302_331_INFO("%s [Recovery_Mechanism] I2C check success - calling fusb_InitializeCore().\n", __func__);
                 fusb_InitializeCore();
             } else {
-                USB_FUSB302_331_INFO("[Recovery_Mechansim] I2C check failure - disabling state machine.\n");
+                USB_FUSB302_331_INFO("%s [Recovery_Mechansim] I2C check failure - disabling state machine.\n", __func__);
                 core_enable_typec(FALSE);
                 platform_delay_10us(I2C_RETRY_DELAY);
             }
         }
+        /* ASUS - if illegal cable/dongle previously failed, wait for a few seconds.  After waiting, re-initialize state machine */
+        if (g_Unattach_Fail) {
+            if (g_Illegal_Cable) {
+                USB_FUSB302_331_INFO("%s [Illegal Cable/Dongle Recovery Method] Illegal Cable/Dongle failure - disabling state machine \n", __func__);
+                g_Illegal_Cable = FALSE;
+                core_enable_typec(FALSE);
+                platform_delay_10us(ILLEGAL_RETRY_DELAY);
+       	    } else {
+                USB_FUSB302_331_INFO("%s [Illegal Cable/Dongle Recovery Method] Illegal Cable/Dongle failure - re-enabling state machine \n", __func__);
+                g_Unattach_Fail = FALSE;
+                fusb_InitializeCore();
+       	    }
+        }
         core_state_machine();                                           // Run the state machine
 //    } while ((platform_get_device_irq_state()) && (!g_Force_Exit));
     } while (platform_get_device_irq_state());
-    USB_FUSB302_331_INFO("[_fusb_isr_intn]after core state machine\n");
+    USB_FUSB302_331_INFO("%s - after core state machine\n", __func__);
 
     /* ASUS - If using polling-mode, then you can add notification code here, immediately after the state machine returns. */
     // Update ASUS mux
@@ -3414,7 +3429,7 @@ void _fusb_MainWorker(struct work_struct* work)
     core_state_machine();
     /* ASUS - If using polling-mode, then you can add notification code here, immediately after the state machine returns. */
     // Update ASUS mux
-    USB_FUSB302_331_INFO("[_fusb_MainWorker]after core state mchine\n");
+    USB_FUSB302_331_INFO("%s -after core state mchine\n", __func__);
     set_asus_mux();// Run the state machine
     schedule_work(&chip->worker);                                       // Reschedule ourselves to run again
 }
@@ -3422,7 +3437,7 @@ void _fusb_MainWorker(struct work_struct* work)
 void fusb_InitializeWorkers(void)
 {
     struct fusb30x_chip* chip = fusb30x_GetChip();
-    pr_debug("FUSB  %s - Initializing threads!\n", __func__);
+    USB_FUSB302_331_INFO("%s - Initializing threads!\n", __func__);
     if (!chip)
     {
         pr_err("FUSB  %s - Error: Chip structure is NULL!\n", __func__);

@@ -57,6 +57,9 @@ FSC_BOOL                g_Idle;             // Set to be woken by interrupt_n
 //FSC_BOOL                g_Force_Exit;       // Flag for breaking state machine loop for extreme failure
 FSC_BOOL                g_I2C_Fail;         // Flag for breaking state machine loop for I2C failure
 
+FSC_BOOL                g_Unattach_Fail;    // Flag for breaking state machine loop for unattach failures
+FSC_BOOL		g_Illegal_Cable;    // Flag for breaking state machine loop for unattach failures
+
 USBTypeCPort            PortType;           // Variable indicating which type of port we are implementing
 FSC_BOOL                blnCCPinIsCC1;      // Flag to indicate if the CC1 pin has been detected as the CC pin
 FSC_BOOL                blnCCPinIsCC2;      // Flag to indicate if the CC2 pin has been detected as the CC pin
@@ -204,7 +207,21 @@ void InitializeTypeCVariables(USBTypeCPort prefer_portype)
 //    Registers.Switches.SPECREV = 0b10;                                          // Set Spec Rev to v3.0
 //    DeviceWrite(regSwitches1, 1, &Registers.Switches.byte[1]);
     
+//    switch(RP_Value)
+//    {
+//        case 0:
     SourceCurrent = utccDefault;            // Set 0.5A host current
+//            break;
+//        case 1:
+//            SourceCurrent = utcc1p5A;
+//            break;
+//        case 2:
+//            SourceCurrent = utcc3p0A;                                           
+//            break;
+//        default:
+//            SourceCurrent = utccNone;
+//            break;
+//    }                                                  // Set 1.5A host current
     updateSourceCurrent();
     
     blnSMEnabled = FALSE;                // Enable the TypeC state machine by default
@@ -229,6 +246,8 @@ void InitializeTypeCVariables(USBTypeCPort prefer_portype)
     g_Idle = FALSE;
 //    g_Force_Exit = FALSE;
     g_I2C_Fail = FALSE;
+    g_Unattach_Fail = FALSE;
+    g_Illegal_Cable = FALSE;
     
 // Try setting this based on 302 config
     PortType = USBTypeC_UNDEFINED;
@@ -345,6 +364,14 @@ static const char* connState_str(ConnectionState s)
                 [UnsupportedAccessory] = "UnsupportedAccessory",
                 [DelayUnattached]      = "DelayUnattached",
                 [UnattachedSource]     = "UnattachedSource",
+                [AttachWaitDebSink]    = "AttachWaitDebSink",
+                [AttachedDebSink]      = "AttachedDebSink",
+                [AttachWaitDebSource]  = "AttachWaitDebSource",
+                [AttachedDebSource]    = "AttachedDebSource",
+                [TryDebSource]         = "TryDebSource",
+                [TryWaitDebSink]       = "TryWaitDebSink",
+                [UnattachedDebSource]  = "UnattachedDebSource",
+                [IllegalCable]         = "IllegalCable",
         };
         //BUG_ON(s > UnattachedSource);
         return state_str[s];
@@ -379,7 +406,7 @@ void StateMachineTypeC(void)
 #ifdef FSC_INTERRUPT_TRIGGERED
         else if(PolicyState != PE_BIST_Test_Data)
         {
-//USB_FUSB302_331_INFO("[StateMachineTypeC] DeviceRead regStatus1 , Connstate = %d\n",ConnState);
+//USB_FUSB302_331_INFO("%s - DeviceRead regStatus1 , Connstate = %d\n", __func__, ConnState);
             DeviceRead(regStatus1, 1, &Registers.Status.byte[5]);                      // Read the status bytes to update RX_EMPTY
         }
 #endif // FSC_INTERRUPT_TRIGGERED
@@ -822,7 +849,7 @@ void StateMachineAttachedSource(void)
 #endif // FSC_HAVE_DRP
                     {   
                         platform_set_vbus_lvl_enable(VBUS_LVL_ALL, FALSE, FALSE);       // Disable the vbus outputs
-                        USB_FUSB302_331_INFO("StateMachineAttachedSource : before calling platform_notify_cc_orientation(NONE)\n");
+                        USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(NONE)\n", __func__);
                         platform_notify_cc_orientation(NONE);
                         USBPDDisable(TRUE);                                             // Disable the USB PD state machine
                         Registers.Switches.byte[0] = 0x00;                              // Disabled until vSafe0V
@@ -836,7 +863,7 @@ void StateMachineAttachedSource(void)
             {
                 loopCounter = 0;
 #ifdef FSC_INTERRUPT_TRIGGERED
-                if((PolicyState == peSourceReady) || (USBPDEnabled == FALSE))
+                if((PolicyState == peSourceReady) || (USBPDActive == FALSE))
                 {
                     g_Idle = TRUE;                                                              // Mask for COMP
                     platform_enable_timer(FALSE);
@@ -1398,7 +1425,7 @@ void SetStateUnattached(void)
 #endif // FSC_INTERRUPT_TRIGGERED
     // This function configures the Toggle state machine in the device to handle all of the unattached states.
     // This allows for the MCU to be placed in a low power mode until the device wakes it up upon detecting something
-    USB_FUSB302_331_INFO("SetStateUnattached : before calling platform_notify_cc_orientation(NONE)\n");
+    USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(NONE)\n", __func__);
     platform_notify_cc_orientation(NONE);
     ConnState = Unattached;
     
@@ -1474,6 +1501,7 @@ void SetStateAttachWaitSource(void)
     g_Idle = FALSE;
     platform_enable_timer(TRUE);
 #endif 
+	USB_FUSB302_331_INFO("%s - loopCounter = %d \n", __func__, loopCounter);
     if(loopCounter++ > MAX_CABLE_LOOP)                                          // Swap toggle state machine current if looping
     {
 #ifndef FSC_ILLEGAL_CABLE
@@ -1542,18 +1570,17 @@ void SetStateAttachedSource(void)
 //    platform_notify_cc_orientation(blnCCPinIsCC2);
     if (blnCCPinIsCC1)                                                          // If CC1 is detected as the CC pin...
     {
-	USB_FUSB302_331_INFO("SetStateAttachedSource : before calling platform_notify_cc_orientation(CC1)\n");
+		USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(CC1)\n", __func__);
         platform_notify_cc_orientation(CC1);
     }
     else                                                                        // Otherwise we are assuming CC2 is CC
     {
-	USB_FUSB302_331_INFO("SetStateAttachedSource : before calling platform_notify_cc_orientation(CC2)\n");
+		USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(CC2)\n", __func__);
         platform_notify_cc_orientation(CC2);
     }
 
 //    USBPDEnable(TRUE, TRUE);                                                    // Enable the USB PD state machine if applicable (no need to write to Device again), set as DFP
-// disable HOST PD here
-    USBPDDisable(TRUE);                                                         // Disable the USB PD state machine
+//    USBPDDisable(TRUE);                                                         // Disable the USB PD state machine  ?? CRP: this is redundant and not necessary
     StateTimer = tIllegalCable;                                                 // Start dangling illegal cable timeout
 }
 #endif // FSC_HAVE_SRC
@@ -1581,12 +1608,12 @@ void SetStateAttachedSink(void)
 
     if (blnCCPinIsCC1)                                                          // If CC1 is detected as the CC pin...
     {
-        USB_FUSB302_331_INFO("SetStateAttachedSink : before calling platform_notify_cc_orientation(CC1)\n");
+        USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(CC1)\n", __func__);
         platform_notify_cc_orientation(CC1);       
     }
     else                                                                        // Otherwise we are assuming CC2 is CC
     {
-        USB_FUSB302_331_INFO("SetStateAttachedSink : before calling platform_notify_cc_orientation(CC2)\n");
+        USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(CC2)\n", __func__);
         platform_notify_cc_orientation(CC2);
     }
     UpdateSinkCurrent();
@@ -1798,13 +1825,13 @@ void SetStatePoweredAccessory(void)
 //    platform_notify_cc_orientation(blnCCPinIsCC2);
     if (blnCCPinIsCC1)                                      // If CC1 is detected as the CC pin...
     {
-	USB_FUSB302_331_INFO("SetStatePoweredAccessory : before calling platform_notify_cc_orientation(CC1)\n");
+		USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(CC1)\n", __func__);
         platform_notify_cc_orientation(CC1);
     }
     else                                                           // Otherwise we are assuming CC2 is CC
     {
         blnCCPinIsCC2 = TRUE;
-        USB_FUSB302_331_INFO("SetStatePoweredAccessory : before calling platform_notify_cc_orientation(CC2)\n");
+        USB_FUSB302_331_INFO("%s : before calling platform_notify_cc_orientation(CC2)\n", __func__);
         platform_notify_cc_orientation(CC2);
     }
 
@@ -3033,6 +3060,9 @@ void typec_revert_to_drp_mode(void)
 #ifdef FSC_ILLEGAL_CABLE
 void SetStateIllegalCable(void)
 {
+    CCTermType CCTerm;
+
+    USB_FUSB302_331_INFO("%s +++\n", __func__);
 #ifdef FSC_INTERRUPT_TRIGGERED
     g_Idle = TRUE;
     platform_enable_timer(FALSE);
@@ -3045,20 +3075,62 @@ void SetStateIllegalCable(void)
   
     ConnState = IllegalCable;                                   // Set the state machine variable to AttachWait.Src
     
-    blnCCPinIsCC1 = FALSE;
-    blnCCPinIsCC2 = FALSE;
-    setStateSource(FALSE);
-    Registers.Measure.MDAC = MDAC_2P646;
-    DeviceWrite(regMeasure, 1, &Registers.Measure.byte);           // Commit the DAC threshold
-    
+    sourceOrSink = SOURCE;
+    resetDebounceVariables();
+
+    Registers.Power.PWR = 0x7;                                      // Enable everything except internal oscillator
+    DeviceWrite(regPower, 1, &Registers.Power.byte);                // Commit the power state
+
+    Registers.Control.HOST_CUR = 0b11;                              // Must advertise 3.0A current
+    DeviceWrite(regControl0, 1, &Registers.Control.byte[0]);
+
+    Registers.Measure.MDAC = MDAC_1P596V;
+    DeviceWrite(regMeasure, 1, &Registers.Measure.byte);            // Commit the DAC threshold
+
+    /* Determine orientation */
+    if(Registers.DeviceID.VERSION_ID == VERSION_302A)
+    {
+        Registers.Switches.byte[0] = 0x47;                          // Enable CC1 pull-up and measure
+    }
+    else
+    {
+        Registers.Switches.byte[0] = 0xC7;                          // Enable CC pull-ups and CC1 measure
+    }
+    DeviceWrite(regSwitches0, 1, &(Registers.Switches.byte[0]));
+    CCTerm = DecodeCCTermination();
+    if ((CCTerm >= CCTypeRdUSB) && (CCTerm < CCTypeUndefined))
+    {
+        blnCCPinIsCC1 = TRUE;                                       // The CC pin is CC1
+        blnCCPinIsCC2 = FALSE;
+    }
+    else
+    {
+        if(Registers.DeviceID.VERSION_ID == VERSION_302A)
+        {
+            Registers.Switches.byte[0] = 0x8B;
+        }
+        else
+        {
+            Registers.Switches.byte[0] = 0xCB;
+        }
+        DeviceWrite(regSwitches0, 1, &(Registers.Switches.byte[0]));
+        blnCCPinIsCC1 = FALSE;                                      // The CC pin is CC2
+        blnCCPinIsCC2 = TRUE;
+    }
+
     Registers.Mask.M_COMP_CHNG = 0;
     DeviceWrite(regMask, 1, &Registers.Mask.byte);
     
     StateTimer = T_TIMER_DISABLE;                                         // Disable the state timer, not used in this state
+    USB_FUSB302_331_INFO("%s ---\n", __func__);
 }
 
 void StateMachineIllegalCable(void)
 {
+    USB_FUSB302_331_INFO("%s +++\n", __func__);
+    g_Unattach_Fail = TRUE;							// set flag for ASUS illegal cable/dongle method
+    g_Illegal_Cable = TRUE;							// set flag for ASUS illegal cable/dongle method
+    USB_FUSB302_331_INFO("%s g_Unattach_Fail = TRUE \n", __func__);
     if(Registers.Status.I_COMP_CHNG == 1)
     {
         CCTermPrevious = DecodeCCTermination();
@@ -3069,5 +3141,6 @@ void StateMachineIllegalCable(void)
         WriteStateLog(&TypeCStateLog, 101, Registers.Measure.MDAC, Registers.Status.I_COMP_CHNG);
         SetStateDelayUnattached();
     }
+    USB_FUSB302_331_INFO("%s ---\n", __func__);
 }
 #endif

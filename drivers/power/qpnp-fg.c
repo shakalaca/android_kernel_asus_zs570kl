@@ -8096,7 +8096,7 @@ void static create_battery_status_proc_file(void)
 
 static ssize_t batt_switch_name(struct switch_dev *sdev, char *buf)
 {
-	return sprintf(buf, "C11P1603-G-02-0001-4.10.40.588\n");
+	return sprintf(buf, "C11P1603-G-02-0001-4.12.40.939\n");
 }
 
 static int fg_probe(struct spmi_device *spmi)

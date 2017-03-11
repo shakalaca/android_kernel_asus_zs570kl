@@ -1285,10 +1285,9 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (err)
 		goto out;
 	if (ff->open_flags & FOPEN_INTERNAL) {
-		if (vfs_statfs(&file->f_path, &stat)) {
-			pr_info("get fs status fail \n");
-			err = -ENOSPC;
-			goto out;
+		err = vfs_statfs(&file->f_path, &stat);
+		if (err) {
+			pr_info("get fs status fail, err = %zd \n", err);
 		} else {
 			store = stat.f_bfree * stat.f_bsize;
 			//pr_info("initialize data free size when acess sdcard0 ,store = %lld, count = %ld\n", store, count);

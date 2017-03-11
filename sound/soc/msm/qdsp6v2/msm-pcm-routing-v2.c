@@ -1893,11 +1893,11 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		ec_ref_port_id = SLIMBUS_1_TX;
 		break;
         case 11:
-                msm_route_ec_ref_rx = 10;
+                msm_route_ec_ref_rx = 11;
                 ec_ref_port_id = AFE_PORT_ID_TERTIARY_MI2S_RX;
                 break;
         case 12:
-                msm_route_ec_ref_rx = 11;
+                msm_route_ec_ref_rx = 12;
                 ec_ref_port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
                 break;
  	case 13:
@@ -1930,7 +1930,8 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 static const char *const ec_ref_rx[] = { "None", "SLIM_RX", "I2S_RX",
 	"PRI_MI2S_TX", "SEC_MI2S_TX",
 	"TERT_MI2S_TX", "QUAT_MI2S_TX", "SEC_I2S_RX", "PROXY_RX",
-	"SLIM_5_RX", "SLIM_1_TX", "TERT_MI2S_RX", "QUAT_MI2S_RX"};
+	"SLIM_5_RX", "SLIM_1_TX", "TERT_MI2S_RX", "QUAT_MI2S_RX",
+	"QUAT_TDM_RX_1", "QUAT_TDM_RX_2", "SLIM_6_RX"};
 static const struct soc_enum msm_route_ec_ref_rx_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ec_ref_rx), ec_ref_rx),
 };

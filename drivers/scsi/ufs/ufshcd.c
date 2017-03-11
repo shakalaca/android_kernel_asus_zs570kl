@@ -3237,7 +3237,8 @@ static int ufshcd_read_desc_param(struct ufs_hba *hba,
 	/* safety checks */
 	if (desc_id >= QUERY_DESC_IDN_MAX)
 		return -EINVAL;
-	if((hba->ufs_spec_version == UFSHCI_VERSION_21) && (desc_id == QUERY_DESC_IDN_GEOMETRY))
+	if(((hba->ufs_spec_version == UFSHCI_VERSION_21)  || (hba->dev_quirks & UFS_DEVICE_QUIRK_GEOMETRY))
+		&& (desc_id == QUERY_DESC_IDN_GEOMETRY))
 		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE_21;
 	else
 		buff_len = ufs_query_desc_max_size[desc_id];
@@ -6731,7 +6732,7 @@ int ufshcd_get_total_size(struct ufs_hba *hba)
 	int ret,buff_len;
 	uint8_t *buffer;//[QUERY_DESC_GEOMETRY_MAZ_SIZE];
 
-	if(hba->ufs_spec_version == UFSHCI_VERSION_21)
+	if((hba->ufs_spec_version == UFSHCI_VERSION_21) || (hba->dev_quirks & UFS_DEVICE_QUIRK_GEOMETRY))
 		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE_21;
 	else
 		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE;

@@ -8,6 +8,7 @@
 /* for smbcharger */
 #include <linux/power_supply.h>
 
+FSC_BOOL g_vbus_enabled = FALSE;
 extern SourceOrSink            sourceOrSink;       // Are we currently a source or a sink?
 /*******************************************************************************
 * Function:        platform_set/get_vbus_lvl_enable
@@ -29,8 +30,21 @@ void platform_set_vbus_lvl_enable(VBUS_LVL level, FSC_BOOL blnEnable, FSC_BOOL b
         fusb_GPIO_Set_VBus5v(blnEnable == TRUE ? true : false);
         if(sourceOrSink == SOURCE) // only OTG set VBUS property
         {
-                power_supply_set_usb_otg(usb_psy, blnEnable == TRUE ? 1 : 0);                           // Enable or Disable VBUS from pmic
-                power_supply_set_usb_otg(usb_parallel_psy, blnEnable == TRUE ? 1 : 0);                  // Enable or Disable VBUS from smb1351
+                /* Only set VBUS one time in each event:
+                 * [1]  turn on VBUS when VBUS is off
+                 * [2]  turn off VBUS when VBUS is on
+                 */
+                if(g_vbus_enabled != blnEnable) // When condition is "off->on" or "on->off" , set VBUS property
+                {
+                        USB_FUSB302_331_INFO("set VBUS property : %d(g_vbus_enabled was %d)\n",blnEnable,g_vbus_enabled);
+                        power_supply_set_usb_otg(usb_psy, blnEnable == TRUE ? 1 : 0);                           // Enable or Disable VBUS from pmic
+                        power_supply_set_usb_otg(usb_parallel_psy, blnEnable == TRUE ? 1 : 0);                  // Enable or Disable VBUS from smb1351
+                        g_vbus_enabled = blnEnable;
+                }
+                else
+                {
+                        USB_FUSB302_331_INFO("SKIPPING set VBUS property : %d (g_vbus_enabled is already %d)\n", blnEnable, g_vbus_enabled);
+                }
         }
         break;
     case VBUS_LVL_12V:
@@ -280,7 +294,7 @@ void platform_notify_cc_orientation(CC_ORIENTATION orientation)
     else if((sourceOrSink == SOURCE) && (orientation == NONE))  // Disabled OTG when source dettached
     {
         flag_is_otg_present = false;
-        USB_FUSB302_331_INFO("flag_is_otg_present = %d(Not OTG Mode)\n" , flag_is_otg_present);
+        USB_FUSB302_331_INFO("flag_is_otg_present = %d(Dettach OTG Mode)\n" , flag_is_otg_present);
     }
 
     test_is_otg_present = platform_fusb302_is_otg_present();

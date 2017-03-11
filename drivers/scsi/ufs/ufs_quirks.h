@@ -139,6 +139,9 @@ struct ufs_card_fix {
  */
 #define UFS_DEVICE_QUIRK_HOST_PA_SAVECONFIGTIME	(1 << 7)
 
+/*Some UFS has 0x48 geomerty size istead of 0x44*/
+#define UFS_DEVICE_QUIRK_GEOMETRY	(1 << 8)
+
 struct ufs_hba;
 void ufs_advertise_fixup_device(struct ufs_hba *hba);
 #endif /* UFS_QUIRKS_H_ */

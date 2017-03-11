@@ -60,10 +60,13 @@
 
 #define T_TIMER_DISABLE (0xFFFF)
 #define SLEEP_DELAY     80          // *10 us
-#define MAX_CABLE_LOOP  2
+#define MAX_CABLE_LOOP  4 // was 2
 
 /* ASUS_BSP : I2C Retry/Recovery Mechanism +++ */
 #define I2C_RETRY_DELAY  100
+/* ASUS_BSP : I2C Retry/Recovery Mechanism --- */
+/* ASUS_BSP : Illegal Dongle Retry/Recovery Mechanism +++ */
+#define ILLEGAL_RETRY_DELAY  400 * 1000	// 4ms * 1000 = 4s
 /* ASUS_BSP : I2C Retry/Recovery Mechanism --- */
 
 // EXTERNS

@@ -24,7 +24,7 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
-DEFINE_MSM_MUTEX(msm_eeprom_mutex);
+extern struct mutex *msm_sensor_global_mutex;
 #ifdef CONFIG_COMPAT
 static struct v4l2_file_operations msm_eeprom_v4l2_subdev_fops;
 #endif
@@ -166,7 +166,7 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 	}
 
 	eb_info = e_ctrl->eboard_info;
-
+	mutex_lock(e_ctrl->eeprom_mutex);
 	for (j = 0; j < block->num_map; j++) {
 		if (emap[j].saddr.addr) {
 			eb_info->i2c_slaveaddr = emap[j].saddr.addr;
@@ -184,6 +184,7 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 				msleep(emap[j].page.delay);
 			if (rc < 0) {
 				pr_err("%s: page write failed\n", __func__);
+				mutex_unlock(e_ctrl->eeprom_mutex);
 				return rc;
 			}
 		}
@@ -195,6 +196,7 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 				msleep(emap[j].pageen.delay);
 			if (rc < 0) {
 				pr_err("%s: page enable failed\n", __func__);
+				mutex_unlock(e_ctrl->eeprom_mutex);
 				return rc;
 			}
 		}
@@ -206,6 +208,7 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 				emap[j].poll.delay);
 			if (rc < 0) {
 				pr_err("%s: poll failed\n", __func__);
+				mutex_unlock(e_ctrl->eeprom_mutex);
 				return rc;
 			}
 		}
@@ -217,6 +220,7 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 				memptr, emap[j].mem.valid_size);
 			if (rc < 0) {
 				pr_err("%s: read failed\n", __func__);
+				mutex_unlock(e_ctrl->eeprom_mutex);
 				return rc;
 			}
 			memptr += emap[j].mem.valid_size;
@@ -228,10 +232,12 @@ static int read_eeprom_memory(struct msm_eeprom_ctrl_t *e_ctrl,
 				0, emap[j].pageen.data_t);
 			if (rc < 0) {
 				pr_err("%s: page disable failed\n", __func__);
+				mutex_unlock(e_ctrl->eeprom_mutex);
 				return rc;
 			}
 		}
 	}
+	mutex_unlock(e_ctrl->eeprom_mutex);
 	return rc;
 }
 /**
@@ -350,6 +356,7 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 	if (!e_ctrl->cal_data.mapdata)
 		return -ENOMEM;
 
+	mutex_lock(e_ctrl->eeprom_mutex);
 	memptr = e_ctrl->cal_data.mapdata;
 	for (j = 0; j < eeprom_map_array->msm_size_of_max_mappings; j++) {
 		eeprom_map = &(eeprom_map_array->memory_map[j]);
@@ -417,6 +424,7 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 			default:
 				pr_err("%s: %d Invalid i2c operation LC:%d\n",
 					__func__, __LINE__, i);
+				mutex_unlock(e_ctrl->eeprom_mutex);
 				return -EINVAL;
 			}
 		}
@@ -424,12 +432,14 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 	memptr = e_ctrl->cal_data.mapdata;
 	for (i = 0; i < e_ctrl->cal_data.num_data; i++)
 		CDBG("memory_data[%d] = 0x%X\n", i, memptr[i]);
+	mutex_unlock(e_ctrl->eeprom_mutex);
 	return rc;
 
 clean_up:
 	kfree(e_ctrl->cal_data.mapdata);
 	e_ctrl->cal_data.num_data = 0;
 	e_ctrl->cal_data.mapdata = NULL;
+	mutex_unlock(e_ctrl->eeprom_mutex);
 	return rc;
 }
 
@@ -813,7 +823,7 @@ static int msm_eeprom_i2c_probe(struct i2c_client *client,
 		return -ENOMEM;
 	}
 	e_ctrl->eeprom_v4l2_subdev_ops = &msm_eeprom_subdev_ops;
-	e_ctrl->eeprom_mutex = &msm_eeprom_mutex;
+	e_ctrl->eeprom_mutex = msm_sensor_global_mutex;
 	CDBG("%s client = 0x%p\n", __func__, client);
 	e_ctrl->eboard_info = (struct msm_eeprom_board_info *)(id->driver_data);
 	if (!e_ctrl->eboard_info) {
@@ -1075,7 +1085,7 @@ static int msm_eeprom_spi_setup(struct spi_device *spi)
 		return -ENOMEM;
 	}
 	e_ctrl->eeprom_v4l2_subdev_ops = &msm_eeprom_subdev_ops;
-	e_ctrl->eeprom_mutex = &msm_eeprom_mutex;
+	e_ctrl->eeprom_mutex = msm_sensor_global_mutex;
 	client = &e_ctrl->i2c_client;
 	e_ctrl->is_supported = 0;
 	e_ctrl->userspace_probe = 0;
@@ -1640,7 +1650,7 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 	e_ctrl->eeprom_v4l2_subdev_ops = &msm_eeprom_subdev_ops;
-	e_ctrl->eeprom_mutex = &msm_eeprom_mutex;
+	e_ctrl->eeprom_mutex = msm_sensor_global_mutex;
 
 	e_ctrl->cal_data.mapdata = NULL;
 	e_ctrl->cal_data.map = NULL;

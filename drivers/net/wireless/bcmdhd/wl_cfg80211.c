@@ -1538,6 +1538,10 @@ wl_cfg80211_add_monitor_if(char *name)
 #endif /* WL_ENABLE_P2P_IF || WL_CFG80211_P2P_DEV_IF */
 }
 
+#ifdef CUSTOMER_HW_ZEN
+extern uint8 rsdb_mode;
+#endif /* CUSTOMER_HW_ZEN */
+
 static bcm_struct_cfgdev *
 wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
 #if defined(WL_CFG80211_P2P_DEV_IF)
@@ -1577,6 +1581,10 @@ wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
 	dhd_pub_t *dhd;
 #endif /* SUPPORT_AP_POWERSAVE */
 	bool hang_required = false;
+
+#ifdef CUSTOMER_HW_ZEN
+	int32 rsdb_wait_cnt = 0;
+#endif /* CUSTOMER_HW_ZEN */
 
 	if (!cfg)
 		return ERR_PTR(-EINVAL);
@@ -1715,6 +1723,20 @@ wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
 			WL_ERR(("Fw doesnot support  multiple Go"));
 			return ERR_PTR(-ENOMEM);
 		}
+
+#ifdef CUSTOMER_HW_ZEN
+		/* check rsdb_mode */
+retry:
+		printf("%s rsdb_mode %d\n", __FUNCTION__,rsdb_mode);
+		if ((rsdb_mode != 0) && (rsdb_wait_cnt < 20)) {
+			printf("%s wait for sync fw rsdb mode %d \n", __FUNCTION__, rsdb_mode);
+			OSL_SLEEP(1000);
+			rsdb_wait_cnt++;
+			goto retry;
+		}
+		rsdb_wait_cnt = 0;
+#endif /* CUSTOMER_HW_ZEN */
+
 		/* In concurrency case, STA may be already associated in a particular channel.
 		 * so retrieve the current channel of primary interface and then start the virtual
 		 * interface on that.
@@ -1997,7 +2019,9 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 
 	if (wl_check_dongle_idle(wiphy) != TRUE) {
 		WL_ERR(("FW is busy to add interface"));
+#ifndef CUSTOMER_HW_ZEN
 		return BCME_ERROR;
+#endif
 	}
 	if (cfg->p2p_supported) {
 		if (wl_cfgp2p_find_type(cfg, index, &type) != BCME_OK)
@@ -3114,7 +3138,7 @@ scan_out:
 		err = -EAGAIN;
 	}
 
-#define SCAN_EBUSY_RETRY_LIMIT 20
+#define SCAN_EBUSY_RETRY_LIMIT 10
 	if (err == -EBUSY) {
 		if (busy_count++ > SCAN_EBUSY_RETRY_LIMIT) {
 			struct ether_addr bssid;

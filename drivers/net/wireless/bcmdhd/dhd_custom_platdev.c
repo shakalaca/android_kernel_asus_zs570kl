@@ -797,26 +797,34 @@ static struct cntry_locales_custom bcm4358_pcie_translate_ap_table[] = {
 static struct cntry_locales_custom bcm4359_pcie_translate_sta_ap_dfs_table[] = {
 	/* Table should be filled out based on custom platform regulatory requirement */
 	{"",   "XZ", 11}, /* Universal if Country code is unknown or empty */
+	{"AE", "AE", 6},  /* UNITED ARAB EMIRATES : ch 1-13, ch 36-48, ch 52-140 radar passive, ch 144-165 */
 	{"AM", "AM", 1},
 	{"AR", "AR", 21},
 	{"AU", "AU", 6},
 	{"BG", "BG", 4},
 	{"BH", "BH", 4},
 	{"BR", "BR", 17},
-	{"CA", "CA", 31},
+	{"CA", "AU", 40},
 	{"CL", "CL", 0},
 	{"CN", "CN", 38},
 	{"CO", "CO", 17},
+	{"CZ", "CZ", 4},  /* CZECH REPUBLIC : ch 1-13 , ch 36-48, ch 52-140 radar passive*/
 	{"DE", "DE", 7},
+	{"DK", "DK", 4},  /* DENMARK : ch 1-13, ch 36-48, ch 52-140 radar passive */
 	{"DZ", "XZ", 11},
 	{"EG", "EG", 13},
 	{"ES", "ES", 4},
 	{"FR", "FR", 5},
+	{"FI", "FI", 4},  /* FINLAND : ch 1-13, ch 36-48, ch 52-140 radar passive */
+	{"GB", "GB", 6},  /* UNITED KINGDOM : ch 1-13, ch 36-48, ch 52-140 radar passive */
 	{"HK", "HK", 2},
-	{"ID", "ID", 5},
+	{"HU", "HU", 4},  /* HUNGARY :ch 1-13, ch 36-48, ch 52-140 radar passive */
+	{"ID", "ID", 1},
 	{"IL", "IL", 7},
 	{"IN", "IN", 3},
+	{"IT", "IT", 4},  /* ITALY : ch 1-13, ch 36-48, ch 52-140 radar passive */
 	{"IQ", "IQ", 0},
+	{"IS", "IS", 4},  /* ICELAND : ch 1-13, ch 36-48, ch 52-140 radar passive */
 	{"JO", "JO", 3},
 	{"JP", "JP", 45},
 	{"KR", "KR", 4},
@@ -826,26 +834,30 @@ static struct cntry_locales_custom bcm4359_pcie_translate_sta_ap_dfs_table[] = {
 	{"LY", "XZ", 11},
 	{"MA", "IL", 7},
 	{"MM", "MM", 0},
-	{"MY", "MY", 19},
+	{"MY", "MY", 3},
 	{"MX", "MX", 20},
+	{"NL", "NL", 4},  /* NETHERLANDS : ch 1-13, ch 36-48, ch 52-140 radar passive */
+	{"NO", "NO", 4},  /* NORWAY : ch 1-13, ch 36-48, ch 52-140 radar passive */
 	{"NZ", "NZ", 4},
 	{"OM", "OM", 4},
 	{"PE", "PE", 20},
 	{"PH", "PH", 5},
 	{"PR", "PR", 20},
+	{"PT", "PT", 4},  /* PORTUGAL : ch 1-13, ch 36-48, ch 52-140 radar passive */
 	{"QA", "QA", 0},
 	{"RS", "RS", 2},
-	{"RU", "KZ", 0},
+	{"RU", "RU", 13},
 	{"SA", "SA", 0},
-	{"SG", "SG", 12},
+	{"SG", "SG", 0},
 	{"TH", "TH", 5},
 	{"TN", "TN", 0},
 	{"TR", "TR", 7},
-	{"TW", "TW", 65},
-	{"UA", "UA", 6},
+	{"TW", "CA", 2},
+	{"UA", "UA", 8},
 	{"US", "US", 1},
 	{"VE", "VE", 3},
 	{"VN", "VN", 4},
+	{"XY", "XY", 3},
 	{"YE", "YE", 0},
 	{"ZA", "ZA", 6},
 };

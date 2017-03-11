@@ -51,7 +51,7 @@ MODULE_DEVICE_TABLE(of, msm_match_table);
 
 #define MAX_BUFFER_SIZE			(320)
 #define WAKEUP_SRC_TIMEOUT		(2000)
-#define WAKE_LOCK_TIMEOUT               (3000)
+#define WAKE_LOCK_TIMEOUT               (2000)
 
 struct nqx_dev {
         wait_queue_head_t	read_wq;
@@ -103,7 +103,7 @@ static void nqx_disable_irq(struct nqx_dev *nqx_dev)
 {
 	unsigned long flags;
 
-        //pr_info("nq-nci: %s", __func__);
+        dev_dbg(&nqx_dev->client->dev, "Dirq\n");
 
 	spin_lock_irqsave(&nqx_dev->irq_enabled_lock, flags);
 	if (nqx_dev->irq_enabled) {
@@ -117,7 +117,7 @@ static void nqx_enable_irq(struct nqx_dev *nqx_dev)
 {
 	unsigned long flags;
 
-        //pr_info("nq-nci: %s", __func__);
+        dev_dbg(&nqx_dev->client->dev, "Eirq\n");
 
 	spin_lock_irqsave(&nqx_dev->irq_enabled_lock, flags);
 	if (!nqx_dev->irq_enabled) {
@@ -148,7 +148,8 @@ static irqreturn_t nqx_dev_irq_handler(int irq, void *dev_id)
 		dev_info(&nqx_dev->client->dev,
 			"nqx nfc : nqx_dev_irq_handler error = %d\n", ret);
 #endif
-		return IRQ_HANDLED;
+                nqx_enable_irq(nqx_dev);
+                return IRQ_HANDLED;
 	}
 
 	spin_lock_irqsave(&nqx_dev->irq_enabled_lock, flags);
@@ -191,11 +192,15 @@ static ssize_t nfc_read(struct file *filp, char __user *buf,
 		} else {
                         pr_info("%s: nfc wake unlock\n", __func__);
                         wake_unlock(&nqx_dev->wake_lock);
-			ret = wait_event_interruptible(nqx_dev->read_wq,
-					gpio_get_value(nqx_dev->irq_gpio));
-			nqx_disable_irq(nqx_dev);
-			if (ret)
-				goto err;
+                        ret = wait_event_interruptible(nqx_dev->read_wq,
+                                        gpio_get_value(nqx_dev->irq_gpio));
+			if (ret) {
+                                dev_err(&nqx_dev->client->dev, "wait err %d\n", ret);
+                                goto err;
+                        }
+                        else {
+                                nqx_disable_irq(nqx_dev);
+                        }
 		}
 	}
 
@@ -229,7 +234,6 @@ static ssize_t nfc_read(struct file *filp, char __user *buf,
 	return ret;
 
 err:
-        wake_unlock(&nqx_dev->wake_lock);
 	mutex_unlock(&nqx_dev->read_mutex);
 	return ret;
 }
@@ -857,27 +861,56 @@ static int nqx_suspend(struct device *device)
 	struct i2c_client *client = to_i2c_client(device);
 	struct nqx_dev *nqx_dev = i2c_get_clientdata(client);
 
+        //pr_info("%s: %d", __func__, nqx_dev->irq_enabled ? 1 : 0);
+
         if (device_may_wakeup(&client->dev))
                 enable_irq_wake(client->irq);
 
         if (gpio_get_value(nqx_dev->irq_gpio)) {
                 wake_lock_timeout(&nqx_dev->wake_lock, msecs_to_jiffies(WAKE_LOCK_TIMEOUT));
                 wake_up(&nqx_dev->read_wq);
-                pr_info("%s: nfc wake lock\n", __func__);
+		pm_wakeup_event(&nqx_dev->client->dev, WAKEUP_SRC_TIMEOUT);
+                pr_info("%s: nfc wake lock. %d\n", __func__, nqx_dev->irq_enabled ? 1 : 0);
                 return -EINVAL;
         }
 	return 0;
 }
 
+static int nqx_suspend_late(struct device *device)
+{
+	struct i2c_client *client = to_i2c_client(device);
+	struct nqx_dev *nqx_dev = i2c_get_clientdata(client);
+
+        //pr_info("%s: enter %d", __func__, nqx_dev->irq_enabled ? 1 : 0);
+
+        if (gpio_get_value(nqx_dev->irq_gpio)) {
+                wake_lock_timeout(&nqx_dev->wake_lock, msecs_to_jiffies(WAKE_LOCK_TIMEOUT));
+                wake_up(&nqx_dev->read_wq);
+		pm_wakeup_event(&nqx_dev->client->dev, WAKEUP_SRC_TIMEOUT);
+                pr_info("%s: nfc wake lock. %d\n", __func__, nqx_dev->irq_enabled ? 1 : 0);
+                return -EINVAL;
+        }
+        return 0;
+}
+
+static int nqx_suspend_noirq(struct device *device)
+{
+        struct i2c_client *client = to_i2c_client(device);
+        struct nqx_dev *nqx_dev = i2c_get_clientdata(client);
+
+        pr_info("%s: en_irq %d\n", __func__, nqx_dev->irq_enabled ? 1: 0);
+        return nqx_suspend_late(device);
+}
+
 static int nqx_resume(struct device *device)
 {
 	struct i2c_client *client = to_i2c_client(device);
-	//struct nqx_dev *nqx_dev = i2c_get_clientdata(client);
+	struct nqx_dev *nqx_dev = i2c_get_clientdata(client);
 
-	if (device_may_wakeup(&client->dev))
-		disable_irq_wake(client->irq);
-
-	return 0;
+        pr_info("%s: en_irq %d\n", __func__, nqx_dev->irq_enabled ? 1: 0);
+        if (device_may_wakeup(&client->dev))
+                disable_irq_wake(client->irq);
+        return 0;
 }
 
 static const struct i2c_device_id nqx_id[] = {
@@ -887,6 +920,8 @@ static const struct i2c_device_id nqx_id[] = {
 
 static const struct dev_pm_ops nfc_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(nqx_suspend, nqx_resume)
+        .suspend_late = nqx_suspend_late,
+        .suspend_noirq = nqx_suspend_noirq,
 };
 
 static struct i2c_driver nqx = {

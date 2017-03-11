@@ -5213,6 +5213,7 @@ dhd_dpc_kill(dhd_pub_t *dhdp)
 {
 	dhd_info_t *dhd;
 
+	DHD_ERROR(("%s: Enter\n", __FUNCTION__));
 	if (!dhdp) {
 		return;
 	}
@@ -5242,6 +5243,7 @@ dhd_dpc_kill(dhd_pub_t *dhdp)
 	tasklet_kill(&dhd->rx_compl_tasklet);
 #endif /* DHD_LB_RXC */
 #endif /* DHD_LB */
+	DHD_ERROR(("%s: Exit\n", __FUNCTION__));
 }
 
 void

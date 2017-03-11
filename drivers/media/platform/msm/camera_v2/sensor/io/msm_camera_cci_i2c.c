@@ -164,12 +164,17 @@ int32_t msm_camera_cci_i2c_thru_imx318_write(struct msm_camera_i2c_client *clien
 	CDBG("%s:%d reg addr = 0x%x data = %x data type: %d, sid is 0x%x\n",
 		__func__, __LINE__, addr, data,data_type, client->cci_client->sid);
 
-
 	client->addr_type = MSM_CAMERA_I2C_WORD_ADDR;
 	msm_camera_cci_i2c_write(client, 0x3378, i2c_agent_slave_addr >> 1, MSM_CAMERA_I2C_BYTE_DATA);
 	msm_camera_cci_i2c_write(client, 0x3379, addr, MSM_CAMERA_I2C_BYTE_DATA);
-	msm_camera_cci_i2c_write(client, 0x337A, data, MSM_CAMERA_I2C_BYTE_DATA);
-	msm_camera_cci_i2c_write(client, 0x3374, 0x03, MSM_CAMERA_I2C_BYTE_DATA);
+	if (data_type == MSM_CAMERA_I2C_BYTE_DATA){
+		msm_camera_cci_i2c_write(client, 0x337A, data&0xff, MSM_CAMERA_I2C_BYTE_DATA);
+		msm_camera_cci_i2c_write(client, 0x3374, 0x03, MSM_CAMERA_I2C_BYTE_DATA);
+	}else{
+		msm_camera_cci_i2c_write(client, 0x337A, (data&0xff00)>>8, MSM_CAMERA_I2C_BYTE_DATA);
+		msm_camera_cci_i2c_write(client, 0x337B, data&0xff, MSM_CAMERA_I2C_BYTE_DATA);
+		msm_camera_cci_i2c_write(client, 0x3374, 0x04, MSM_CAMERA_I2C_BYTE_DATA);
+	}
 	msm_camera_cci_i2c_write(client, 0x3370, 0x81, MSM_CAMERA_I2C_BYTE_DATA);
     rc = msm_camera_cci_i2c_poll(client, 0x3370, 0x01, MSM_CAMERA_I2C_BYTE_DATA, I2C_POLL_TIME_MS);
 

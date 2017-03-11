@@ -332,8 +332,37 @@ int wldev_set_band(
 	struct net_device *dev, uint band)
 {
 	int error = -1;
+    int error1 = -1;
+    uint pband;
 
 	if ((band == WLC_BAND_AUTO) || (band == WLC_BAND_5G) || (band == WLC_BAND_2G)) {
+        
+        error1 = wldev_ioctl(dev, WLC_GET_BAND, &pband, sizeof(uint), 0);
+        printf("%s band is %d pband is %d\n", __FUNCTION__, band, pband);
+        if (band != WLC_BAND_AUTO && pband != band) {
+            scb_val_t scbval;
+            bzero(&scbval, sizeof(scb_val_t));
+            switch(pband) {
+                case WLC_BAND_AUTO:
+                    if (band == WLC_BAND_2G) {
+                        error = wldev_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t), true);
+                        printf("%s change band disassoc first error %d\n", __FUNCTION__, error);
+                        msleep(1000);
+                    }
+                    break;
+                case WLC_BAND_5G:
+                    if (band == WLC_BAND_2G) {
+                        error = wldev_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t), true);
+                        printf("%s change band disassoc first error %d\n", __FUNCTION__, error);
+                        msleep(1000);
+                    }
+                    break;
+                default:
+                    printf("%s pband is %d do nothing\n", __FUNCTION__, pband);
+                    break;
+            } 
+        }
+
 		error = wldev_ioctl(dev, WLC_SET_BAND, &band, sizeof(band), true);
 		if (!error)
 			dhd_bus_band_set(dev, band);

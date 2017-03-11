@@ -790,12 +790,14 @@ fail:
 int
 dhpcie_bus_unmask_interrupt(dhd_bus_t *bus)
 {
+	DHD_ERROR(("%s: Enter\n", __FUNCTION__));
 	dhdpcie_bus_cfg_write_dword(bus, PCIIntmask, 4, I_MB);
 	return 0;
 }
 int
 dhpcie_bus_mask_interrupt(dhd_bus_t *bus)
 {
+	DHD_ERROR(("%s: Enter\n", __FUNCTION__));
 	dhdpcie_bus_cfg_write_dword(bus, PCIIntmask, 4, 0x0);
 	return 0;
 }
@@ -1000,6 +1002,7 @@ dhdpcie_bus_cfg_read_dword(dhd_bus_t *bus, uint32 addr, uint32 size)
 void
 dhdpcie_bus_cfg_write_dword(dhd_bus_t *bus, uint32 addr, uint32 size, uint32 data)
 {
+	DHD_ERROR(("%s: addr=%d, size=%d, data=%d\n", __FUNCTION__, addr, size, data));
 	OSL_PCI_WRITE_CONFIG(bus->osh, addr, size, data);
 }
 
@@ -1065,10 +1068,13 @@ void dhd_bus_stop(struct dhd_bus *bus, bool enforce_mutex)
 
 	DHD_DISABLE_RUNTIME_PM(bus->dhd);
 
+	DHD_ERROR(("%s: DHD_GENERAL_LOCK\n", __FUNCTION__));
 	DHD_GENERAL_LOCK(bus->dhd, flags);
 	bus->dhd->busstate = DHD_BUS_DOWN;
+	DHD_ERROR(("%s: DHD_GENERAL_UNLOCK\n", __FUNCTION__));
 	DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
+	DHD_ERROR(("%s: dhdpcie_bus_intr_disable\n", __FUNCTION__));
 	dhdpcie_bus_intr_disable(bus);
 	status =  dhdpcie_bus_cfg_read_dword(bus, PCIIntstatus, 4);
 	dhdpcie_bus_cfg_write_dword(bus, PCIIntstatus, 4, status);

@@ -1277,7 +1277,7 @@ unsigned char FT6X36_TestItem_DeltaCbTest(unsigned char * bTestResult)
 	Sort1Min = Sort2Min = Sort3Min = Sort4Min = Sort5Min  = Sort6Min = 1000;
 	Sort1Max = Sort2Max = Sort3Max = Sort4Max = Sort5Max = Sort6Max = -1000;
 
-	for(i=0; i < g_ScreenSetParam.iChannelsNum/*readlen*/; i++)
+	for(i=0; i < readlen; i++)
 	{
 		if(g_stCfg_SCap_DetailThreshold.DeltaCxTest_Sort[i] == 1)
 		{
@@ -1601,7 +1601,7 @@ unsigned char FT6X36_TestItem_DeltaCbTest(unsigned char * bTestResult)
 	/////////////////////max Delta_Ci can not over default value
 
 	Delta_Min = Delta_Max = focal_abs(m_DeltaCb_DifferData[0]);
-	for(i=1; i < g_ScreenSetParam.iChannelsNum/*readlen*/; i++)
+	for(i=1; i < readlen; i++)
 	{
 		if(focal_abs(m_DeltaCb_DifferData[i]) < Delta_Min)
 		{

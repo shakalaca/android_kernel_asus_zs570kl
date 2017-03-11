@@ -167,6 +167,7 @@
 #endif
 
 extern int fw_update_state;
+extern char* androidboot_mode; //<ASUS_bootmode+>
 
 //<ASUS_cap_sensor+>
 int btn_back;
@@ -1961,7 +1962,7 @@ static void fts_sw_reset(struct synaptics_rmi4_data *rmi4_data)
     /*********Step 7: reset the new FW***********************/
 	auc_i2c_write_buf[0] = 0x07;
 	cap_i2c_write(rmi4_data, auc_i2c_write_buf, 1);
-	//msleep(200);
+	msleep(150);
 }
 
 static ssize_t fts_fts_sw_reset_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
@@ -3723,10 +3724,12 @@ static void fts_touch_irq_work(struct work_struct *work)
 	int ret;
     ret = -1;
     
+    mutex_lock(&(rmi4_data->cap_mutex));
 	ret = fts_read_Touchdata(rmi4_data);
 	if (ret == 0)
 		fts_report_value(rmi4_data);
 	
+    mutex_unlock(&(rmi4_data->cap_mutex));
 	enable_irq(CAP_INT_GET_PIN(CAP_INT_PIN));
     return;
 }
@@ -6766,6 +6769,7 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	const struct synaptics_dsx_board_data *bdata;
 	struct dentry *temp;
     u8 regaddr=0x9F,regvalue=0xff;//<ASUS_cap_sensor+>
+    unsigned char buf_val[2]={0}; //<ASUS_bootmode+>
 	
 	printk("%s: start\n", __func__);
 	hw_if = pdev->dev.platform_data;
@@ -7173,6 +7177,25 @@ err_cap_sensor:
 
 	//queue_delayed_work(rmi4_data->cap_cal_wq, &rmi4_data->calibration_work, msecs_to_jiffies(60000));
 	printk("%s: end\n", __func__);
+    
+    //<ASUS_bootmode+>
+    if (strcmp(androidboot_mode,"charger")==0) {
+		printk("[Power] %s: skip this driver in charger mode\n", __func__);
+        synaptics_rmi4_sleep_enable(rmi4_data, true);
+        disable_irq(rmi4_data->irq);
+        fts_a5_flag = 1;
+        buf_val[0] = 0xa5;
+        buf_val[1] = 0x03;
+        retval = cap_i2c_write(rmi4_data, buf_val, 2);        
+        if(retval < 0){
+            printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
+            fts_a5_flag = 0;
+        }
+        disable_irq(CAP_INT_GET_PIN(CAP_INT_PIN));        
+		return 0;
+	}
+    //<ASUS_bootmode->
+    
 	return retval;
 
 err_sysfs:
@@ -7618,6 +7641,11 @@ static int synaptics_rmi4_suspend(struct device *dev)
 	unsigned char buf_reg[]={0x02, 0x03, 0x04, 0x05, 0x06};
 	unsigned char buf_reg_val[]={0xFF, 0xFF, 0xFF, 0x00, 0x01};
 	
+    if (strcmp(androidboot_mode,"charger")==0) {
+		printk("[Power] %s: skip this driver in charger mode\n", __func__);
+		return 0;
+	}
+    
     printk("%s suspend start\n", __func__);
     if(rmi4_data->suspend) 
         return 0;
@@ -7728,7 +7756,11 @@ static int synaptics_rmi4_resume(struct device *dev)
 	unsigned char buf_reg_val_PR_glove_usb[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove and usb parameter	
     unsigned long onesec = msecs_to_jiffies(1500);
 
-	
+	if (strcmp(androidboot_mode,"charger")==0) {
+		printk("[Power] %s: skip this driver in charger mode\n", __func__);
+		return 0;
+	}
+    
 	if(cap_sel_status == 0) {
         printk("%s [cap] enable cap_button virtualkey\n", __func__);
         if (asus_HW_ID == HW_ID_ER1) {
@@ -7914,12 +7946,7 @@ static struct platform_driver synaptics_rmi4_driver = {
 static int __init synaptics_rmi4_init(void)
 {
 	int retval;
-	extern char* androidboot_mode;
-
-	if (strcmp(androidboot_mode,"charger")==0) {
-		printk("[Power] %s: skip this driver in charger mode\n", __func__);
-		return 0;
-	}
+	
 	retval = synaptics_rmi4_bus_init();
 	if (retval)
 		return retval;

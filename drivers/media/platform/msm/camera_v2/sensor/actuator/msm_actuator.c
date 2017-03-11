@@ -13,9 +13,16 @@
 #define pr_fmt(fmt) "%s:%d " fmt, __func__, __LINE__
 #include <linux/proc_fs.h>
 #include <linux/module.h>
+#include <linux/kthread.h>
 #include "msm_sd.h"
 #include "msm_actuator.h"
 #include "msm_cci.h"
+
+static struct task_struct *brook_tsk;
+uint16_t vcm_data_g = 0xA000;
+#define SERVO_OFF_COUNT 3
+#define SERVO_ON SERVO_OFF_COUNT+1
+int vcm_servo_status = SERVO_ON;	/* 4: servo on, 0~3:server off */
 
 DEFINE_MSM_MUTEX(msm_actuator_mutex);
 struct mutex *msm_sensor_global_mutex;
@@ -41,12 +48,99 @@ static struct msm_actuator msm_piezo_actuator_table;
 static struct msm_actuator msm_hvcm_actuator_table;
 static struct msm_actuator msm_bivcm_actuator_table;
 
+static uint16_t actuator_data_Z1 = 0;
+static uint16_t actuator_data_Z2 = 0;
+
 #define VCM_PROC_FILE                "driver/vcm"
+#define VCM_SERVO_OFF_PROC_FILE      "driver/vcm_servo_off"
+
+
 struct msm_actuator_ctrl_t *actuator_ctrl_g = NULL;
+
+static int kbrook(void *arg)
+{
+	uint16_t vcm_data = 0;
+	int trigger_count = 0;
+	unsigned int timeout;
+
+	/* this thread is checking if vcm posiztion under Z1-20um. if yes, set vcm servo off to reduce vcm noise */
+	for(;;) {
+		if (kthread_should_stop()) break;
+
+		if (vcm_servo_status != SERVO_ON || trigger_count == 5){
+			mutex_lock(msm_sensor_global_mutex);
+			trigger_count = 0;
+			actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
+			actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_read(&actuator_ctrl_g->i2c_client,0x3C,&vcm_data,MSM_CAMERA_I2C_WORD_DATA);
+			vcm_data = ((vcm_data + 0x8000)&0xffff) >> 4;
+			//pr_err("[vcm] z1:%d z2:%d cur_position %d vcm_servo_status %d \n",actuator_data_Z1,actuator_data_Z2,vcm_data,vcm_servo_status);
+			if (vcm_data >= actuator_data_Z1 && vcm_servo_status < SERVO_OFF_COUNT) {
+				vcm_servo_status = vcm_servo_status + 1;
+			} else if (vcm_data < actuator_data_Z1 && vcm_servo_status < SERVO_OFF_COUNT) {
+				vcm_servo_status = 0;
+			} else if (vcm_data >= actuator_data_Z1 && vcm_servo_status == SERVO_OFF_COUNT) {
+				pr_err("[vcm] servo on, z1:%d z2:%d cur_position %d then set to %d\n",actuator_data_Z1,actuator_data_Z2,vcm_data,vcm_data_g>>4);
+				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x87,0x9D,MSM_CAMERA_I2C_BYTE_DATA);
+				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0xA0,vcm_data_g,MSM_CAMERA_I2C_WORD_DATA);
+				vcm_servo_status = SERVO_ON;
+			} else if (vcm_data < (actuator_data_Z1 - ((actuator_data_Z2 - actuator_data_Z1)*20/300)) && vcm_servo_status == SERVO_ON){
+				pr_err("[vcm] servo off, z1:%d z2:%d cur_position %d \n",actuator_data_Z1,actuator_data_Z2,vcm_data);
+				vcm_servo_status = 0;
+				actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
+				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x87,0x1D,MSM_CAMERA_I2C_BYTE_DATA);
+				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x02,0x0000,MSM_CAMERA_I2C_WORD_DATA);
+			}
+			mutex_unlock(msm_sensor_global_mutex);
+		}
+		do {
+			set_current_state(TASK_INTERRUPTIBLE);
+			timeout = schedule_timeout(HZ/10);
+		} while(timeout);
+		trigger_count = trigger_count + 1;
+	}
+	brook_tsk = NULL;
+	return 0;
+}
+
+static int ATD_vcm_servo_off_proc_read(struct seq_file *buf, void *v)
+{
+	mutex_lock(msm_sensor_global_mutex);
+	if (vcm_servo_status == SERVO_ON){
+		pr_err("[vcm] servo off by G sensor \n");
+		vcm_servo_status = 0;
+		actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
+		actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x87,0x1D,MSM_CAMERA_I2C_BYTE_DATA);
+		actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x02,0x0000,MSM_CAMERA_I2C_WORD_DATA);
+	}
+	mutex_unlock(msm_sensor_global_mutex);
+	seq_printf(buf, "[vcm]servo off\n");
+
+	return 0;
+}
+
+static int ATD_vcm_servo_off_proc_open(struct inode *inode, struct  file *file)
+{
+	return single_open(file, ATD_vcm_servo_off_proc_read, NULL);
+}
+
+static const struct file_operations ATD_vcm_servo_off_fops = {
+    .owner = THIS_MODULE,
+    .open = ATD_vcm_servo_off_proc_open,
+    .read = seq_read,
+    .llseek = seq_lseek,
+    .release = single_release,
+ };
+
+static void create_vcm_servo_off_proc_file( void )
+{
+    proc_create(VCM_SERVO_OFF_PROC_FILE, 0664, NULL, &ATD_vcm_servo_off_fops);
+}
+
 static int ATD_I2C_position_check_proc_read(struct seq_file *buf, void *v)
 {
 	uint16_t vcm_data = 0;
 	mutex_lock(msm_sensor_global_mutex);
+	actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
 	actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_read(&actuator_ctrl_g->i2c_client,0x3C,&vcm_data,MSM_CAMERA_I2C_WORD_DATA);
 	mutex_unlock(msm_sensor_global_mutex);
 	vcm_data = ((vcm_data + 0x8000)&0xffff) >> 4;
@@ -205,6 +299,10 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 	uint16_t value = 0, reg_data = 0;
 	uint32_t size = a_ctrl->reg_tbl_size, i = 0;
 	int32_t rc = 0;
+#if 0 // little current feature
+	static uint16_t pre_position = 0x8000;
+	static int current_status = 0; /* 0:default 1: little current */
+#endif
 	struct msm_camera_i2c_reg_array i2c_tbl;
 	struct msm_camera_i2c_reg_setting reg_setting;
 	enum msm_camera_i2c_reg_addr_type save_addr_type =
@@ -232,12 +330,36 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 
 			reg_setting.reg_setting = &i2c_tbl;
 			reg_setting.data_type = a_ctrl->i2c_data_type;
-			rc = a_ctrl->i2c_client.
-				i2c_func_tbl->i2c_write_table_w_microdelay(
-				&a_ctrl->i2c_client, &reg_setting);
-			if (rc < 0) {
-				pr_err("i2c write error:%d\n", rc);
-				return rc;
+			//pr_err("[vcm] MSM_ACTUATOR_WRITE_DAC, set 0x%x to %x (%d)\n",i2c_byte1,i2c_byte2,i2c_byte2>>4);
+			vcm_data_g = reg_setting.reg_setting[reg_setting.size-1].reg_data;
+			if (vcm_servo_status == SERVO_ON){
+#if 0 // little current feature
+				if ((((pre_position > reg_setting.reg_setting[reg_setting.size-1].reg_data &&
+					(pre_position - reg_setting.reg_setting[reg_setting.size-1].reg_data)) > 0x600) ||
+					((reg_setting.reg_setting[reg_setting.size-1].reg_data > pre_position &&
+					(reg_setting.reg_setting[reg_setting.size-1].reg_data - pre_position) > 0x600))) && current_status == 0) {
+					//pr_err("[vcm] little current, pre=0x%x cur=0x%x\n",pre_position,reg_setting.reg_setting[reg_setting.size-1].reg_data);
+					actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0xAB,0x20,MSM_CAMERA_I2C_BYTE_DATA);
+					current_status = 1;
+				} else if ((((pre_position > reg_setting.reg_setting[reg_setting.size-1].reg_data &&
+					(pre_position - reg_setting.reg_setting[reg_setting.size-1].reg_data)) <= 0x600)||
+					((reg_setting.reg_setting[reg_setting.size-1].reg_data > pre_position &&
+					(reg_setting.reg_setting[reg_setting.size-1].reg_data - pre_position) <= 0x600)))&& current_status == 1){
+					//pr_err("[vcm] default current, pre=0x%x cur=0x%x\n",pre_position,reg_setting.reg_setting[reg_setting.size-1].reg_data);
+					actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0xAB,0x24,MSM_CAMERA_I2C_BYTE_DATA);
+					current_status = 0;
+				}
+#endif
+				rc = a_ctrl->i2c_client.
+					i2c_func_tbl->i2c_write_table_w_microdelay(
+					&a_ctrl->i2c_client, &reg_setting);
+				if (rc < 0) {
+					pr_err("i2c write error:%d\n", rc);
+					return rc;
+				}
+#if 0 // little current feature
+				pre_position = reg_setting.reg_setting[reg_setting.size-1].reg_data;
+#endif
 			}
 			break;
 		case MSM_ACTUATOR_WRITE:
@@ -1096,6 +1218,10 @@ static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int32_t rc = 0;
 	CDBG("Enter\n");
+	if (brook_tsk){
+		kthread_stop(brook_tsk);
+		brook_tsk = NULL;
+	}
 	if (a_ctrl->actuator_state != ACT_DISABLE_STATE) {
 
 		if (a_ctrl->func_tbl && a_ctrl->func_tbl->actuator_park_lens) {
@@ -1588,10 +1714,36 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int rc = 0;
+	uint16_t actuator_status = 0;
 	CDBG("Enter\n");
 	if (!a_ctrl) {
 		pr_err("failed\n");
 		return -EINVAL;
+	}
+
+	actuator_data_Z1 = 0;
+	actuator_data_Z2 = 0;
+	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
+	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0xF0,&actuator_status,MSM_CAMERA_I2C_BYTE_DATA);
+	/* check vcm status wether is working */
+	if (actuator_status == 0x42) {
+		/* read Z1 and Z2 */
+		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x2E,&actuator_data_Z1,MSM_CAMERA_I2C_WORD_DATA);
+		actuator_data_Z1 = (((actuator_data_Z1 << 4)+ 0x8000)&0xffff) >> 4;
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x30,&actuator_data_Z2,MSM_CAMERA_I2C_WORD_DATA);
+		actuator_data_Z2 = (((actuator_data_Z2 << 4)+ 0x8000)&0xffff) >> 4;
+		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
+
+		/* create thread for monitor vcm position if under Z1-20um */
+		if (brook_tsk == NULL) {
+			brook_tsk = kthread_create(kbrook, NULL, "brook");
+			if (IS_ERR(brook_tsk)) {
+				brook_tsk = NULL;
+			} else {
+				wake_up_process(brook_tsk);
+			}
+		}
 	}
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
@@ -2153,6 +2305,7 @@ static int32_t msm_actuator_platform_probe(struct platform_device *pdev)
 	msm_actuator_t->msm_sd.sd.devnode->fops =
 		&msm_actuator_v4l2_subdev_fops;
 	create_vcm_proc_file();
+	create_vcm_servo_off_proc_file();
 	actuator_ctrl_g = msm_actuator_t;
 
 	CDBG("Exit\n");

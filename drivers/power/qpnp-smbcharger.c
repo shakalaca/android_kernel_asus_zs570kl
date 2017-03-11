@@ -57,6 +57,7 @@ static int dual_charger_flag = -1;
 #define FV_4P1  0x1E
 
 #define FCC_800MA 0x05
+#define FCC_900MA 0x06
 #define FCC_1300MA 0x0A
 #define FCC_1450MA 0x0C
 
@@ -5231,7 +5232,10 @@ static bool smbchg_jeita_charge_condition(void)
 	}
 
         printk(KERN_EMERG "[SMBCHG] AICL status=0x%02X, dual_charger_flag=%d, hvdcp_flag=%d, thermal policy=%d\n", reg, dual_charger_flag, hvdcp_flag, g_thermal_level);
-        aicl_status = ((reg&0x0f) == 0x07) ? true : false;
+	if (dual_charger_flag == DUALCHR_TYPEC_3P0A)
+		aicl_status = ((reg&0x0f) == USB_IN_1450MA) ? true : false;
+	else
+		aicl_status = ((reg&0x0f) == USB_IN_1000MA) ? true : false;
 
         if ((aicl_status)&&
 		((dual_charger_flag == DUALCHR_ASUS_2A)||(dual_charger_flag == DUALCHR_TYPEC_3P0A))&&
@@ -5496,8 +5500,11 @@ static int smbchg_jeita_flow(int usb_status)
                 }
 		charging_enable = true;
 		Vchg_reg_value = FV_4P38;
-		fast_chg_reg_value = FCC_1300MA;
-	        recharge_enable = true;
+		if (fg_cap > 90)
+			fast_chg_reg_value = FCC_900MA;
+		else
+			fast_chg_reg_value = FCC_1300MA;
+		recharge_enable = true;
 		printk(KERN_EMERG "[SMBCHG][JETIA] %s: 200 <= temperature < 500\n", __func__);
 		break;
 	case JEITA_STATE_RANGE_05:
@@ -6382,12 +6389,13 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 #ifdef CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_CORE_v21
 	synaptics_usb_detection(false);
 #endif
-        cancel_delayed_work_sync(&smbchg_dev->asus_hvdcp_delayed_work);
-        cancel_delayed_work_sync(&smbchg_dev->launcher_asus_adapter_detect_delayed_work);
-        cancel_delayed_work_sync(&smbchg_dev->asus_adapter_detect_delayed_work);
-        cancel_delayed_work_sync(&smbchg_dev->smbchg_hvdcp_delayed_work);
-        cancel_delayed_work_sync(&smbchg_dev->asus_routine_work);
-        cancel_delayed_work_sync(&smbchg_dev->hvdcp3_backto5v_delayed_work);
+	cancel_delayed_work_sync(&smbchg_dev->asus_hvdcp_delayed_work);
+	cancel_delayed_work_sync(&smbchg_dev->launcher_asus_adapter_detect_delayed_work);
+	cancel_delayed_work_sync(&smbchg_dev->asus_adapter_detect_delayed_work);
+	cancel_delayed_work_sync(&smbchg_dev->smbchg_hvdcp_delayed_work);
+	cancel_delayed_work_sync(&smbchg_dev->asus_routine_work);
+	cancel_delayed_work_sync(&smbchg_dev->hvdcp3_backto5v_delayed_work);
+	cancel_delayed_work_sync(&smbchg_dev->hvdcp3_5to9_delayed_work);
 	cancel_delayed_work_sync(&smbchg_dev->thermal_policy_work);
 	cancel_delayed_work_sync(&smbchg_dev->type_c_det_work);
 	//cancel_delayed_work_sync(&smbchg_dev->sdp_retry_work);
@@ -6412,6 +6420,7 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	g_hvdcp3_roll_back_flag = 0;
 	g_qc_full_flag = 0;
         //hvdcp3_5to9_counter = 20;
+        chip->pulse_cnt = 0;
         //USBIN_MODE_CHG = USB500 Mode Current Level
         rc = smbchg_sec_masked_write(chip, 0x1340, 0xff, 0x06);
 	if (rc < 0) {
@@ -6472,6 +6481,9 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	} else {
 		printk(KERN_EMERG "[SMBCHG] %s: fail to request power supply changed\n", __func__);
 	}
+
+	/* clear usb connector event */
+	switch_set_state(&charger_dev, 0);
 
 	/* disable boost 5v when cable out*/
 	if ((strcmp(androidboot_mode,"main")==0)&&(chip->boost_5v_vreg)&&
@@ -6962,10 +6974,11 @@ static int smbchg_typeC_PD_func(void)
 			((w_table[index_target] == w_table[i])&&(pd_v_table[index_target] > pd_v_table[i]))) {
 			w_table[index_target] = w_table[i];
 			index_target = i;
-			g_pd_v_target = pd_v_table[index_target] / 50;
-			g_pd_i_target = i_set_table[j] / 10;
 		}
-		printk(KERN_EMERG "[SMBCHG] after re-write,  v=%d, i=%d, w=%d\n", pd_v_table[i], pd_i_table[i], w_table[i]);
+		g_pd_v_target = pd_v_table[index_target] / 50;
+		g_pd_i_target = i_set_table[j] / 10;
+		printk(KERN_EMERG "[SMBCHG] after re-write,  v=%d, i=%d, w=%d, target_v=%d(50mV), target_i=%d(10mA)\n",
+			pd_v_table[i], pd_i_table[i], w_table[i], g_pd_v_target, g_pd_i_target);
 	}
 	printk(KERN_EMERG "[SMBCHG] choose index=%d, w=%d\n", index_target, w_table[index_target]);
 	if (soc == 0) {
@@ -7861,6 +7874,8 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 			pr_smb(PR_STATUS,
 				"usb psy does not allow updating prop %d rc = %d\n",
 				POWER_SUPPLY_HEALTH_GOOD, rc);
+	} else {
+		printk(KERN_EMERG "[SMBCHG] %s: OV condition so don't set chip health GOOD!\n", __func__);
 	}
         /*
 	if (!chip->hvdcp_not_supported &&
@@ -9072,6 +9087,12 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		val->intval = get_prop_batt_current_now(chip);
+		/* if -5mA<curr<5mA when full-charged, ignore */
+		if ((get_prop_batt_status(chip)== POWER_SUPPLY_STATUS_FULL)&&
+			(val->intval/1000 <= 5)&&(val->intval/1000 >= -5)) {
+			printk(KERN_EMERG "[SMBCHG] %s: curr = %dmA when full-charged, report 0mA\n", __func__, val->intval/1000);
+			val->intval = 0;
+		}
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = get_prop_batt_voltage_now(chip);
@@ -9507,6 +9528,7 @@ static irqreturn_t usbin_ov_handler(int irq, void *_chip)
 			update_usb_status(chip, usb_present, false);
 	}
 out:
+	printk(KERN_EMERG "[SMBCHG] %s: OverVoltage condition is %d\n", __func__, chip->usb_ov_det);
 	return IRQ_HANDLED;
 }
 

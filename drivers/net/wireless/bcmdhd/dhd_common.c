@@ -1980,6 +1980,10 @@ dhd_eventmsg_print(dhd_pub_t *dhd_pub, void *event_data, void *raw_event_ptr,
 #define WLC_RSDB_MODE_AUTO_MASK 0x80
 #define WLC_RSDB_EXTRACT_MODE(val) ((int8)((val) & (~(WLC_RSDB_MODE_AUTO_MASK))))
 
+#ifdef CUSTOMER_HW_ZEN
+uint8 rsdb_mode = 0;
+#endif /* CUSTOMER_HW_ZEN */
+
 static void
 wl_event_sdb_transition_print(void *event_data, const char *event_name)
 {
@@ -2004,6 +2008,11 @@ wl_event_sdb_transition_print(void *event_data, const char *event_name)
 		DHD_ERROR((" RSDB Mode : Auto, "));
 	}
 	DHD_ERROR(("Current RSDB Mode : %d\n", WLC_RSDB_EXTRACT_MODE(rdata->rsdb_mode)));
+
+#ifdef CUSTOMER_HW_ZEN
+	rsdb_mode = WLC_RSDB_EXTRACT_MODE(rdata->rsdb_mode);
+	DHD_ERROR(("%s rsdb_mode %d\n", __FUNCTION__, rsdb_mode)); 
+#endif /* CUSTOMER_HW_ZEN */
 
 	for (i = 0; i < rdata->enable_bsscfg; i++) {
 		value = &rdata->values[i];

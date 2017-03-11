@@ -1396,7 +1396,7 @@
 				config {
 					pins = "gpio64";
 					drive-strength = <16>;
-					bias-pull-down;
+					bias-disable;
 					output-high;
 				};
 			};
