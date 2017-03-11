@@ -5364,7 +5364,7 @@ static int smbchg_jeita_flow(int usb_status)
 	if (!smbchg_is_charging(usb_status))
 		return aicl_time;
 
-	if (g_disable_charge_flag) {
+	if ((g_disable_charge_flag)||(strcmp(androidboot_mode,"recovery")==0)) {
 		printk(KERN_EMERG "[SMBCHG] disable charging\n");
 		smbchg_charging_en(smbchg_dev, 0);
 		smb1351_dual_disable();
@@ -6639,7 +6639,7 @@ int smbchg_init_setting(struct smbchg_chip *chip)
 	}
 
         //SMBCHGL_CHGR_CFG.CFG_RCHG_LVL = RCHG_THRESH_200MV
-        rc = smbchg_sec_masked_write(chip, chip->chgr_base + 0xFF, 0x01, 0x01);
+        rc = smbchg_sec_masked_write(chip, chip->chgr_base + 0xFF, 0x01, 0x00);
 	if (rc < 0) {
 		dev_err(chip->dev, "Set SMBCHGL_CHGR_CFG.CFG_RCHG_LVL fail, 0x11F1 rc=%d\n", rc);
 		return rc;
@@ -6739,8 +6739,22 @@ int smbchg_init_setting(struct smbchg_chip *chip)
 		return rc;
 	}
 
+	//Set VSYS MAX = VFLT + 200mV
+	rc = smbchg_sec_masked_write(chip, 0x12F5, 0x03, 0x00);
+	if (rc < 0) {
+		dev_err(chip->dev, "Set Set VSYS MAX fail, rc=%d\n", rc);
+		return rc;
+	}
+
+	//Set VSYS tracking VBATT by 200mV
+	rc = smbchg_sec_masked_write(chip, 0x14FB, 0x04, 0x04);
+	if (rc < 0) {
+		dev_err(chip->dev, "Set Set VSYS tracking VBATT fail, rc=%d\n", rc);
+		return rc;
+	}
+
 	printk(KERN_EMERG "[SMBCHG] %s: ---\n",__func__);
-        return 0;
+	return 0;
 }
 
 int smbchg_config_max_current(struct smbchg_chip *chip, int bc1p2_type)
