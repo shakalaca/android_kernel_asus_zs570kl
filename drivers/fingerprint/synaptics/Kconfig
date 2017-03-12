@@ -1,0 +1,8 @@
+
+config FINGERPRINT_SYNAPTICS
+	tristate "Support for synaptics fingerprint sensor devices"
+	help
+	  Say Y here to enable synaptics fingerprint sensor device
+	  
+
+

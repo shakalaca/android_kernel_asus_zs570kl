@@ -1,0 +1,6 @@
+ZD552KL firmware:
+       BOE:Pisces_BOE_TD4300_PR2330212_80040301.img.ihex
+       TM:Pisces_TM_TD4300_PR2347791_80010301.img.ihex
+ZS550KL firmware:
+       BOE:PR2463803-BOE-4004F315_0909.img.ihex
+       TM:PR2486588-TM-4001F318_1018.img.ihex

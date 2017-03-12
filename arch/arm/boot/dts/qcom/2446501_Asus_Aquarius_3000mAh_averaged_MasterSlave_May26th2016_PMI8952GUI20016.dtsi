@@ -1,0 +1,62 @@
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+qcom,2446501_asus_aquarius_3000mah_averaged_masterslave_may26th2016 {
+	/* #2446501_Asus_Aquarius_3000mAh_averaged_MasterSlave_May26th2016*/
+	qcom,max-voltage-uv = <4400000>;
+	qcom,nom-batt-capacity-mah = <3000>;
+	qcom,batt-id-kohm = <100>;
+	qcom,battery-beta = <3435>;
+	qcom,battery-type = "asus_aquarius_3000mah";
+	qcom,chg-rslow-comp-c1 = <3125215>;
+	qcom,chg-rslow-comp-c2 = <4000812>;
+	qcom,chg-rs-to-rslow = <1016096>;
+	qcom,chg-rslow-comp-thr = <0x9C>;
+	qcom,checksum = <0x33C6>;
+	qcom,gui-version = "PMI8950GUI - 2.0.0.16";
+	qcom,fg-profile-data = [
+		 F1 83 78 7D 
+		 89 81 F9 77 
+		 55 83 49 51 
+		 C9 80 4E 8C 
+		 0E 82 CE 9A 
+		 02 BE 39 CB 
+		 59 0E F4 83 
+		 FD 7C FE 80 
+		 AE 76 4D 83 
+		 37 71 69 5E 
+		 7D 7D 6D 82 
+		 A1 98 41 B7 
+		 7E C3 58 0D 
+		 B9 0B 70 5B 
+		 14 70 84 FE 
+		 6C 3D D2 44 
+		 36 3B 00 00 
+		 4D 4C D9 33 
+		 3F 31 00 00 
+		 00 00 00 00 
+		 00 00 00 00 
+		 BF 6B 61 6A 
+		 92 58 34 83 
+		 5C 75 C5 68 
+		 F2 52 7E 80 
+		 91 74 C4 63 
+		 7B 75 66 AB 
+		 1A 9B 60 79 
+		 5E A0 71 0C 
+		 28 00 FF 36 
+		 F0 11 30 03 
+		 00 00 00 0C 
+	];
+};
+

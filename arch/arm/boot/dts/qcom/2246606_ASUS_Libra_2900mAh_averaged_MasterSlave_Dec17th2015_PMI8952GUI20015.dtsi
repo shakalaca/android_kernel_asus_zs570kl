@@ -1,0 +1,49 @@
+
+qcom,2246606_asus_libra_2900mah_averaged_masterslave_dec17th2015 {
+	/* #2246606_ASUS_Libra_2900mAh_averaged_MasterSlave_Dec17th2015*/
+	qcom,max-voltage-uv = <4400000>;
+	qcom,nom-batt-capacity-mah = <2900>;
+	qcom,batt-id-kohm = <100>;
+	qcom,battery-beta = <3435>;
+	qcom,battery-type = "asus_libra_2900mah";
+	qcom,chg-rslow-comp-c1 = <4242134>;
+	qcom,chg-rslow-comp-c2 = <7659124>;
+	qcom,chg-rs-to-rslow = <1093457>;
+	qcom,chg-rslow-comp-thr = <0xB8>;
+	qcom,checksum = <0xB5B0>;
+	qcom,gui-version = "PMI8950GUI - 2.0.0.15";
+	qcom,fg-profile-data = [
+		 E2 83 E3 7C 
+		 18 81 26 77 
+		 64 83 31 74 
+		 6B 89 93 94 
+		 1B 82 22 9A 
+		 06 BD 8F C9 
+		 56 0F F1 83 
+		 DC 7C E6 80 
+		 86 76 5F 83 
+		 72 4E 22 83 
+		 3A 8F 57 82 
+		 A5 99 FC BC 
+		 ED C9 52 0D 
+		 D6 0B AD 5A 
+		 14 70 B8 FE 
+		 3E 3D E7 44 
+		 23 41 00 00 
+		 B4 45 81 38 
+		 5E 3C 00 00 
+		 00 00 00 00 
+		 00 00 00 00 
+		 37 70 C3 6A 
+		 2F 6C 8A 88 
+		 3C 77 DB 6B 
+		 17 6F 1A 7A 
+		 A6 75 5D 69 
+		 92 5C 4E B0 
+		 1D BB 60 8C 
+		 5E A0 71 0C 
+		 28 00 FF 36 
+		 F0 11 30 03 
+		 00 00 00 0C 
+	];
+};
