@@ -33,6 +33,7 @@
 #include <linux/cpuidle.h>
 #include <linux/timer.h>
 #include <linux/wakeup_reason.h>
+#include <linux/asusdebug.h>
 
 #include "../base.h"
 #include "power.h"
@@ -370,12 +371,11 @@ static void pm_dev_dbg(struct device *dev, pm_message_t state, char *info)
 static void pm_dev_err(struct device *dev, pm_message_t state, char *info,
 			int error)
 {
-	printk(KERN_ERR "PM: Device %s failed to %s%s: error %d\n",
+	printk(KERN_ERR "[PM]: Device %s failed to %s%s: error %d\n",
 		dev_name(dev), pm_verb(state.event), info, error);
-	//[PM] +++ Debug for suspend and resume
-	printk(KERN_EMERG "[PM] Device %s failed to %s%s: error %d\n",
-		dev_name(dev), pm_verb(state.event), info, error);
-	//[PM] --- Debug for suspend and resume
+	if (state.event == PM_EVENT_SUSPEND)
+		ASUSEvtlog("[PM]: Device %s failed to %s%s: error %d\n",
+			dev_name(dev), pm_verb(state.event), info, error);
 }
 
 static void dpm_show_time(ktime_t starttime, pm_message_t state, char *info)

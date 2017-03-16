@@ -111,9 +111,8 @@ static int pwm_device_request(struct pwm_device *pwm, const char *label)
 {
 	int err;
 
-	//remove this flag to support led green and red request pwm devices twice
 	//if (test_bit(PWMF_REQUESTED, &pwm->flags))
-		//return -EBUSY;
+	//	return -EBUSY;
 
 	if (!try_module_get(pwm->chip->ops->owner))
 		return -ENODEV;

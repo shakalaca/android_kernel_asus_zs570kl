@@ -63,4 +63,5 @@ obj-$(CONFIG_USB_COMMON)	+= common/
 
 obj-$(CONFIG_USBIP_CORE)	+= usbip/
 
-obj-$(CONFIG_USB_FUSB302)	+= asus_usb/
+#obj-$(CONFIG_USB_FUSB302)	+= asus_usb/
+obj-y				+= asus_usb/

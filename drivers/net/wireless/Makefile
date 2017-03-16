@@ -57,14 +57,14 @@ obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
-# Boradcom WiFi driver
-obj-$(CONFIG_BCMDHD)    += bcmdhd/
 
 obj-$(CONFIG_CW1200)	+= cw1200/
 obj-$(CONFIG_RSI_91X)	+= rsi/
 
-#obj-$(CONFIG_WCNSS_CORE)	+= wcnss/
+obj-$(CONFIG_WCNSS_CORE)	+= wcnss/
 
-#obj-$(CONFIG_CNSS)	+= cnss/
-#obj-$(CONFIG_WCNSS_MEM_PRE_ALLOC) += cnss_prealloc/
-#obj-$(CONFIG_CNSS_CRYPTO)	+= cnss_crypto/
+obj-$(CONFIG_CNSS)	+= cnss/
+obj-$(CONFIG_WCNSS_MEM_PRE_ALLOC) += cnss_prealloc/
+obj-$(CONFIG_CNSS_CRYPTO)	+= cnss_crypto/
+
+obj-$(CONFIG_BCMDHD)	+= bcmdhd/

@@ -1148,6 +1148,7 @@ static ssize_t fuse_fill_write_pages(struct fuse_req *req,
 		tmp = iov_iter_copy_from_user_atomic(page, ii, offset, bytes);
 		flush_dcache_page(page);
 
+		iov_iter_advance(ii, tmp);
 		if (!tmp) {
 			unlock_page(page);
 			page_cache_release(page);
@@ -1160,7 +1161,6 @@ static ssize_t fuse_fill_write_pages(struct fuse_req *req,
 		req->page_descs[req->num_pages].length = tmp;
 		req->num_pages++;
 
-		iov_iter_advance(ii, tmp);
 		count += tmp;
 		pos += tmp;
 		offset += tmp;
@@ -1293,8 +1293,8 @@ static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			//pr_info("initialize data free size when acess sdcard0 ,store = %lld, count = %ld\n", store, count);
 			store -= count;
 
-			if (store <= data_free_size_th) {
-				pr_info("free_size = %lld, less than 50MB ,no space for write!\n", store);
+			if (store <= 0) {
+				pr_info("[fuse]free_size = %lld, less than 50MB ,no space for write!\n", store);
 				err = -ENOSPC;
 				goto out;
 			}

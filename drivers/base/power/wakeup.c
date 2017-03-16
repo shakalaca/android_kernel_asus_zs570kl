@@ -16,8 +16,7 @@
 #include <linux/debugfs.h>
 #include <linux/types.h>
 #include <trace/events/power.h>
-#include <linux/wakelock.h>
-
+#include <linux/asusdebug.h>
 #include "power.h"
 
 /*
@@ -461,19 +460,9 @@ static void wakeup_source_report_event(struct wakeup_source *ws)
  *
  * It is safe to call this function from interrupt context.
  */
-
-#ifdef ASUS_FACTORY_BUILD
- extern unsigned char fac_wakeup_sign;
-#endif
-
 void __pm_stay_awake(struct wakeup_source *ws)
 {
 	unsigned long flags;
-
-#ifdef ASUS_FACTORY_BUILD
-	if(fac_wakeup_sign && ws && strcmp(ws->name,"UsbCable_Lock_Wake") != 0)
-		return;
-#endif
 
 	if (!ws)
 		return;
@@ -717,7 +706,7 @@ void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
-		if (ws->active) {
+		if (ws->active && len < max) {
 			if (!active)
 				len += scnprintf(pending_wakeup_source, max,
 						"Pending Wakeup Sources: ");
@@ -749,7 +738,7 @@ void pm_print_active_wakeup_sources(void)
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
 		if (ws->active) {
-			pr_info("[PM]active wakeup source: %s\n", ws->name);
+			pr_info("active wakeup source: %s\n", ws->name);
 			active = 1;
 		} else if (!active &&
 			   (!last_activity_ws ||
@@ -969,22 +958,6 @@ static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 
 	return 0;
 }
-
-#ifdef ASUS_FACTORY_BUILD
-void release_wakeup_source(void)
-{
-	struct wakeup_source *ws;
-
-	rcu_read_lock();
-	list_for_each_entry_rcu(ws, &wakeup_sources, entry)
-		if (ws->active && strcmp(ws->name,"UsbCable_Lock_Wake") != 0) {
-			printk(KERN_ERR"[factool log]release wakeup source:%s\n",ws->name);
-			wake_unlock((struct wake_lock*)ws);
-		}
-	rcu_read_unlock();
-}
-EXPORT_SYMBOL_GPL(release_wakeup_source);
-#endif
 
 static int wakeup_sources_stats_open(struct inode *inode, struct file *file)
 {

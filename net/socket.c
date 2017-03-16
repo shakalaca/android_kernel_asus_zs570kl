@@ -2449,7 +2449,6 @@ int __sys_recvmmsg(int fd, struct mmsghdr __user *mmsg, unsigned int vlen,
 			break;
 	}
 
-
 	if (err == 0)
 		goto out_put;
 
@@ -2472,7 +2471,7 @@ int __sys_recvmmsg(int fd, struct mmsghdr __user *mmsg, unsigned int vlen,
 		sock->sk->sk_err = -err;
 	}
 out_put:
-	fput_light(sock->file, fput_needed);	
+	fput_light(sock->file, fput_needed);
 
 	return datagrams;
 }

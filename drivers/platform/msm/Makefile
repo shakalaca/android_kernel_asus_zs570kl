@@ -25,7 +25,4 @@ obj-$(CONFIG_QPNP_VIBRATOR) += qpnp-vibrator.o
 obj-$(CONFIG_MSM_AVTIMER) += avtimer.o
 obj-$(CONFIG_MSM_11AD) += msm_11ad/
 obj-$(CONFIG_MSM_MHI_DEV) += mhi_dev/
-
-ifeq ($(FACTORY),1)
-KBUILD_CFLAGS += -DASUS_FACTORY_BUILD
-endif
+obj-$(CONFIG_SSM) += ssm.o

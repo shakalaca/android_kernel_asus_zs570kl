@@ -168,123 +168,8 @@ static void debounce_hall_sensor_report_function(struct work_struct *dat)
 
 }
 
-static void switch_irq_debounce_hall_sensor_report_function(struct work_struct *dat)
-{
-	unsigned long flags;
-	int counter, counter_trigger = 0, initial_status;
-	int de_bounce=0;
-	int sleep_time=0;
-	int ret=0;
-
-	printk("default_value:%d\n",hall_sensor_dev->default_value);
-	if(hall_sensor_dev->default_value==0) {
-		input_report_switch(hall_sensor_dev->hall_indev, SW_LID, 0);
-		input_sync(hall_sensor_dev->hall_indev);
-		return;
-	} else if(hall_sensor_dev->default_value==1) {
-		input_report_switch(hall_sensor_dev->hall_indev, SW_LID, 1);
-		input_sync(hall_sensor_dev->hall_indev);
-		return;
-	}
-
-	printk(" debounce:%d \n",hall_sensor_dev->debounce);
-	printk(" sleep_time:%d \n",hall_sensor_dev->sleep);
-	if(hall_sensor_dev->debounce<50) {
-		printk(" debounce<50  \n");
-		de_bounce=50;
-	} else {
-		de_bounce=hall_sensor_dev->debounce;
-	}
-
-	if(hall_sensor_dev->sleep<10  || hall_sensor_dev->sleep>hall_sensor_dev->debounce){
-		printk(" sleep_time<10 or sleep>debounce \n");
-		sleep_time=10;
-	} else {
-		sleep_time=hall_sensor_dev->sleep;
-	}
-
-	if(!hall_sensor_dev->enable){
-		dbg(" hall sensor is disable!\n");
-		wake_unlock(&hall_sensor_dev->wake_lock);
-		return;
-	}
-	initial_status =hall_sensor_dev->status;
-	printk(" initial_status:%d \n",hall_sensor_dev->status);
-	printk(" de_bounce:%d \n",de_bounce);
-	for (counter = 0;counter < ((de_bounce/sleep_time));counter++) {
-		msleep(sleep_time);
-		printk(" counter:%d \n",counter);
-		spin_lock_irqsave(&hall_sensor_dev->mHallSensorLock, flags);
-		if (gpio_get_value(HALL_SENSOR_GPIO) == hall_sensor_dev->irq_trigger) {
-			hall_sensor_dev->status = 0;
-			counter_trigger++;
-			printk(" gpio_get_value 0 \n");
-		}else{
-			hall_sensor_dev->status = 1;
-			printk(" gpio_get_value 1 \n");
-		}
-		spin_unlock_irqrestore(&hall_sensor_dev->mHallSensorLock, flags);
-	}
-	printk(" counter_trigger:%d \n",counter_trigger);
-	if( (counter_trigger > 0) && (counter_trigger < (de_bounce/sleep_time))){
-		printk(" SW_LID do not report to framework.\n");
-		hall_sensor_dev->status = initial_status;
-		wake_unlock(&hall_sensor_dev->wake_lock);
-		return;
-	}
-	input_report_switch(hall_sensor_dev->hall_indev, SW_LID, !hall_sensor_dev->status);
-	input_sync(hall_sensor_dev->hall_indev);
-
-
-	wake_unlock(&hall_sensor_dev->wake_lock);
-	dbg(" report value = %d\n", !hall_sensor_dev->status);
-
-	dbg("hall_sensor_dev->irq_trigger:%d\n",hall_sensor_dev->irq_trigger );
-	dbg("hall_sensor_dev->status:%d\n",hall_sensor_dev->status );
-	if(hall_sensor_dev->irq_trigger!=hall_sensor_dev->status) {
-		dbg("skip swtich IRQ\n" );
-		return ;
-	}
-
-	/* swtich irq_trigger */
-	if(hall_sensor_dev->irq_trigger==1) {
-		hall_sensor_dev->irq_trigger=0;
-	}else {
-		hall_sensor_dev->irq_trigger=1;
-	}
-
-	/* free irq */
-	free_irq(HALL_SENSOR_IRQ, hall_sensor_dev);
-	gpio_free(HALL_SENSOR_GPIO);
-
-	HALL_SENSOR_IRQ = gpio_to_irq(HALL_SENSOR_GPIO);
-	if (HALL_SENSOR_IRQ < 0) {
-		printk(" gpio_to_irq ERROR, irq=%d.\n", HALL_SENSOR_IRQ);
-	}else {
-		dbg(" gpio_to_irq IRQ %d successed on GPIO:%d\n", HALL_SENSOR_IRQ, HALL_SENSOR_GPIO);
-	}
-
-	/* swtich IRQ */
-	if(hall_sensor_dev->irq_trigger==1) {
-		ret = request_threaded_irq(HALL_SENSOR_IRQ, NULL, hall_sensor_interrupt_handler, IRQF_TRIGGER_HIGH    | IRQF_ONESHOT,
-		INT_NAME, hall_sensor_dev);
-		printk(" init_irq IRQF_TRIGGER_HIGH \n" );
-	} else {
-		ret = request_threaded_irq(HALL_SENSOR_IRQ, NULL, hall_sensor_interrupt_handler, IRQF_TRIGGER_LOW   | IRQF_ONESHOT,
-		INT_NAME, hall_sensor_dev);
-		printk(" init_irq IRQF_TRIGGER_LOW \n" );
-	}
-
-	if (ret < 0) {
-		printk(" request_irq() ERROR %d.\n", ret);
-	} else {
-		dbg(" Enable irq !! \n");
-		enable_irq_wake(HALL_SENSOR_IRQ);
-	}
-}
-
 /*===========================
-*|| sysfs DEVICE_ATTR part ||
+*|| sysfs DEVICE_Hall sensor part ||
 *===========================
 *
 */
@@ -312,7 +197,7 @@ static ssize_t store_action_status(struct device *dev, struct device_attribute *
 	hall_sensor_dev->status = 1;
 	spin_unlock_irqrestore(&hall_sensor_dev->mHallSensorLock, flags);
 
-	printk("[ATTR] status rewite value = %d\n",!hall_sensor_dev->status);
+	printk("[Hall sensor] status rewite value = %d\n",!hall_sensor_dev->status);
 	return count;
 }
 
@@ -342,7 +227,7 @@ static ssize_t store_hall_sensor_enable(struct device *dev, struct device_attrib
 		unsigned long flags;
 		if(0 == request) {
 			// Turn off
-			printk("[ATTR] Turn off.\n");
+			printk("[Hall sensor] Turn off.\n");
 
 			spin_lock_irqsave(&hall_sensor_dev->mHallSensorLock, flags);
 			hall_sensor_dev->enable=request;
@@ -350,22 +235,22 @@ static ssize_t store_hall_sensor_enable(struct device *dev, struct device_attrib
 
 		}else if(1 == request){
 			// Turn on
-			printk("[ATTR] Turn on. \n");
+			printk("[Hall sensor] Turn on. \n");
 
 			spin_lock_irqsave(&hall_sensor_dev->mHallSensorLock, flags);
 			hall_sensor_dev->enable=request;
 			spin_unlock_irqrestore(&hall_sensor_dev->mHallSensorLock, flags);
 
 		}else{
-			printk("[ATTR] Enable/Disable Error, can not recognize (%d)", request);
+			printk("[Hall sensor] Enable/Disable Error, can not recognize (%d)", request);
 		}
 
 	}
 	return count;
 }
 
-static DEVICE_ATTR(status, S_IRUGO, show_action_status, store_action_status);
-static DEVICE_ATTR(switch, S_IRUGO,show_hall_sensor_enable, store_hall_sensor_enable);
+static DEVICE_ATTR(status, 0660, show_action_status, store_action_status);
+static DEVICE_ATTR(switch, 0660,show_hall_sensor_enable, store_hall_sensor_enable);
 
 static struct attribute *hall_sensor_attrs[] = {
 	&dev_attr_status.attr,
@@ -432,9 +317,9 @@ init_data_err:
 	return ret;
 }
 
-static void set_pinctrl(struct device *dev)
+static int set_pinctrl(struct device *dev)
 {
-	int ret;
+	int ret = 0;
 	struct pinctrl *key_pinctrl;
 	struct pinctrl_state *set_state;
 
@@ -442,43 +327,8 @@ static void set_pinctrl(struct device *dev)
 	set_state = pinctrl_lookup_state(key_pinctrl, "hall_gpio_high");
 	ret = pinctrl_select_state(key_pinctrl, set_state);
 	dbg("%s: pinctrl_select_state = %d\n", __FUNCTION__, ret);
+	return ret;
 }
-
-static int switch_init_irq (void)
-{
-	int ret = 0;
-
-	/* GPIO to IRQ */
-	HALL_SENSOR_IRQ = gpio_to_irq(HALL_SENSOR_GPIO);
-
-	if (HALL_SENSOR_IRQ < 0) {
-		printk(" gpio_to_irq ERROR, irq=%d.\n", HALL_SENSOR_IRQ);
-	}else {
-		dbg(" gpio_to_irq IRQ %d successed on GPIO:%d\n", HALL_SENSOR_IRQ, HALL_SENSOR_GPIO);
-	}
-
-	if(hall_sensor_dev->irq_trigger==1) {
-		ret = request_threaded_irq(HALL_SENSOR_IRQ, NULL, hall_sensor_interrupt_handler,
-		IRQF_TRIGGER_HIGH    | IRQF_ONESHOT,
-		INT_NAME, hall_sensor_dev);
-		dbg(" init_irq IRQF_TRIGGER_HIGH " );
-	} else {
-		ret = request_threaded_irq(HALL_SENSOR_IRQ, NULL, hall_sensor_interrupt_handler,
-		IRQF_TRIGGER_LOW   | IRQF_ONESHOT,
-		INT_NAME, hall_sensor_dev);
-		dbg(" init_irq IRQF_TRIGGER_LOW " );
-	}
-
-	if (ret < 0)
-	printk(" request_irq() ERROR %d.\n", ret);
-	else {
-		dbg(" Enable irq !! \n");
-		enable_irq_wake(HALL_SENSOR_IRQ);
-	}
-
-	return 0;
-}
-
 
 static int init_irq_data (void)
 {
@@ -618,8 +468,11 @@ static int hall_sensor_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto probe_err;
 
-	set_pinctrl(&pdev->dev);
-	hall_pdev=pdev;
+	ret = set_pinctrl(&pdev->dev);
+	if (ret < 0)
+		goto probe_err;
+	
+	hall_pdev = pdev;
 	init_gpio_data();
 	/* sysfs */
 
@@ -640,19 +493,13 @@ static int hall_sensor_probe(struct platform_device *pdev)
 
 	hall_sensor_dev->debounce=60;
 	hall_sensor_dev->sleep=30;
-	//switch IRQ
-	if (0) {
-		ret = switch_init_irq();
-	} else {
-		ret = init_irq_data();
-	}
+	
+	ret = init_irq_data();
 	if (ret < 0)
 		goto probe_err;
 
 	hall_sensor_wq = create_singlethread_workqueue("hall_sensor_wq");
-	if (0) {
-		INIT_DEFERRABLE_WORK(&hall_sensor_dev->hall_sensor_work, switch_irq_debounce_hall_sensor_report_function);
-	} else if(1) {
+	if(1) {
 		INIT_DEFERRABLE_WORK(&hall_sensor_dev->hall_sensor_work, debounce_hall_sensor_report_function);
 	} else   {
 		INIT_DEFERRABLE_WORK(&hall_sensor_dev->hall_sensor_work, hall_sensor_report_function);
@@ -662,7 +509,7 @@ static int hall_sensor_probe(struct platform_device *pdev)
 	return 0;
 
 probe_err:
-	printk("Probe fail\n");
+	printk("hall sensor probe fail\n");
 	return ret;
 }
 

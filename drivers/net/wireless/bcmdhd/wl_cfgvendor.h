@@ -122,6 +122,7 @@ enum andr_vendor_subcmd {
 	ANDR_WIFI_SET_COUNTRY,
 #ifdef CUSTOMER_HW_ZEN
 	ANDR_WIFI_INTERFACE_CREATE,
+    ANDR_WIFI_INTERFACE_REMOVE,
 #endif /* CUSTOMER_HW_ZEN */
 	GSCAN_SUBCMD_SET_EPNO_SSID,
 	WIFI_SUBCMD_SET_SSID_WHITELIST,
@@ -307,7 +308,9 @@ enum andr_wifi_attr {
 	ANDR_WIFI_ATTRIBUTE_NODFS_SET,
 #ifdef CUSTOMER_HW_ZEN
 	ANDR_WIFI_ATTRIBUTE_COUNTRY,
-	ANDR_WIFI_ATTRIBUTE_INTERFACE_CREATE
+    ANDR_WIFI_ATTRIBUTE_ND_OFFLOAD_VALUE,
+	ANDR_WIFI_ATTRIBUTE_INTERFACE_CREATE,
+    ANDR_WIFI_ATTRIBUTE_INTERFACE_REMOVE
 #else
 	ANDR_WIFI_ATTRIBUTE_COUNTRY
 #endif /* CUSTOMER_HW_ZEN */
@@ -353,6 +356,7 @@ extern int wl_cfgvendor_send_hotlist_event(struct wiphy *wiphy,
                 struct net_device *dev, void  *data, int len, wl_vendor_event_t event);
 #ifdef CUSTOMER_HW_ZEN
 extern int wl_cfg80211_interface_create(struct net_device *dev, char *name);
+extern int wl_cfg80211_interface_remove(struct net_device *dev, char *name);
 #endif /* CUSTOMER_HW_ZEN */
 #else
 static INLINE int cfgvendor_attach(struct wiphy *wiphy) { return 0; }

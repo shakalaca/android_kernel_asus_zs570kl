@@ -63,6 +63,8 @@ extern FSC_U32          SinkRequestOpPower;
 /* ASUS_BSP : refresh traffic monitor timer +++ */
 union power_supply_propval refresh_timer = {0,};
 /* ASUS_BSP : refresh traffic monitor timer --- */
+
+//#define INIT_COMPLETION(x)      ((x).done = 0)
 #ifdef FSC_DEBUG
 #include "../core/core.h"                                                       // GetDeviceTypeCStatus
 #endif // FSC_DEBUG
@@ -636,9 +638,9 @@ void fusb302_update_sink_capabilities(unsigned int * PDSinkCaps)
 
         inMsgBuffer[4] = 0x0B;				// 0x0B : update sink capabilities
 
-        SinkRequestMaxVoltage = 180;                    // 180 * 50mV  = 9V
-        SinkRequestMaxPower   = 36000;                  // 36000 * 0.5mW = 18W
-        SinkRequestOpPower = 36000;                     // Operating power the sink will request (36000 * 0.5mW = 18W, used to calculate current as well)
+        SinkRequestMaxVoltage = PDSinkCaps[0];                    // 50mV * PDSinkCaps[0]
+        SinkRequestMaxPower   = PDSinkCaps[1]*PDSinkCaps[0];      // PDSinkCaps[1]*10mA*PDSinkCaps[0]*50mV
+        SinkRequestOpPower = PDSinkCaps[1]*PDSinkCaps[0];         // Operating power the sink will request (sed to calculate current as well)
         USB_FUSB302_331_INFO("%s - Charger write back to PD : SinkRequestMaxVoltage = %dV , SinkRequestMaxPower = %dW , SinkRequestOpPower = %dW\n", __func__,SinkRequestMaxVoltage/20,SinkRequestMaxPower/2000,SinkRequestOpPower/2000);
         for (i = 0; i < 7; i++)
 	{
@@ -1022,6 +1024,7 @@ static int fusb30x_probe (struct i2c_client* client,
 	int proc_ret =0;
 	struct power_supply *battery_psy = NULL;
 	struct regulator *regulator_usbvdd;	
+        USB_FUSB302_331_INFO("[USB] FUSB302 version = 3.3.2\n");
 	/* ASUS_BSP : for charger ready +++ */	
 	battery_psy = power_supply_get_by_name("battery");
 	if (!battery_psy) {

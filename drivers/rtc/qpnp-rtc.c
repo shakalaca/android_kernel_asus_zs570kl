@@ -380,10 +380,6 @@ qpnp_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	return 0;
 }
 
-#ifdef ASUS_FACTORY_BUILD
-extern unsigned char fac_wakeup_sign;
-static unsigned char fac_contrl_sign = 1;
-#endif
 
 static int
 qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
@@ -393,11 +389,6 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
 	u8 ctrl_reg;
 	u8 value[4] = {0};
-
-#ifdef ASUS_FACTORY_BUILD
-	if(fac_wakeup_sign && fac_contrl_sign)
-		return 0;
-#endif
 
 	spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
 	ctrl_reg = rtc_dd->alarm_ctrl_reg1;
@@ -426,17 +417,6 @@ rtc_rw_fail:
 	spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
 	return rc;
 }
-
-#ifdef ASUS_FACTORY_BUILD
-struct device *fac_alarm_dev;
-void alarm_irq_disable(void)
-{
-	fac_contrl_sign = 0;
-	qpnp_rtc_alarm_irq_enable(fac_alarm_dev, 0);
-	fac_contrl_sign = 1;
-}
-EXPORT_SYMBOL_GPL(alarm_irq_disable);
-#endif
 
 static struct rtc_class_ops qpnp_rtc_ops = {
 	.read_time = qpnp_rtc_read_time,
@@ -491,10 +471,6 @@ static int qpnp_rtc_probe(struct spmi_device *spmi)
 	struct qpnp_rtc *rtc_dd;
 	struct resource *resource;
 	struct spmi_resource *spmi_resource;
-
-#ifdef ASUS_FACTORY_BUILD
-	fac_alarm_dev = &spmi->dev;
-#endif
 
 	rtc_dd = devm_kzalloc(&spmi->dev, sizeof(*rtc_dd), GFP_KERNEL);
 	if (rtc_dd == NULL) {

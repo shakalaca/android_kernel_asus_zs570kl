@@ -25,7 +25,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_linux.c 650645 2016-07-22 04:31:09Z $
+ * $Id: dhd_linux.c 674867 2016-12-13 04:22:04Z $
  */
 
 #include <typedefs.h>
@@ -379,10 +379,6 @@ extern void dhd_wlfc_plat_deinit(void *dhd);
 extern uint sd_f2_blocksize;
 extern int dhdsdio_func_blocksize(dhd_pub_t *dhd, int function_num, int block_size);
 #endif /* USE_DYNAMIC_F2_BLKSIZE */
-
-#ifdef ZEN_TPUT_MONITOR
-extern int sysctl_tcp_wmem[3];
-#endif /* ZEN_TPUT_MONITOR */
 
 #if LINUX_VERSION_CODE == KERNEL_VERSION(2, 6, 15)
 const char *
@@ -2600,14 +2596,6 @@ void dhd_enable_packet_filter(int value, dhd_pub_t *dhd)
 
 }
 #ifdef ZEN_TPUT_MONITOR
-static void
-dhd_tcp_wmem_write(void)
-{
-	sysctl_tcp_wmem[0] = 524288;
-	sysctl_tcp_wmem[1] = 1048576;
-	sysctl_tcp_wmem[2] = 4194240;
-}
-
 static int
 dhd_tput_monitor_thread(void *data)
 {
@@ -2620,7 +2608,8 @@ dhd_tput_monitor_thread(void *data)
     ulong passed_msec = 0;
 	ulong pre_tx_bytes = 0;
 	ulong pre_rx_bytes = 0;
-	int count = 0;
+	int enable = 0;
+	int disable = 0;
 	bool flag = FALSE;
 
 	DAEMONIZE("dhd_tput_monitor");
@@ -2636,19 +2625,20 @@ dhd_tput_monitor_thread(void *data)
                 pre_jiffies = jiffies;
 				tx_bytes = ifp->stats.tx_bytes;
 				rx_bytes = ifp->stats.rx_bytes;
-                DHD_TRACE(("%s: check, tx %lu, rx %lu, time %lu threshold=%lu\n",
-                            __FUNCTION__,
-                            tx_bytes - pre_tx_bytes, rx_bytes - pre_rx_bytes,
-                            passed_msec,
-                            (ulong)ZEN_TPUT_THRESHOLD * passed_msec / 1000));
+				DHD_TRACE(("%s: check, tx %lu, rx %lu, time %lu threshold=%lu\n",
+					__FUNCTION__,
+					tx_bytes - pre_tx_bytes, rx_bytes - pre_rx_bytes,
+					passed_msec,
+					flag ?
+					(ulong)(ZEN_TPUT_THRESHOLD - ZEN_TPUT_DELTA) *
+					passed_msec / 1000 :
+					(ulong)ZEN_TPUT_THRESHOLD * passed_msec / 1000));
 				if ((tx_bytes - pre_tx_bytes) >=
-                        ((ulong)ZEN_TPUT_THRESHOLD * passed_msec / 1000) ||
-                        (rx_bytes - pre_rx_bytes) >=
-                        ((ulong)ZEN_TPUT_THRESHOLD * passed_msec / 1000)) {
-					count++;
-					if (count == 2 && !flag) {
-						DHD_ERROR(("%s: write tcp_wmem\n", __FUNCTION__));
-						dhd_tcp_wmem_write();
+					((ulong)ZEN_TPUT_THRESHOLD * passed_msec / 1000) ||
+				    (rx_bytes - pre_rx_bytes) >=
+					((ulong)ZEN_TPUT_THRESHOLD * passed_msec / 1000)) {
+					enable++;
+					if (enable == ZEN_TPUT_CHECK_COUNT && !flag) {
 						DHD_ERROR(("%s: affinity enable\n", __FUNCTION__));
 						dhd_irq_affinity_enable(ifp->net, true);
 #ifdef DHDTCPACK_SUPPRESS
@@ -2656,10 +2646,19 @@ dhd_tput_monitor_thread(void *data)
 #endif /* DHDTCPACK_SUPPRESS */
 						flag = TRUE;
 					}
-					if (count > 2) count = 2;
+					if (enable > ZEN_TPUT_CHECK_COUNT)
+						enable = ZEN_TPUT_CHECK_COUNT;
 				} else {
-					count--;
-					if (count == 0 && flag) {
+					enable = 0;
+				}
+				if ((tx_bytes - pre_tx_bytes) <
+					((ulong)(ZEN_TPUT_THRESHOLD - ZEN_TPUT_DELTA) *
+					passed_msec / 1000) &&
+					(rx_bytes - pre_rx_bytes) <
+					((ulong)(ZEN_TPUT_THRESHOLD - ZEN_TPUT_DELTA) *
+					passed_msec / 1000)) {
+					disable++;
+					if (disable == ZEN_TPUT_CHECK_COUNT && flag) {
 						DHD_ERROR(("%s: affinity disable\n", __FUNCTION__));
 						dhd_irq_affinity_enable(ifp->net, false);
 #ifdef DHDTCPACK_SUPPRESS
@@ -2667,7 +2666,10 @@ dhd_tput_monitor_thread(void *data)
 #endif /* DHDTCPACK_SUPPRESS */
 						flag = FALSE;
 					}
-					if (count < 0) count = 0;
+					if (disable > ZEN_TPUT_CHECK_COUNT)
+						disable = ZEN_TPUT_CHECK_COUNT;
+				} else {
+					disable = 0;
 				}
                 pre_tx_bytes = tx_bytes;
                 pre_rx_bytes = rx_bytes;
@@ -5225,7 +5227,6 @@ dhd_dpc_kill(dhd_pub_t *dhdp)
 	}
 
 	if (dhd->thr_dpc_ctl.thr_pid < 0) {
-		tasklet_disable(&dhd->tasklet);
 		tasklet_kill(&dhd->tasklet);
 		DHD_ERROR(("%s: tasklet disabled\n", __FUNCTION__));
 	}
@@ -5235,11 +5236,9 @@ dhd_dpc_kill(dhd_pub_t *dhdp)
 #endif /* DHD_LB_RXP */
 	/* Kill the Load Balancing Tasklets */
 #if defined(DHD_LB_TXC)
-	tasklet_disable(&dhd->tx_compl_tasklet);
 	tasklet_kill(&dhd->tx_compl_tasklet);
 #endif /* DHD_LB_TXC */
 #if defined(DHD_LB_RXC)
-	tasklet_disable(&dhd->rx_compl_tasklet);
 	tasklet_kill(&dhd->rx_compl_tasklet);
 #endif /* DHD_LB_RXC */
 #endif /* DHD_LB */
@@ -5956,6 +5955,10 @@ static void dhd_rollback_cpu_freq(dhd_info_t *dhd)
 }
 #endif /* FIX_CPU_MIN_CLOCK */
 
+#ifdef CUSTOMER_HW_ZEN
+extern uint8 check_rsdb_mode;
+#endif /* CUSTOMER_HW_ZEN */
+
 static int
 dhd_stop(struct net_device *net)
 {
@@ -5991,6 +5994,10 @@ dhd_stop(struct net_device *net)
 #ifdef ZEN_TPUT_MONITOR
 	dhd_tput_monitor_release(&dhd->pub);
 #endif /* ZEN_TPUT_MONITOR */
+
+#ifdef CUSTOMER_HW_ZEN
+	check_rsdb_mode = 0;
+#endif /* CUSTOMER_HW_ZEN */
 
 	/* Set state and stop OS transmissions */
 	netif_stop_queue(net);
@@ -8084,6 +8091,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	uint32 bcn_li_bcn = 1;
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 	uint retry_max = CUSTOM_ASSOC_RETRY_MAX;
+    uint srl_max = 15;
+    uint lrl_max = 15;
 #if defined(ARP_OFFLOAD_SUPPORT)
 	int arpoe = 1;
 #endif
@@ -8595,6 +8604,10 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	/* Setup assoc_retry_max count to reconnect target AP in dongle */
 	bcm_mkiovar("assoc_retry_max", (char *)&retry_max, 4, iovbuf, sizeof(iovbuf));
 	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+    bcm_mkiovar("srl", (char *)&srl_max, 4, iovbuf, sizeof(iovbuf));
+    dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+    bcm_mkiovar("lrl", (char *)&lrl_max, 4, iovbuf, sizeof(iovbuf));
+    dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
 #if defined(AP) && !defined(WLP2P)
 	/* Turn off MPC in AP mode */
 	bcm_mkiovar("mpc", (char *)&mpc, 4, iovbuf, sizeof(iovbuf));
@@ -10044,12 +10057,7 @@ dhd_module_init(void)
 {
 	int err;
 	int retry = POWERUP_MAX_RETRY;
-	extern char* androidboot_mode;
 
-	if (strcmp(androidboot_mode,"charger")==0) {
-		printk("[Power] %s: skip this driver in charger mode\n", __func__);
-		return 0;
-	}
 	DHD_ERROR(("%s in\n", __FUNCTION__));
 
 	dhd_buzzz_attach();

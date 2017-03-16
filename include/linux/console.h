@@ -151,6 +151,7 @@ extern int console_trylock(void);
 extern void console_unlock(void);
 extern void console_conditional_schedule(void);
 extern void console_unblank(void);
+extern void console_flush_on_panic(void);
 extern struct tty_driver *console_device(int *);
 extern void console_stop(struct console *);
 extern void console_start(struct console *);
@@ -192,11 +193,5 @@ void vcs_remove_sysfs(int index);
 #ifdef CONFIG_VGA_CONSOLE
 extern bool vgacon_text_force(void);
 #endif
-
-//[Power] +++ Add for wakeup debug
-extern int gpio_irq_cnt, gpio_resume_irq[8], gic_irq_cnt, gic_resume_irq[8];
-extern unsigned int pm_pwrcs_ret;
-extern unsigned int pwrcs_time;
-//[Power] --- Add for wakeup debug
 
 #endif /* _LINUX_CONSOLE_H */

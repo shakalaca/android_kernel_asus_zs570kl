@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_common.c 650645 2016-07-22 04:31:09Z $
+ * $Id: dhd_common.c 674867 2016-12-13 04:22:04Z $
  */
 #include <typedefs.h>
 #include <osl.h>
@@ -1981,7 +1981,7 @@ dhd_eventmsg_print(dhd_pub_t *dhd_pub, void *event_data, void *raw_event_ptr,
 #define WLC_RSDB_EXTRACT_MODE(val) ((int8)((val) & (~(WLC_RSDB_MODE_AUTO_MASK))))
 
 #ifdef CUSTOMER_HW_ZEN
-uint8 rsdb_mode = 0;
+uint8 check_rsdb_mode = 0;
 #endif /* CUSTOMER_HW_ZEN */
 
 static void
@@ -2010,8 +2010,8 @@ wl_event_sdb_transition_print(void *event_data, const char *event_name)
 	DHD_ERROR(("Current RSDB Mode : %d\n", WLC_RSDB_EXTRACT_MODE(rdata->rsdb_mode)));
 
 #ifdef CUSTOMER_HW_ZEN
-	rsdb_mode = WLC_RSDB_EXTRACT_MODE(rdata->rsdb_mode);
-	DHD_ERROR(("%s rsdb_mode %d\n", __FUNCTION__, rsdb_mode)); 
+	check_rsdb_mode = WLC_RSDB_EXTRACT_MODE(rdata->rsdb_mode);
+	DHD_ERROR(("%s rsdb_mode %d\n", __FUNCTION__, check_rsdb_mode));
 #endif /* CUSTOMER_HW_ZEN */
 
 	for (i = 0; i < rdata->enable_bsscfg; i++) {

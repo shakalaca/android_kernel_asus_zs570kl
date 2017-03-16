@@ -40,13 +40,19 @@
 		modem_mem: modem_region@0 {
 			compatible = "removed-dma-pool";
 			no-map-fixup;
-			reg = <0x0 0x86c00000 0x0 0x5600000>;
+			reg = <0x0 0x86c00000 0x0 0x6a00000>;
 		};
 
-		reloc_mem: reloc_region@0 {
+		adsp_fw_mem: adsp_fw_region@0 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0x8c200000 0x0 0x1800000>;
+			reg = <0x0 0x8d600000 0x0 0x1100000>;
+		};
+
+		wcnss_fw_mem: wcnss_fw_region@0 {
+			compatible = "removed-dma-pool";
+			no-map;
+			reg = <0x0 0x8e700000 0x0 0x700000>;
 		};
 
 		venus_mem: venus_region@0 {
@@ -94,11 +100,6 @@
 			alignment = <0 0x400000>;
 			size = <0 0x800000>;
 		};
-		asus_debug_mem: asus_debug_region@0 {
-			compatible = "removed-dma-pool";
-			no-map;
-			reg = <0x0 0x8fe00000 0x0 0x00200000>;
-		};
 	};
 
 	aliases {
@@ -119,7 +120,7 @@
 		i2c2 = &i2c_2;
 		i2c3 = &i2c_3;
 		i2c5 = &i2c_5;
-		i2c6 = &i2c_6;
+		spi3 = &spi_3;
 	};
 
 	soc: soc { };
@@ -652,6 +653,31 @@
 		qcom,summing-threshold = <10>;
 	};
 
+	spi_3: spi@78b7000 { /* BLSP1 QUP3 */
+		compatible = "qcom,spi-qup-v2";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "spi_physical", "spi_bam_physical";
+		reg = <0x78b7000 0x600>,
+			<0x7884000 0x1f000>;
+		interrupt-names = "spi_irq", "spi_bam_irq";
+		interrupts = <0 97 0>, <0 238 0>;
+		spi-max-frequency = <19200000>;
+		pinctrl-names = "spi_default", "spi_sleep";
+		pinctrl-0 = <&spi3_default &spi3_cs0_active>;
+		pinctrl-1 = <&spi3_sleep &spi3_cs0_sleep>;
+		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
+			<&clock_gcc clk_gcc_blsp1_qup3_spi_apps_clk>;
+		clock-names = "iface_clk", "core_clk";
+		qcom,infinite-mode = <0>;
+		qcom,use-bam;
+		qcom,use-pinctrl;
+		qcom,ver-reg-exists;
+		qcom,bam-consumer-pipe-index = <8>;
+		qcom,bam-producer-pipe-index = <9>;
+		qcom,master-id = <86>;
+	};
+
 	i2c_2: i2c@78b6000 { /* BLSP1 QUP2 */
 		compatible = "qcom,i2c-msm-v2";
 		#address-cells = <1>;
@@ -676,6 +702,27 @@
 			<&dma_blsp1 7 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
 
+		/* DSI_TO_HDMI I2C configuration */
+		adv7533@39 {
+			compatible = "adv7533";
+			reg = <0x39>;
+			instance_id = <0>;
+			adi,video-mode = <3>; /* 3 = 1080p */
+			adi,main-addr = <0x39>;
+			adi,cec-dsi-addr = <0x3C>;
+			adi,enable-audio;
+			pinctrl-names = "pmx_adv7533_active",
+						"pmx_adv7533_suspend";
+			pinctrl-0 = <&adv7533_int_active>;
+			pinctrl-1 = <&adv7533_int_suspend>;
+			adi,irq-gpio = <&tlmm 90 0x2002>;
+			hpd-5v-en-supply = <&adv_vreg>;
+			qcom,supply-names = "hpd-5v-en";
+			qcom,min-voltage-level = <0>;
+			qcom,max-voltage-level = <0>;
+			qcom,enable-load = <0>;
+			qcom,disable-load = <0>;
+		};
 	};
 
 	i2c_3: i2c@78b7000 { /* BLSP1 QUP3 */
@@ -701,7 +748,7 @@
 		dmas = <&dma_blsp1 8 64 0x20000020 0x20>,
 			<&dma_blsp1 9 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
-		/*status = "disabled";*/
+		status = "disabled";
 	};
 
 	i2c_5: i2c@7af5000 { /* BLSP2 QUP1 */
@@ -726,30 +773,6 @@
 		qcom,master-id = <84>;
 		dmas = <&dma_blsp2 4 64 0x20000020 0x20>,
 			<&dma_blsp2 5 32 0x20000020 0x20>;
-		dma-names = "tx", "rx";
-	};
-
-	i2c_6: i2c@7af6000 { /* BLSP2 QUP2 */
-		compatible = "qcom,i2c-msm-v2";
-		#address-cells = <1>;
-		#size-cells = <0>;
-		reg-names = "qup_phys_addr";
-		reg = <0x7af6000 0x600>;
-		interrupt-names = "qup_irq";
-		interrupts = <0 300 0>;
-		qcom,clk-freq-out = <400000>;
-		qcom,clk-freq-in  = <19200000>;
-		clock-names = "iface_clk", "core_clk";
-		clocks = <&clock_gcc clk_gcc_blsp2_ahb_clk>,
-			<&clock_gcc clk_gcc_blsp2_qup2_i2c_apps_clk>;
-		pinctrl-names = "i2c_active", "i2c_sleep";
-		pinctrl-0 = <&i2c_6_active>;
-		pinctrl-1 = <&i2c_6_sleep>;
-		qcom,noise-rjct-scl = <0>;
-		qcom,noise-rjct-sda = <0>;
-		qcom,master-id = <84>;
-		dmas = <&dma_blsp2 6 64 0x20000020 0x20>,
-			<&dma_blsp2 7 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
 	};
 
@@ -1090,7 +1113,7 @@
 		reg = <0xb017000 0x1000>;
 		reg-names = "wdt-base";
 		interrupts = <0 3 0>, <0 4 0>;
-		qcom,bark-time = <15000>;
+		qcom,bark-time = <11000>;
 		qcom,pet-time = <10000>;
 		qcom,ipi-ping;
 		qcom,wakeup-enable;
@@ -1537,6 +1560,8 @@
 		qcom,use-sw-aes-xts-algo;
 		qcom,use-sw-aes-ccm-algo;
 		qcom,use-sw-ahash-algo;
+		qcom,use-sw-hmac-algo;
+		qcom,use-sw-aead-algo;
 		qcom,ce-opp-freq = <100000000>;
 	};
 
@@ -1825,6 +1850,8 @@
 		qcom,proxy-clock-names = "xo";
 		qcom,active-clock-names = "iface_clk", "bus_clk", "mem_clk";
 
+		qcom,pas-id = <5>;
+		qcom,pil-mss-memsetup;
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
 		qcom,sysmon-id = <0>;
@@ -1880,7 +1907,7 @@
 		/* GPIO output to lpass */
 		qcom,gpio-force-stop = <&smp2pgpio_ssr_smp2p_2_out 0 0>;
 
-		memory-region = <&reloc_mem>;
+		memory-region = <&adsp_fw_mem>;
 	};
 
 	qcom,venus@1de0000 {
@@ -1960,7 +1987,7 @@
 
 		/* GPIO output to wcnss */
 		qcom,gpio-force-stop = <&smp2pgpio_ssr_smp2p_4_out 0 0>;
-		memory-region = <&reloc_mem>;
+		memory-region = <&wcnss_fw_mem>;
 	};
 
 	usb3: ssusb@7000000{
@@ -2082,12 +2109,15 @@
 		reg = <0x079000 0x180>,
 			<0x070f8800 0x400>,
 			<0x01841030 0x4>,
-			<0x0193f044 0x4>;
+			<0x0193f044 0x4>,
+			<0x0193f020 0x4>;
 		reg-names = "qusb_phy_base",
 			"qscratch_base",
 			"ref_clk_addr",
-			"tcsr_phy_clk_scheme_sel";
+			"tcsr_phy_clk_scheme_sel",
+			"tcsr_phy_level_shift_keeper";
 
+		USB3_GDSC-supply = <&gdsc_usb30>;
 		vdd-supply = <&pm8953_l3>;
 		vdda18-supply = <&pm8953_l7>;
 		vdda33-supply = <&pm8953_l13>;
@@ -2109,10 +2139,12 @@
 		clocks = <&clock_gcc clk_bb_clk1>,
 			 <&clock_gcc clk_gcc_qusb_ref_clk>,
 			 <&clock_gcc clk_gcc_usb_phy_cfg_ahb_clk>,
-			 <&clock_gcc clk_gcc_qusb2_phy_reset>;
+			 <&clock_gcc clk_gcc_qusb2_phy_reset>,
+			 <&clock_gcc clk_gcc_pcnoc_usb3_axi_clk>,
+			 <&clock_gcc clk_gcc_usb30_master_clk>;
 
 		clock-names = "ref_clk_src", "ref_clk", "cfg_ahb_clk",
-			      "phy_reset";
+			      "phy_reset", "iface_clk", "core_clk";
 
 	};
 

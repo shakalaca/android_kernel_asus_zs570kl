@@ -41,25 +41,28 @@
 #define DSPS_IOCTL_READ_SLOW_TIMER32 _IOR(DSPS_IOCTL_MAGIC, 3, compat_uint_t)
 #endif
 
-#define ALS_VDD_SUPPORT
+//#define ALS_VDD_SUPPORT //device tree control L19
 #ifdef ALS_VDD_SUPPORT
-#define ALS_VDD_MIN_uV 3000000
-#define ALS_VDD_MAX_uV 3000000
-#define ALS_VDD_MAX_ua 30000
+#define ALS_VDD_MIN_uV 3050000
+#define ALS_VDD_MAX_uV 3050000
+#define ALS_VDD_MAX_ua 50000
 #define ALS_VDD_ENABLE 1
 #define ALS_VDD_DISABLE 0
 #define ALS_VDD_SETTING 2
+struct regulator *ALS_VDD;
+#endif
+
+#define ALS_GPIO_SUPPORT
+#ifdef ALS_GPIO_SUPPORT
 #define ALS_GPIO_ENABLE 1
 #define ALS_GPIO_DISABLE 0
 //#define ALS_INT_TEST
-struct regulator *ALS_VDD;
 static int ALS_GPIO;
+#endif
 
 #ifdef CONFIG_ASUS_SENSOR_ENG_CMD
 #define ALS_DEV_NAME	"proximity"
 #define ATTRIBUTES_PERMISSION  0664
-#endif
-
 #endif
 
 struct sns_ssc_control_s {
@@ -361,7 +364,9 @@ static void als_regulator_control(int enable)
 		printk("ssc als_regulator_control unknown cmd.\n");
 	}
 }
+#endif
 
+#ifdef ALS_GPIO_SUPPORT
 #ifdef ALS_INT_TEST
 static irqreturn_t als_sensor_interrupt_handler(int irq, void *dev_id)
 {
@@ -434,12 +439,12 @@ static long sensors_als_ioctl(struct file *file,
 	int ret = 0;
 	switch (cmd) {
 		case DSPS_IOCTL_ON:
-			als_regulator_control(1);
-			als_gpio_control(1);
+			als_regulator_control(ALS_VDD_ENABLE);
+			als_gpio_control(ALS_GPIO_ENABLE);
 			break;
 		case DSPS_IOCTL_OFF:
-			als_regulator_control(0);
-			als_gpio_control(0);
+			als_regulator_control(ALS_VDD_DISABLE);
+			als_gpio_control(ALS_GPIO_DISABLE);
 			break;
 
 		default:
@@ -498,11 +503,13 @@ static int sensors_ssc_probe(struct platform_device *pdev)
 #endif
 
 #ifdef ALS_VDD_SUPPORT
-	ALS_GPIO = of_get_named_gpio(pdev->dev.of_node, "qcom,als-gpio", 0);
 	ALS_VDD = devm_regulator_get(&pdev->dev, "vdd");
-
 	als_regulator_control(ALS_VDD_SETTING);
 	als_regulator_control(ALS_VDD_ENABLE);
+#endif
+
+#ifdef ALS_GPIO_SUPPORT
+	ALS_GPIO = of_get_named_gpio(pdev->dev.of_node, "qcom,als-gpio", 0);
 	als_gpio_control(ALS_GPIO_ENABLE);
 	set_pinctrl(&pdev->dev);
 #endif
@@ -617,6 +624,9 @@ static int sensors_ssc_remove(struct platform_device *pdev)
 
 #ifdef ALS_VDD_SUPPORT
 	als_regulator_control(ALS_VDD_DISABLE);
+#endif
+
+#ifdef ALS_GPIO_SUPPORT
 	als_gpio_control(ALS_GPIO_DISABLE);
 #endif
 
@@ -657,12 +667,7 @@ static struct platform_driver sensors_ssc_driver = {
 static int __init sensors_ssc_init(void)
 {
 	int rc;
-	extern char* androidboot_mode;
 
-	if (strcmp(androidboot_mode,"charger")==0) {
-		printk("[Power] %s: skip this driver in charger mode\n", __func__);
-		return 0;
-	}
 	pr_debug("%s driver version %s.\n", DRV_NAME, DRV_VERSION);
 	rc = platform_driver_register(&sensors_ssc_driver);
 	if (rc) {

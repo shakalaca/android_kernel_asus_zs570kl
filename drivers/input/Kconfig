@@ -203,6 +203,8 @@ config SENSORS_HALL
 config SENSORS_SYNA_FP
         bool "Synaptics fingerprinter sensor support"
         default n
+        ---help---
+         Kernel driver for Synoptics fingerprint.
 
 comment "Input Device Drivers"
 

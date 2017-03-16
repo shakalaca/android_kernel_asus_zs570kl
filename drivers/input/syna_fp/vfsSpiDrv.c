@@ -104,9 +104,10 @@ struct vfsspi_device_data {
 	unsigned int drdy_ntf_type;
 	struct mutex kernel_lock;
 	struct wake_lock wake_lock;
+	struct wake_lock wake_lock_irq;
 	bool irq_wakeup_flag;
 };
-
+struct vfsspi_device_data *fp_device;
 struct vfsspi_device_data *vfsSpiDevTmp = NULL;
 #ifdef VFSSPI_32BIT
 /*
@@ -152,7 +153,7 @@ static int vfsspi_send_drdy_signal(struct vfsspi_device_data *vfsspi_device)
 
 	printk("vfsspi_send_drdy_signal\n");
 
-	if (vfsspi_device->user_pid != 0) {
+	if (vfsspi_device!=NULL && vfsspi_device->user_pid != 0) {
 		rcu_read_lock();
 		/* find the task_struct associated with userpid */
 		printk("Searching task with PID=%08x\n",
@@ -398,8 +399,11 @@ static irqreturn_t vfsspi_irq(int irq, void *context)
 	Therefore, we are checking DRDY GPIO pin state to make sure
 	if the interrupt handler has been called actually by DRDY
 	interrupt and it's not a previous interrupt re-play */
-	if (gpio_get_value(vfsspi_device->drdy_pin) == DRDY_ACTIVE_STATUS) {
+	printk("vfsspi_irq\n");
+	if (vfsspi_device != NULL && gpio_get_value(vfsspi_device->drdy_pin) == DRDY_ACTIVE_STATUS) {
+		printk("vfsspi_wake_lock\n");
 		wake_lock_timeout(&vfsspi_device->wake_lock, 150);
+		wake_lock_timeout(&vfsspi_device->wake_lock_irq, 150);
 		vfsspi_sendDrdyNotify(vfsspi_device);
 	}
 
@@ -414,7 +418,7 @@ static int vfsspi_sendDrdyEventFd(struct vfsspi_device_data *vfsSpiDev)
 
     printk("vfsspi_sendDrdyEventFd\n");
 
-    if (vfsSpiDev->user_pid != 0) {
+    if (vfsSpiDev!=NULL && vfsSpiDev->user_pid != 0) {
         rcu_read_lock();
         /* find the task_struct associated with userpid */
         printk("Searching task with PID=%08x\n", vfsSpiDev->user_pid);
@@ -453,19 +457,20 @@ static int vfsspi_sendDrdyNotify(struct vfsspi_device_data *vfsSpiDev)
 {
     int ret = 0;
 
+if(vfsSpiDev != NULL){
     if (vfsSpiDev->drdy_ntf_type == VFSSPI_DRDY_NOTIFY_TYPE_EVENTFD) {
         ret = vfsspi_sendDrdyEventFd(vfsSpiDev);
     } else {
         ret = vfsspi_send_drdy_signal(vfsSpiDev);
     }
-
+}
     return ret;
 }
 
 static int vfsspi_enableIrq(struct vfsspi_device_data *vfsspi_device)
 {
 	printk("vfsspi_enableIrq\n");
-
+if(vfsspi_device != NULL){
 	if (vfsspi_device->is_drdy_irq_enabled == DRDY_IRQ_ENABLE) {
 		printk("DRDY irq already enabled\n");
 		return -EINVAL;
@@ -473,14 +478,14 @@ static int vfsspi_enableIrq(struct vfsspi_device_data *vfsspi_device)
 
 	enable_irq(gpio_irq);
 	vfsspi_device->is_drdy_irq_enabled = DRDY_IRQ_ENABLE;
-
+}
 	return 0;
 }
 
 static int vfsspi_disableIrq(struct vfsspi_device_data *vfsspi_device)
 {
 	printk("vfsspi_disableIrq\n");
-
+if(vfsspi_device != NULL){
 	if (vfsspi_device->is_drdy_irq_enabled == DRDY_IRQ_DISABLE) {
 		printk("DRDY irq already disabled\n");
 		return -EINVAL;
@@ -488,7 +493,7 @@ static int vfsspi_disableIrq(struct vfsspi_device_data *vfsspi_device)
 
 	disable_irq_nosync(gpio_irq);
 	vfsspi_device->is_drdy_irq_enabled = DRDY_IRQ_DISABLE;
-
+}
 	return 0;
 }
 static int vfsspi_set_drdy_int(struct vfsspi_device_data *vfsspi_device,
@@ -818,7 +823,6 @@ static int fp_pin_cfg(struct device *dev,
 static int fp_sensor_probe(struct platform_device *pdev)
 {
 	int status = 0;
-	struct vfsspi_device_data *fp_device;
 	struct device *dev = &pdev->dev;
 	//struct notifier_block fb_notifier;
 
@@ -843,6 +847,7 @@ static int fp_sensor_probe(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, fp_device);
 
 	wake_lock_init(&fp_device->wake_lock, WAKE_LOCK_SUSPEND, "FP_wake_lock");
+	wake_lock_init(&fp_device->wake_lock_irq, WAKE_LOCK_SUSPEND, "wake_lock_irq");
 
 	spin_lock_init(&fp_device->vfs_spi_lock);
 	mutex_init(&fp_device->buffer_mutex);
@@ -934,9 +939,18 @@ fp_kmalloc_failed:
 	return status;
 }
 
+static void fp_sensor_shutdown(struct platform_device *dev)
+{
+	printk("[FP] Driver shutdown ---\n");
+	fp_device->is_drdy_irq_enabled = DRDY_IRQ_DISABLE;
+	free_irq(gpio_irq, fp_device);
+}
 
 static int fp_sensor_remove(struct platform_device *pdev)
 {
+	printk("[FP] Driver remove ---\n");
+	fp_device->is_drdy_irq_enabled = DRDY_IRQ_DISABLE;
+	free_irq(gpio_irq, fp_device);
 	return 0;
 }
 
@@ -955,18 +969,13 @@ static struct platform_driver fp_sensor_driver = {
 	.remove		= fp_sensor_remove,
 	.suspend	= fp_sensor_suspend,
 	.resume		= fp_sensor_resume,
+	.shutdown	= fp_sensor_shutdown,
 };
 
 
 static int __init fp_sensor_init(void)
 {
 	int err = 0;
-	extern char* androidboot_mode;
-
-	if (strcmp(androidboot_mode,"charger")==0) {
-		printk("[Power] %s: skip this driver in charger mode\n", __func__);
-		return 0;
-	}
 	printk("[FP] Driver INIT +++\n");
 
 	err = platform_driver_register(&fp_sensor_driver);

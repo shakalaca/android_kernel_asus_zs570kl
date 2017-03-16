@@ -108,13 +108,13 @@
  * the test for invalid PMBR.  Not __initdata because reloading
  * the partition tables happens after init too.
  */
-int8_t is_recovery = 0;
+ int8_t is_recovery = 0;
 static int force_gpt;
 static int __init
 force_gpt_fn(char *str)
 {
 	force_gpt = 1;
-        is_recovery=1;
+        is_recovery = 1;
 	return 1;
 }
 __setup("gpt", force_gpt_fn);

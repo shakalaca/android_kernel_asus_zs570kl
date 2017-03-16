@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,9 +26,9 @@
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
-//led+++
-#include "leds-qpnp.h"
-//led---
+//vkLed+++
+//#include "leds-qpnp.h"
+//vkLed---
 
 #define WLED_MOD_EN_REG(base, n)	(base + 0x60 + n*0x10)
 #define WLED_IDAC_DLY_REG(base, n)	(WLED_MOD_EN_REG(base, n) + 0x01)
@@ -253,9 +253,9 @@
 #define NUM_KPDBL_LEDS			4
 #define KPDBL_MASTER_BIT_INDEX		0
 
-//led+++
-struct qpnp_led_data *copy_led;
-//led---
+//vkLed+++
+//struct qpnp_led_data *copy_led;
+//vkLed---
 
 /**
  * enum qpnp_leds - QPNP supported led ids
@@ -1259,7 +1259,7 @@ regulator_turn_off:
 
 static int qpnp_flash_set(struct qpnp_led_data *led)
 {
-	int rc, error;
+        int rc , error;
 	int val = led->cdev.brightness;
 
 	if (led->flash_cfg->torch_enable)
@@ -1339,7 +1339,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				goto error_reg_write;
 			}
 
-			qpnp_led_masked_write(led,
+                        qpnp_led_masked_write(led,
 				FLASH_WATCHDOG_TMR(led->base),
 				FLASH_WATCHDOG_MASK,
 				led->flash_cfg->duration);
@@ -1387,7 +1387,7 @@ static int qpnp_flash_set(struct qpnp_led_data *led)
 				goto error_flash_set;
 			}
 
-			qpnp_led_masked_write(led,
+                        qpnp_led_masked_write(led,
 				FLASH_LED_TMR_CTRL(led->base),
 				FLASH_TMR_MASK,
 				FLASH_TMR_SAFETY);
@@ -1809,7 +1809,6 @@ static void qpnp_led_set(struct led_classdev *led_cdev,
 {
 	struct qpnp_led_data *led;
 
-	printk("[LED] %s \n", __func__);
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 	if (value < LED_OFF) {
 		dev_err(&led->spmi_dev->dev, "Invalid brightness value\n");
@@ -1826,18 +1825,7 @@ static void qpnp_led_set(struct led_classdev *led_cdev,
 		schedule_work(&led->work);
 }
 
-//led+++
-void set_button_backlight(bool status) {
-	if (status) {
-		printk("[LED] %s : status=%d led on\n", __func__, status);
-		qpnp_led_set(&copy_led->cdev, LED_FULL);
-	} else {
-		printk("[LED] %s : status=%d led off\n", __func__, status);
-		qpnp_led_set(&copy_led->cdev, LED_OFF);
-	}
-}
-EXPORT_SYMBOL_GPL(set_button_backlight);
-//led---
+
 
 static void __qpnp_led_work(struct qpnp_led_data *led,
 				enum led_brightness value)
@@ -1900,6 +1888,7 @@ static void __qpnp_led_work(struct qpnp_led_data *led,
 		mutex_unlock(&led->lock);
 
 }
+
 
 static void qpnp_led_work(struct work_struct *work)
 {
@@ -2216,11 +2205,11 @@ static ssize_t pwm_us_show(struct device *dev, struct device_attribute *attr,cha
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct pwm_config_data *pwm_cfg;
 	int tmp=0;
-	
+
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
 
 	switch (led->id) {
-	case QPNP_ID_LED_MPP:		
+	case QPNP_ID_LED_MPP:
 		pwm_cfg = led->mpp_cfg->pwm_cfg;
 		tmp = pwm_cfg->pwm_period_us;
 		break;
@@ -2275,7 +2264,7 @@ static ssize_t pwm_us_store(struct device *dev,
 	previous_pwm_us = pwm_cfg->pwm_period_us;
 
 	pwm_cfg->pwm_period_us = pwm_us;
-	//pwm_free(pwm_cfg->pwm_dev);
+    //pwm_free(pwm_cfg->pwm_dev);
 	ret = qpnp_pwm_init(pwm_cfg, led->spmi_dev, led->cdev.name);
 	if (ret) {
 		pwm_cfg->pwm_period_us = previous_pwm_us;
@@ -3125,7 +3114,7 @@ static int qpnp_get_common_configs(struct qpnp_led_data *led,
 	int rc;
 	u32 val;
 	const char *temp_string;
-
+/*
 	led->cdev.default_trigger = LED_TRIGGER_DEFAULT;
 	rc = of_property_read_string(node, "linux,default-trigger",
 		&temp_string);
@@ -3133,7 +3122,7 @@ static int qpnp_get_common_configs(struct qpnp_led_data *led,
 		led->cdev.default_trigger = temp_string;
 	else if (rc != -EINVAL)
 		return rc;
-
+*/
 	led->default_on = false;
 	rc = of_property_read_string(node, "qcom,default-state",
 		&temp_string);
@@ -4017,12 +4006,9 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 						"Unable to read mpp config data\n");
 				goto fail_id_check;
 			}
-			
-			//led+++
-			printk("[LED] Copy Led structure\n");
-			copy_led = led;
-			//qpnp_mpp_set(led);
-			//led---
+            //vkLed
+            //copy_led = led;
+            //vkLed
 		} else if (strcmp(led_label, "gpio") == 0) {
 			rc = qpnp_get_config_gpio(led, temp);
 			if (rc < 0) {

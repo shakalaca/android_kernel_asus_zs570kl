@@ -82,8 +82,6 @@
 			mpp@a100 {
 				reg = <0xa100 0x100>;
 				qcom,pin-num = <2>;
-				/*<ASUS-Lotta_Lu-20160508> Add for Virtual Key LED */
-				status = "disabled";
 			};
 
 			mpp@a200 {
@@ -96,25 +94,6 @@
 				reg = <0xa300 0x100>;
 				qcom,pin-num = <4>;
 			};
-		};
-
-		qcom,leds@a100{
-			status = "okay";
-			compatible = "qcom,leds-qpnp";
-			reg = <0xa100 0x100>;
-				qcom,led_mpp_2 { 
-					status = "okay";
-					label = "mpp";
-					linux,name = "button-backlight";
-					linux,default-trigger = "none";
-					qcom,default-state = "off";
-					qcom,current-setting = <40>;
-					qcom,max-current = <40>;
-					qcom,id = <6>;
-					qcom,source-sel = <1>;
-					qcom,mode-ctrl = <0x60>;
-					qcom,mode = "manual";
-				}; 
 		};
 
 		pm8953_gpios: gpios {

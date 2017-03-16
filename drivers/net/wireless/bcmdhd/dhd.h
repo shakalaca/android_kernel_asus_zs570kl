@@ -27,7 +27,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd.h 650645 2016-07-22 04:31:09Z $
+ * $Id: dhd.h 652799 2016-08-03 15:58:30Z $
  */
 
 /****************
@@ -1342,7 +1342,7 @@ extern uint dhd_force_tx_queueing;
 #define CUSTOM_DHD_WATCHDOG_MS			DEFAULT_DHD_WATCHDOG_INTERVAL_MS
 #endif /* DEFAULT_DHD_WATCHDOG_INTERVAL_MS */
 
-#define DEFAULT_ASSOC_RETRY_MAX			3
+#define DEFAULT_ASSOC_RETRY_MAX			30
 #ifndef CUSTOM_ASSOC_RETRY_MAX
 #define CUSTOM_ASSOC_RETRY_MAX			DEFAULT_ASSOC_RETRY_MAX
 #endif /* DEFAULT_ASSOC_RETRY_MAX */
@@ -1561,10 +1561,16 @@ int dhd_irq_affinity_enable(struct net_device *net, int enable);
 #define PRIMARY_CPUCORE 0
 #define DPC_CPUCORE 3
 #ifndef ZEN_TPUT_THRESHOLD
-#define ZEN_TPUT_THRESHOLD 13107200 // 100Mbit = 100*1024*1024/8
+#define ZEN_TPUT_THRESHOLD 19660800 // 150Mbit = 100*1024*1024/8
+#endif
+#ifndef ZEN_TPUT_DELTA
+#define ZEN_TPUT_DELTA 13107200 // 100Mbit = 100*1024*1024/8, i.e., 150-100 = 50Mbit
 #endif
 #ifndef ZEN_TPUT_CHECK_INTERVAL
-#define ZEN_TPUT_CHECK_INTERVAL 2 // 2s
+#define ZEN_TPUT_CHECK_INTERVAL 1 // 1s
+#endif
+#ifndef ZEN_TPUT_CHECK_COUNT
+#define ZEN_TPUT_CHECK_COUNT 3 // 3*1s
 #endif
 #ifdef ZEN_TPUT_MONITOR
 extern void dhd_tput_monitor_func(ulong data);

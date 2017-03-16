@@ -126,6 +126,9 @@ static int inet6_create(struct net *net, struct socket *sock, int protocol,
 	if (!current_has_network())
 		return -EACCES;
 
+	if (protocol < 0 || protocol >= IPPROTO_MAX)
+		return -EINVAL;
+
 	/* Look for the requested type/protocol pair. */
 lookup_protocol:
 	err = -ESOCKTNOSUPPORT;
@@ -442,7 +445,7 @@ void inet6_destroy_sock(struct sock *sk)
 	/* Free tx options */
 
 	opt = xchg((__force struct ipv6_txoptions **)&np->opt, NULL);
-	if (opt != NULL) {
+	if (opt) {
 		atomic_sub(opt->tot_len, &sk->sk_omem_alloc);
 		txopt_put(opt);
 	}

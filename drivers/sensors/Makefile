@@ -1,9 +1,1 @@
-ifeq ($(TARGET_BUILD_VARIANT), userdebug)
-KBUILD_CFLAGS += -DCONFIG_ASUS_SENSOR_ENG_CMD
-endif
-
-ifeq ($(TARGET_BUILD_VARIANT), eng)
-KBUILD_CFLAGS += -DCONFIG_ASUS_SENSOR_ENG_CMD
-endif
-
 obj-$(CONFIG_SENSORS_SSC)	+= sensors_ssc.o

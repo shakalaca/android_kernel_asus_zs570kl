@@ -390,6 +390,34 @@ static int wl_cfgvendor_interface_create(struct wiphy *wiphy,
 
 	return err;
 }
+
+static int wl_cfgvendor_interface_remove(struct wiphy *wiphy,
+        struct wireless_dev *wdev, const void  *data, int len)
+{
+    int err = BCME_ERROR, rem, type;
+    const struct nlattr *iter;
+    char ifname[IFNAMSIZ] = {0};
+    //int revinfo = -1;
+    nla_for_each_attr(iter, data, len, rem) {
+        type = nla_type(iter);
+        switch (type) {
+            case ANDR_WIFI_ATTRIBUTE_INTERFACE_REMOVE:
+                memcpy(ifname, nla_data(iter),
+                        MIN(nla_len(iter), IFNAMSIZ));
+                WL_ERR(("%s: ifname = %s", __FUNCTION__, ifname));
+                break;
+            default:
+                WL_ERR(("Unknown type: %d\n", type));
+                return err;
+        }
+    }
+    msleep(150);
+    err = wl_cfg80211_interface_delete(wdev->netdev, ifname);
+    if (err < 0) {
+        WL_ERR(("Remove interface failed ret:%d\n", err));
+    }
+    return err;
+}
 #endif /* CUSTOMER_HW_ZEN */
 
 static int
@@ -1509,6 +1537,14 @@ static const struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
 		.doit = wl_cfgvendor_interface_create
 	},
+    {
+        {
+            .vendor_id = OUI_GOOGLE,
+            .subcmd = ANDR_WIFI_INTERFACE_REMOVE
+        },
+        .flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+        .doit = wl_cfgvendor_interface_remove
+    },
 #endif /* CUSTOMER_HW_ZEN */
 	{
 		{

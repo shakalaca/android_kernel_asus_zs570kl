@@ -26,7 +26,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd_msgbuf.c 634495 2016-04-28 07:48:59Z $
+ * $Id: dhd_msgbuf.c 674912 2016-12-13 07:56:21Z $
  */
 
 
@@ -2095,8 +2095,12 @@ dhd_prot_attach(dhd_pub_t *dhd)
 	/* Allocate prot structure */
 	if (!(prot = (dhd_prot_t *)DHD_OS_PREALLOC(dhd, DHD_PREALLOC_PROT,
 		sizeof(dhd_prot_t)))) {
-		DHD_ERROR(("%s: kmalloc failed\n", __FUNCTION__));
-		goto fail;
+		DHD_ERROR(("%s: prealloc failed, size=%lu\n", __FUNCTION__,
+				(long unsigned int)sizeof(dhd_prot_t)));
+		if (!(prot = (dhd_prot_t *)MALLOC(osh, sizeof(dhd_prot_t)))) {
+			DHD_ERROR(("%s: kmalloc failed\n", __FUNCTION__));
+			goto fail;
+		}
 	}
 	memset(prot, 0, sizeof(*prot));
 

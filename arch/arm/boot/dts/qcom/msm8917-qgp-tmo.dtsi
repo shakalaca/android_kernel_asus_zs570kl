@@ -16,6 +16,16 @@
 #include "msm8917-camera-sensor-tmo.dtsi"
 #include "msm8937-mdss-panels.dtsi"
 
+&pmi_haptic {
+	status = "okay";
+	qcom,actuator-type = "erm";
+	/delete-property/ qcom,lra-auto-res-mode;
+	/delete-property/ qcom,lra-high-z;
+	/delete-property/ qcom,lra-res-cal-period;
+	/delete-property/ qcom,correct-lra-drive-freq;
+	/delete-property/ qcom,misc-trim-error-rc19p2-clk-reg-present;
+};
+
 &flash_led {
 	/delete-node/ qcom,flash_1;
 	/delete-node/ qcom,torch_1;
@@ -80,9 +90,6 @@
 			debounce-interval = <15>;
 		};
 	};
-
-	led_flash0: qcom,camera-flash {
-	};
 };
 
 &mdss_mdp {
@@ -104,10 +111,6 @@
 
 &dsi_lead_fl10802_fwvga_video {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
-};
-
-&int_codec {
-	qcom,model = "msm8917-tmo-snd-card";
 };
 
 / {
@@ -136,4 +139,8 @@
 	qcom,warm-bat-decidegc = <600>;
 	qcom,bad-battery-detection-enable;
 	qcom,hold-soc-while-full;
+};
+
+&int_codec {
+	qcom,model = "msm8917-tmo-snd-card";
 };

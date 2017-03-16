@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wl_android.c 640787 2016-05-31 03:13:35Z $
+ * $Id: wl_android.c 652800 2016-08-03 16:07:01Z $
  */
 
 #include <linux/module.h>

@@ -143,11 +143,13 @@ struct msm_actuator_params_t32 {
 	uint16_t data_size;
 	uint16_t init_setting_size;
 	uint32_t i2c_addr;
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	uint32_t imx318_i2c_addr;
-    uint32_t i2c_cmd_pass_thru_imx318;
-    enum i2c_freq_mode_t i2c_freq_mode;
-	enum msm_actuator_addr_type i2c_addr_type;
-	enum msm_actuator_data_type i2c_data_type;
+	uint32_t i2c_cmd_pass_thru_imx318;
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
+	enum i2c_freq_mode_t i2c_freq_mode;
+	enum msm_camera_i2c_reg_addr_type i2c_addr_type;
+	enum msm_camera_i2c_data_type i2c_data_type;
 	compat_uptr_t reg_tbl_params;
 	compat_uptr_t init_settings;
 	struct park_lens_data_t park_lens;

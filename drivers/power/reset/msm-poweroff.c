@@ -32,6 +32,7 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/restart.h>
 #include <soc/qcom/watchdog.h>
+#include <linux/asus_global.h>
 
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
@@ -47,7 +48,7 @@
 
 
 static int restart_mode;
-static void *restart_reason, *dload_type_addr;
+static void *restart_reason;
 static bool scm_pmic_arbiter_disable_supported;
 static bool scm_deassert_ps_hold_supported;
 /* Download mode master kill-switch */
@@ -55,9 +56,10 @@ static void __iomem *msm_ps_hold;
 static phys_addr_t tcsr_boot_misc_detect;
 static void scm_disable_sdi(void);
 
+#ifdef CONFIG_MSM_DLOAD_MODE
 /* Runtime could be only changed value once.
- * There is no API from TZ to re-enable the registers.
- * So the SDI cannot be re-enabled when it already by-passed.
+* There is no API from TZ to re-enable the registers.
+* So the SDI cannot be re-enabled when it already by-passed.
 */
 //Close download_mode in user build
 #ifdef CONFIG_USER_BUILD
@@ -65,7 +67,9 @@ static int download_mode = 0;
 #else
 static int download_mode = 1;
 #endif
-static struct kobject dload_kobj;
+#else
+static const int download_mode;
+#endif
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 #define EDL_MODE_PROP "qcom,msm-imem-emergency_download_mode"
@@ -76,6 +80,8 @@ static void *dload_mode_addr;
 static bool dload_mode_enabled;
 static void *emergency_dload_mode_addr;
 static bool scm_dload_supported;
+static struct kobject dload_kobj;
+static void *dload_type_addr;
 
 static int dload_set(const char *val, struct kernel_param *kp);
 /* interface for exporting attributes */
@@ -94,7 +100,7 @@ struct reset_attribute {
 
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
-
+extern struct _asus_global asus_global;
 static int panic_prep_restart(struct notifier_block *this,
 			      unsigned long event, void *ptr)
 {
@@ -143,9 +149,6 @@ static void set_dload_mode(int on)
 	ret = scm_set_dload_mode(on ? SCM_DLOAD_MODE : 0, 0);
 	if (ret)
 		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
-
-	if (!on)
-		scm_disable_sdi();
 
 	dload_mode_enabled = on;
 }
@@ -203,7 +206,7 @@ static int dload_set(const char *val, struct kernel_param *kp)
 #else
 static void set_dload_mode(int on)
 {
-	scm_disable_sdi();
+	return;
 }
 
 static void enable_emergency_dload_mode(void)
@@ -269,7 +272,11 @@ static void halt_spmi_pmic_arbiter(void)
 
 static void msm_restart_prepare(const char *cmd)
 {
-	bool need_warm_reset = false;
+#ifdef CONFIG_MSM_DLOAD_MODE
+        ulong *printk_buffer_slot2_addr;
+#endif
+        bool is_asdf = false;
+        bool need_warm_reset = false;
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 
@@ -290,17 +297,28 @@ static void msm_restart_prepare(const char *cmd)
 			need_warm_reset = true;
 	} else {
 		need_warm_reset = (get_dload_mode() ||
-				(cmd != NULL && cmd[0] != '\0'));
+				(cmd != NULL && cmd[0] != '\0') || in_panic);
 	}
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
 	if (need_warm_reset) {
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
-        pr_notice("PON_POWER_OFF_WARM_RESET");
 	} else {
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
-        pr_notice("PON_POWER_OFF_HARD_RESET");
 	}
+
+        if (cmd != NULL) {
+                if (!strncmp(cmd, "asdf", strlen("asdf"))) {
+                        is_asdf = true;
+                }
+        }
+#ifdef CONFIG_MSM_DLOAD_MODE
+        if (!(in_panic || is_asdf)) {
+                // Normal reboot. Clean the printk buffer magic
+                printk_buffer_slot2_addr = (ulong *)PRINTK_BUFFER_SLOT2;
+                *printk_buffer_slot2_addr = 0;
+        }
+#endif
 
 	if (cmd != NULL) {
 		if (!strncmp(cmd, "bootloader", 10)) {
@@ -311,10 +329,6 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RECOVERY);
 			__raw_writel(0x77665502, restart_reason);
-		} else if (!strncmp(cmd, "shutdown", 8) || !strncmp(cmd, "-p", 2)) {
-			qpnp_pon_set_restart_reason(
-				PON_RESTART_REASON_SHUTDOWN);
-			__raw_writel(0x77665544, restart_reason);
 		} else if (!strcmp(cmd, "rtc")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RTC);
@@ -383,6 +397,7 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 	pr_notice("Going down for restart now\n");
 
 	msm_restart_prepare(cmd);
+        flush_cache_all();
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 	/*
@@ -394,6 +409,7 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 		msm_trigger_wdog_bite();
 #endif
 
+	scm_disable_sdi();
 	halt_spmi_pmic_arbiter();
 	deassert_ps_hold();
 
@@ -402,9 +418,26 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 
 static void do_msm_poweroff(void)
 {
+#ifdef CONFIG_MSM_DLOAD_MODE
+        ulong *printk_buffer_slot2_addr;
+#endif
 	pr_notice("Powering off the SoC\n");
 
+#ifdef CONFIG_MSM_DLOAD_MODE
+        // Normal power off. Clean the printk buffer magic
+        printk_buffer_slot2_addr = (ulong *)PRINTK_BUFFER_SLOT2;
+        *printk_buffer_slot2_addr = 0;
+
+        printk(KERN_CRIT "Clean asus_global...\n");
+        memset(&asus_global,0,sizeof(asus_global));
+        printk(KERN_CRIT "&asus_global = %p\n", &asus_global);
+        printk(KERN_CRIT "asus_global.asus_global_magic = 0x%x\n",asus_global.asus_global_magic);
+        printk(KERN_CRIT "asus_global.ramdump_enable_magic = 0x%x\n",asus_global.ramdump_enable_magic);
+        flush_cache_all();
+#endif
+
 	set_dload_mode(0);
+	scm_disable_sdi();
 	qpnp_pon_system_pwr_off(PON_POWER_OFF_SHUTDOWN);
 
 	halt_spmi_pmic_arbiter();
@@ -414,7 +447,9 @@ static void do_msm_poweroff(void)
 	pr_err("Powering off has failed\n");
 	return;
 }
+EXPORT_SYMBOL(do_msm_poweroff);
 
+#ifdef CONFIG_MSM_DLOAD_MODE
 static ssize_t attr_show(struct kobject *kobj, struct attribute *attr,
 				char *buf)
 {
@@ -492,6 +527,7 @@ static struct attribute *reset_attrs[] = {
 static struct attribute_group reset_attr_group = {
 	.attrs = reset_attrs,
 };
+#endif
 
 static int msm_restart_probe(struct platform_device *pdev)
 {
@@ -584,6 +620,8 @@ skip_sysfs_create:
 		scm_deassert_ps_hold_supported = true;
 
 	set_dload_mode(download_mode);
+	if (!download_mode)
+		scm_disable_sdi();
 
 	return 0;
 

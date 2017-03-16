@@ -256,7 +256,7 @@ int Laser_Disable(enum msm_laser_focus_atd_device_trun_on_type val){
 		if(camera_on_flag){
 			LOG_Handler(LOG_DBG, "%s: Camera is running, do nothing!!\n ", __func__);
 			mutex_ctrl(laura_t, MUTEX_UNLOCK);
-			return rc;
+			return 9999;
 		}
 
 		#if 0
@@ -425,10 +425,13 @@ static ssize_t ATD_Laura_device_enable_write(struct file *filp, const char __use
 			client--;
 			LOG_Handler(LOG_CDBG,"%s: client leave via proc (%d)\n", __func__, client);
 			if(client>=0){
-				client = 0;
 				rc = Laser_Disable(val);
-				if (rc < 0)
+				if (rc == 9999) {
+					client++; //recovery last client status
+					return len;
+				} else if (rc < 0)
 					goto DEVICE_TURN_ON_ERROR;
+				client = 0;
 				power_down(laura_t);
 			}
 			else if(client < 0){
@@ -488,7 +491,9 @@ DEVICE_TURN_ON_ERROR:
 	rc = dev_deinit(laura_t);
 	if (rc < 0) 
 		LOG_Handler(LOG_ERR, "%s Laura_deinit failed %d\n", __func__, __LINE__);
-
+	rc = power_down(laura_t);
+	if (rc < 0)
+		LOG_Handler(LOG_ERR, "%s Laura power off failed %d\n", __func__, __LINE__);
 	laura_t->device_state = MSM_LASER_FOCUS_DEVICE_OFF;
 	
 	LOG_Handler(LOG_DBG, "%s: Exit due to device trun on fail !!\n", __func__);

@@ -33,6 +33,8 @@
 #include <linux/spinlock.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/syscore_ops.h>
+#include <linux/wakelock.h>           //ASUS_BSP Leong: avoid suspend during quick open camera  +++
+ #include <linux/time.h>          //ASUS_BSP Leong: avoid suspend during quick open camera  +++
 
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
@@ -53,7 +55,11 @@ struct gpio_keys_drvdata {
 	struct mutex disable_lock;
 	struct gpio_button_data data[0];
 };
-
+  //ASUS_BSP Leong: avoid suspend during quick open camera  +++
+struct timeval before_now;
+int before_keycode = 0;
+struct wake_lock gpio_wake_lock;
+  //ASUS_BSP Leong: avoid suspend during quick open camera  ---
 static struct device *global_dev;
 static struct syscore_ops gpio_keys_syscore_pm_ops;
 
@@ -345,7 +351,7 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 		if (state)
 			input_event(input, type, button->code, button->value);
 	} else {
-		if(state==1) {
+        if(state==1) {
 			if (button->code == KEY_VOLUMEUP) {
 				printk("[VOL] gpio key code = %d, volume up pressed down\n", button->code);
 			}else if(button->code == KEY_VOLUMEDOWN) {
@@ -384,17 +390,47 @@ static void gpio_keys_gpio_timer(unsigned long _data)
 static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 {
 	struct gpio_button_data *bdata = dev_id;
-
+//ASUS_BSP Leong: avoid suspend during quick open camera  +++
+	int state = (__gpio_get_value(bdata->button->gpio) ? 1 : 0) ^ bdata->button->active_low;
+	unsigned int type;
+	struct timeval now; 
+//ASUS_BSP Leong: avoid suspend during quick open camera  ---
 	BUG_ON(irq != bdata->irq);
 
 	if (bdata->button->wakeup)
 		pm_stay_awake(bdata->input->dev.parent);
+
 	if (bdata->timer_debounce)
 		mod_timer(&bdata->timer,
 			jiffies + msecs_to_jiffies(bdata->timer_debounce));
 	else
 		schedule_work(&bdata->work);
 
+#if 1	//ASUS_BSP Leong: avoid suspend during quick open camera  +++
+	if( state == 0 )      //  pressed up
+	{
+		do_gettimeofday(&now); 
+		/*printk("[VOL] Current UTC: %lu (%lu) %lu (%lu) =   %lu \n"
+			, now.tv_sec, now.tv_usec
+			, before_now.tv_sec, before_now.tv_usec
+			, now.tv_sec - before_now.tv_sec); */
+		type = bdata->button->type ?: EV_KEY;
+	    if( type == EV_KEY &&
+			bdata->button->wakeup == 1 &&
+	        ( bdata->button->code == KEY_VOLUMEUP || bdata->button->code == KEY_VOLUMEDOWN ) && 
+	        before_keycode == bdata->button->code &&
+	        now.tv_sec - before_now.tv_sec <= 1 ){ 
+	    	printk("[VOL] gpio key code = %d(%d) type = %d(%d) wakeup %d state %d - Set Wake Lock\n"
+				, bdata->button->code, KEY_VOLUMEUP
+				, bdata->button->type, EV_KEY
+				, bdata->button->wakeup
+				, state);
+	             wake_lock_timeout(&gpio_wake_lock, msecs_to_jiffies(2000));
+	    }
+	    do_gettimeofday(&before_now); 
+	    before_keycode = bdata->button->code;
+	}
+#endif//ASUS_BSP Leong: avoid suspend during quick open camera  ---
 	return IRQ_HANDLED;
 }
 
@@ -742,45 +778,6 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 
 #endif
 
-#ifdef ASUS_FACTORY_BUILD//add by Sid_Liu for factory build +++
-ssize_t printklog_write (struct file *filp, const char __user *userbuf, size_t size, loff_t *loff_p)
-{
-	char str[128];
-	if(size < 128)
-	{
-		strncpy(str,userbuf,size);
-		str[size]='\0';
-	}
-	else
-	{
-		strncpy(str,userbuf,127);
-		str[127]='\0';
-	}
-	printk(KERN_ERR"[factool log]:%s",str);
-	return size;
-}
-
-struct file_operations printklog_fops = {
-	.write=printklog_write,
-};
-
-unsigned char fac_wakeup_sign = 0;
-extern void release_wakeup_source(void);
-extern void alarm_irq_disable(void);
-ssize_t fac_sleep_node_write(struct file *filp, const char __user *userbuf, size_t size, loff_t *loff_p)
-{
-	printk(KERN_ERR"[factool log]:fac node cmd:%c\n",userbuf[0]);
-	switch(userbuf[0]) {
-		case '0':fac_wakeup_sign = 0;break;
-		case '1':fac_wakeup_sign = 1;release_wakeup_source();alarm_irq_disable();break;
-	}
-	return size;
-}
-struct file_operations fac_sleep_node_fops = {
-	.write=fac_sleep_node_write,
-};
-#endif					//add by Sid_Liu for factory builds ---
-
 static int gpio_keys_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -853,17 +850,6 @@ static int gpio_keys_probe(struct platform_device *pdev)
 		}
 	}
 
-#ifdef ASUS_FACTORY_BUILD//add by Sid_Liu for factory build +++
-	if(proc_create("fac_printklog", 0777, NULL, &printklog_fops)==NULL)
-	{
-		printk(KERN_ERR"create printklog node is error\n");
-	}
-	if(proc_create("fac_sleep_node", 0777, NULL, &fac_sleep_node_fops)==NULL)
-	{
-		printk(KERN_ERR"create fac_sleep_node is error\n");
-	}
-#endif					//add by Sid_Liu for factory build ---
-
 	for (i = 0; i < pdata->nbuttons; i++) {
 		const struct gpio_keys_button *button = &pdata->buttons[i];
 		struct gpio_button_data *bdata = &ddata->data[i];
@@ -897,6 +883,10 @@ static int gpio_keys_probe(struct platform_device *pdev)
 
 	register_syscore_ops(&gpio_keys_syscore_pm_ops);
 
+//ASUS_BSP Leong: avoid suspend during quick open camera  +++
+	wake_lock_init(&gpio_wake_lock, WAKE_LOCK_SUSPEND, "platform_gpio_wakelock");        
+	do_gettimeofday(&before_now); 
+//ASUS_BSP Leong: avoid suspend during quick open camera  ---
 	return 0;
 
 err_remove_group:

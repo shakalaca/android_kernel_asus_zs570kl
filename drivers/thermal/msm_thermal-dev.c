@@ -287,7 +287,7 @@ static long msm_thermal_ioctl_process(struct file *filep, unsigned int cmd,
 	long ret = 0;
 	struct msm_thermal_ioctl query;
 
-	pr_info("%s: IOCTL: processing cmd:0x%X\n", KBUILD_MODNAME, cmd);
+	pr_info("%s: IOCTL: processing cmd:%u\n", KBUILD_MODNAME, cmd);
 
 	ret = validate_and_copy(&cmd, &arg, &query);
 	if (ret)

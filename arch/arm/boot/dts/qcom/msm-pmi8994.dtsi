@@ -39,6 +39,8 @@
 				regulator-name = "pon_spare_reg";
 				qcom,pon-spare-reg-addr = <0x8c>;
 				qcom,pon-spare-reg-bit = <1>;
+                                regulator-boot-on;
+                                regulator-always-on;
 			};
 		};
 
@@ -317,7 +319,7 @@
 			compatible = "qcom,qpnp-fg";
 			#address-cells = <1>;
 			#size-cells = <1>;
-			qcom,resume-soc = <95>;
+			qcom,resume-soc = <98>;
 			status = "okay";
 			qcom,bcl-lm-threshold-ma = <127>;
 			qcom,bcl-mh-threshold-ma = <405>;
@@ -397,8 +399,8 @@
 							"data-rcvry-sug";
 			};
 		};
-		
-		pmi8994_led: qcom,leds@a100 {
+
+pmi8994_led: qcom,leds@a100 {
 			status = "okay";
 			compatible = "qcom,leds-qpnp";
 			reg = <0xa100 0x100>;
@@ -414,11 +416,13 @@
 					qcom,mode = "pwm";
 					qcom,source-sel = <12>;
 					qcom,vin-ctrl=<3>;
-					qcom,mode-ctrl = <0x60>;	
+					qcom,mode-ctrl = <0x60>;
 					pwms = <&pmi8994_pwm_4 0 0>;
 					qcom,pwm-us = <100>; //setup 0.0001s
 			};
 		};
+
+
 	};
 
 	qcom,pmi8994@3 {
@@ -477,6 +481,7 @@
 			compatible = "qcom,qpnp-labibb-regulator";
 			#address-cells = <1>;
 			#size-cells = <1>;
+
 
 			ibb_regulator: qcom,ibb@dc00 {
 				reg = <0xdc00 0x100>;
@@ -618,8 +623,6 @@
 				qcom,max-current = <12>;
 				qcom,default-state = "off";
 				linux,name = "red";
-				linux,default-trigger =
-					"battery-charging";
 			};
 
 			green_led: qcom,rgb_1 {
@@ -631,7 +634,6 @@
 				qcom,max-current = <12>;
 				qcom,default-state = "off";
 				linux,name = "green";
-				linux,default-trigger = "battery-full";
 			};
 
 			blue_led: qcom,rgb_2 {
