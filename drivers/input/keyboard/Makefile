@@ -59,9 +59,3 @@ obj-$(CONFIG_KEYBOARD_TEGRA)		+= tegra-kbc.o
 obj-$(CONFIG_KEYBOARD_TWL4030)		+= twl4030_keypad.o
 obj-$(CONFIG_KEYBOARD_XTKBD)		+= xtkbd.o
 obj-$(CONFIG_KEYBOARD_W90P910)		+= w90p910_keypad.o
-
-#add by sid liu for factory build +++
-ifeq ($(FACTORY),1)
-KBUILD_CFLAGS += -DASUS_FACTORY_BUILD
-endif
-#add by sid liu for factory build ---

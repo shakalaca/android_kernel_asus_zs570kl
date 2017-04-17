@@ -1763,9 +1763,11 @@ struct msm_actuator_params_t {
 	uint16_t data_size;
 	uint16_t init_setting_size;
 	uint32_t i2c_addr;
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	uint32_t imx318_i2c_addr;
-    uint32_t i2c_cmd_pass_thru_imx318;
-    enum msm_actuator_addr_type i2c_addr_type;
+	uint32_t i2c_cmd_pass_thru_imx318;
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
+	enum msm_actuator_addr_type i2c_addr_type;
 	enum msm_actuator_data_type i2c_data_type;
 	struct msm_actuator_reg_params_t *reg_tbl_params;
 	struct reg_settings_t *init_settings;

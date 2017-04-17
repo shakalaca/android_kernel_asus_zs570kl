@@ -11,21 +11,25 @@
  */
 
 #define pr_fmt(fmt) "%s:%d " fmt, __func__, __LINE__
-#include <linux/proc_fs.h>
+#include <linux/proc_fs.h> //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 #include <linux/module.h>
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 #include <linux/kthread.h>
+#endif
 #include "msm_sd.h"
 #include "msm_actuator.h"
 #include "msm_cci.h"
 
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 static struct task_struct *brook_tsk;
 uint16_t vcm_data_g = 0xA000;
 #define SERVO_OFF_COUNT 3
 #define SERVO_ON SERVO_OFF_COUNT+1
 int vcm_servo_status = SERVO_ON;	/* 4: servo on, 0~3:server off */
+#endif
 
 DEFINE_MSM_MUTEX(msm_actuator_mutex);
-struct mutex *msm_sensor_global_mutex;
+struct mutex *msm_sensor_global_mutex; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 
 #undef CDBG
 #ifdef MSM_ACTUATOR_DEBUG
@@ -48,15 +52,16 @@ static struct msm_actuator msm_piezo_actuator_table;
 static struct msm_actuator msm_hvcm_actuator_table;
 static struct msm_actuator msm_bivcm_actuator_table;
 
+//ASUS_BSP +++, jungchi for Pass vcm's cmd through imx318
 static uint16_t actuator_data_Z1 = 0;
 static uint16_t actuator_data_Z2 = 0;
 
 #define VCM_PROC_FILE                "driver/vcm"
 #define VCM_SERVO_OFF_PROC_FILE      "driver/vcm_servo_off"
 
-
 struct msm_actuator_ctrl_t *actuator_ctrl_g = NULL;
 
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 static int kbrook(void *arg)
 {
 	uint16_t vcm_data = 0;
@@ -102,6 +107,7 @@ static int kbrook(void *arg)
 	return 0;
 }
 
+
 static int ATD_vcm_servo_off_proc_read(struct seq_file *buf, void *v)
 {
 	mutex_lock(msm_sensor_global_mutex);
@@ -135,7 +141,7 @@ static void create_vcm_servo_off_proc_file( void )
 {
     proc_create(VCM_SERVO_OFF_PROC_FILE, 0664, NULL, &ATD_vcm_servo_off_fops);
 }
-
+#endif
 static int ATD_I2C_position_check_proc_read(struct seq_file *buf, void *v)
 {
 	uint16_t vcm_data = 0;
@@ -166,6 +172,7 @@ static void create_vcm_proc_file( void )
 {
     proc_create(VCM_PROC_FILE, 0664, NULL, &ATD_I2C_position_check_fops);
 }
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 static struct i2c_driver msm_actuator_i2c_driver;
 static struct msm_actuator *actuators[] = {
@@ -175,6 +182,7 @@ static struct msm_actuator *actuators[] = {
 	&msm_bivcm_actuator_table,
 };
 
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 static struct msm_camera_i2c_fn_t msm_sensor_cci_thru_imx318_func_tbl = {
 	.i2c_read = msm_camera_cci_i2c_thru_imx318_read,///////////Used
 	.i2c_read_seq = msm_camera_cci_i2c_read_seq,
@@ -188,6 +196,7 @@ static struct msm_camera_i2c_fn_t msm_sensor_cci_thru_imx318_func_tbl = {
 	.msm_i2c_agent_master_addr = 0,///////////Used
 	.msm_i2c_agent_slave_addr = 0,///////////Used
 };
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 static int32_t msm_actuator_piezo_set_default_focus(
 	struct msm_actuator_ctrl_t *a_ctrl,
@@ -242,11 +251,6 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 	i2c_tbl = a_ctrl->i2c_reg_tbl;
 
 	for (i = 0; i < size; i++) {
-		/* check that the index into i2c_tbl cannot grow larger that
-		the allocated size of i2c_tbl */
-		if ((a_ctrl->total_steps + 1) < (a_ctrl->i2c_tbl_index))
-			break;
-
 		if (write_arr[i].reg_write_type == MSM_ACTUATOR_WRITE_DAC) {
 			value = (next_lens_position <<
 				write_arr[i].data_shift) |
@@ -260,6 +264,11 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 					i2c_byte2 = value & 0xFF;
 					CDBG("byte1:0x%x, byte2:0x%x\n",
 						i2c_byte1, i2c_byte2);
+					if (a_ctrl->i2c_tbl_index >
+						a_ctrl->total_steps) {
+						pr_err("failed:i2c table index out of bound\n");
+						break;
+					}
 					i2c_tbl[a_ctrl->i2c_tbl_index].
 						reg_addr = i2c_byte1;
 					i2c_tbl[a_ctrl->i2c_tbl_index].
@@ -280,6 +289,10 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 			i2c_byte2 = (hw_dword & write_arr[i].hw_mask) >>
 				write_arr[i].hw_shift;
 		}
+		if (a_ctrl->i2c_tbl_index > a_ctrl->total_steps) {
+			pr_err("failed: i2c table index out of bound\n");
+			break;
+		}
 		CDBG("i2c_byte1:0x%x, i2c_byte2:0x%x\n", i2c_byte1, i2c_byte2);
 		i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = i2c_byte1;
 		i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = i2c_byte2;
@@ -299,7 +312,7 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 	uint16_t value = 0, reg_data = 0;
 	uint32_t size = a_ctrl->reg_tbl_size, i = 0;
 	int32_t rc = 0;
-#if 0 // little current feature
+#if 0 //ASUS_BSP, jungchi for vcm little current feature
 	static uint16_t pre_position = 0x8000;
 	static int current_status = 0; /* 0:default 1: little current */
 #endif
@@ -330,6 +343,7 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 
 			reg_setting.reg_setting = &i2c_tbl;
 			reg_setting.data_type = a_ctrl->i2c_data_type;
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 			//pr_err("[vcm] MSM_ACTUATOR_WRITE_DAC, set 0x%x to %x (%d)\n",i2c_byte1,i2c_byte2,i2c_byte2>>4);
 			vcm_data_g = reg_setting.reg_setting[reg_setting.size-1].reg_data;
 			if (vcm_servo_status == SERVO_ON){
@@ -361,6 +375,15 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 				pre_position = reg_setting.reg_setting[reg_setting.size-1].reg_data;
 #endif
 			}
+#else
+			rc = a_ctrl->i2c_client.
+				i2c_func_tbl->i2c_write_table_w_microdelay(
+				&a_ctrl->i2c_client, &reg_setting);
+			if (rc < 0) {
+				pr_err("i2c write error:%d\n", rc);
+				return rc;
+			}
+#endif
 			break;
 		case MSM_ACTUATOR_WRITE:
 			i2c_tbl.reg_data = write_arr[i].reg_data;
@@ -752,7 +775,7 @@ static int32_t msm_actuator_move_focus(
 	if ((a_ctrl->region_size <= 0) ||
 		(a_ctrl->region_size > MAX_ACTUATOR_REGION) ||
 		(!move_params->ringing_params)) {
-		pr_err("Invalid-region size = %d, ringing_params = %p\n",
+		pr_err("Invalid-region size = %d, ringing_params = %pK\n",
 		a_ctrl->region_size, move_params->ringing_params);
 		return -EFAULT;
 	}
@@ -872,7 +895,7 @@ static int32_t msm_actuator_bivcm_move_focus(
 	if ((a_ctrl->region_size <= 0) ||
 		(a_ctrl->region_size > MAX_ACTUATOR_REGION) ||
 		(!move_params->ringing_params)) {
-		pr_err("Invalid-region size = %d, ringing_params = %p\n",
+		pr_err("Invalid-region size = %d, ringing_params = %pK\n",
 		a_ctrl->region_size, move_params->ringing_params);
 		return -EFAULT;
 	}
@@ -1022,7 +1045,7 @@ static int32_t msm_actuator_bivcm_init_step_table(
 {
 	int16_t code_per_step = 0;
 	int16_t cur_code = 0;
-	int16_t step_index = 0, region_index = 0;
+	uint16_t step_index = 0, region_index = 0;
 	uint16_t step_boundary = 0;
 	uint32_t max_code_size = 1;
 	uint16_t data_size = set_info->actuator_params.data_size;
@@ -1063,6 +1086,15 @@ static int32_t msm_actuator_bivcm_init_step_table(
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
+		if (step_boundary >
+			set_info->af_tuning_params.total_steps) {
+			pr_err("invalid step_boundary = %d, max_val = %d",
+				step_boundary,
+				set_info->af_tuning_params.total_steps);
+			kfree(a_ctrl->step_position_table);
+			a_ctrl->step_position_table = NULL;
+			return -EINVAL;
+		}
 		qvalue = a_ctrl->region_params[region_index].qvalue;
 		for (; step_index <= step_boundary;
 			step_index++) {
@@ -1098,20 +1130,25 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	int16_t code_per_step = 0;
 	uint32_t qvalue = 0;
 	int16_t cur_code = 0;
-	int16_t step_index = 0, region_index = 0;
+	uint16_t step_index = 0, region_index = 0;
 	uint16_t step_boundary = 0;
 	uint32_t max_code_size = 1;
 	uint16_t data_size = set_info->actuator_params.data_size;
 	CDBG("Enter\n");
 
+	/* validate the actuator state */
+	if (a_ctrl->actuator_state != ACT_OPS_ACTIVE) {
+		pr_err("%s:%d invalid actuator_state %d\n"
+			, __func__, __LINE__, a_ctrl->actuator_state);
+		return -EINVAL;
+	}
 	for (; data_size > 0; data_size--)
 		max_code_size *= 2;
 
 	a_ctrl->max_code_size = max_code_size;
-	if ((a_ctrl->actuator_state == ACT_OPS_ACTIVE) &&
-		(a_ctrl->step_position_table != NULL)) {
-		kfree(a_ctrl->step_position_table);
-	}
+
+	/* free the step_position_table to allocate a new one */
+	kfree(a_ctrl->step_position_table);
 	a_ctrl->step_position_table = NULL;
 
 	if (set_info->af_tuning_params.total_steps
@@ -1140,6 +1177,15 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		step_boundary =
 			a_ctrl->region_params[region_index].
 			step_bound[MOVE_NEAR];
+		if (step_boundary >
+			set_info->af_tuning_params.total_steps) {
+			pr_err("invalid step_boundary = %d, max_val = %d",
+				step_boundary,
+				set_info->af_tuning_params.total_steps);
+			kfree(a_ctrl->step_position_table);
+			a_ctrl->step_position_table = NULL;
+			return -EINVAL;
+		}
 		for (; step_index <= step_boundary;
 			step_index++) {
 			if (qvalue > 1 && qvalue <= MAX_QVALUE)
@@ -1191,7 +1237,7 @@ static int32_t msm_actuator_vreg_control(struct msm_actuator_ctrl_t *a_ctrl,
 	if (!cnt)
 		return 0;
 
-	if (cnt >= MSM_ACTUATOT_MAX_VREGS) {
+	if (cnt >= MSM_ACTUATOR_MAX_VREGS) {
 		pr_err("%s failed %d cnt %d\n", __func__, __LINE__, cnt);
 		return -EINVAL;
 	}
@@ -1217,11 +1263,15 @@ static int32_t msm_actuator_vreg_control(struct msm_actuator_ctrl_t *a_ctrl,
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int32_t rc = 0;
+	enum msm_sensor_power_seq_gpio_t gpio;
+
 	CDBG("Enter\n");
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 	if (brook_tsk){
 		kthread_stop(brook_tsk);
 		brook_tsk = NULL;
 	}
+#endif
 	if (a_ctrl->actuator_state != ACT_DISABLE_STATE) {
 
 		if (a_ctrl->func_tbl && a_ctrl->func_tbl->actuator_park_lens) {
@@ -1235,6 +1285,41 @@ static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 		if (rc < 0) {
 			pr_err("%s failed %d\n", __func__, __LINE__);
 			return rc;
+		}
+
+		for (gpio = SENSOR_GPIO_AF_PWDM;
+			gpio < SENSOR_GPIO_MAX; gpio++) {
+			if (a_ctrl->gconf &&
+				a_ctrl->gconf->gpio_num_info &&
+				a_ctrl->gconf->gpio_num_info->
+					valid[gpio] == 1) {
+
+				gpio_set_value_cansleep(
+					a_ctrl->gconf->gpio_num_info->
+						gpio_num[gpio],
+					GPIOF_OUT_INIT_LOW);
+
+				if (a_ctrl->cam_pinctrl_status) {
+					rc = pinctrl_select_state(
+						a_ctrl->pinctrl_info.pinctrl,
+						a_ctrl->pinctrl_info.
+							gpio_state_suspend);
+					if (rc < 0)
+						pr_err("ERR:%s:%d cannot set pin to suspend state: %d",
+							__func__, __LINE__, rc);
+
+					devm_pinctrl_put(
+						a_ctrl->pinctrl_info.pinctrl);
+				}
+				a_ctrl->cam_pinctrl_status = 0;
+				rc = msm_camera_request_gpio_table(
+					a_ctrl->gconf->cam_gpio_req_tbl,
+					a_ctrl->gconf->cam_gpio_req_tbl_size,
+					0);
+				if (rc < 0)
+					pr_err("ERR:%s:Failed in selecting state in actuator power down: %d\n",
+						__func__, rc);
+			}
 		}
 
 		kfree(a_ctrl->step_position_table);
@@ -1278,6 +1363,7 @@ static int32_t msm_actuator_set_position(
 	}
 
 	a_ctrl->i2c_tbl_index = 0;
+	hw_params = set_pos->hw_params;
 	for (index = 0; index < set_pos->number_of_steps; index++) {
 		next_lens_position = set_pos->pos[index];
 		delay = set_pos->delay[index];
@@ -1342,7 +1428,7 @@ static int32_t msm_actuator_bivcm_set_position(
 	return rc;
 }
 
-
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 static void vcm_eeprom_write(struct msm_actuator_ctrl_t *a_ctrl,uint32_t reg,uint16_t data)
 {
 	uint16_t vcm_data = 0;
@@ -1552,22 +1638,27 @@ static void msm_actuator_updatefw(struct msm_actuator_ctrl_t *a_ctrl)
 		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
 	}
 }
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_set_info_t *set_info) {
 	struct reg_settings_t *init_settings = NULL;
 	int32_t rc = -EFAULT;
 	uint16_t i = 0;
-	uint32_t actuator_thru_imx318 = 0;
+	uint32_t actuator_thru_imx318 = 0; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	struct msm_camera_cci_client *cci_client = NULL;
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	static int workaround_skip = 1;
 	static int update_fw = 0;
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	CDBG("Enter\n");
 
+	//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	if(set_info->actuator_params.i2c_cmd_pass_thru_imx318 == 1) {
 	    CDBG("@%s, actuator is connected through imx318!\n", __func__);
 	    actuator_thru_imx318 = set_info->actuator_params.i2c_cmd_pass_thru_imx318;
 	}
+	//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 	for (i = 0; i < ARRAY_SIZE(actuators); i++) {
 		if (set_info->actuator_params.act_type ==
@@ -1601,26 +1692,37 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		(void *)set_info->af_tuning_params.region_params,
 		a_ctrl->region_size * sizeof(struct region_params_t)))
 		return -EFAULT;
-
+	//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	if(actuator_thru_imx318 == 1) {
 	    a_ctrl->i2c_client.i2c_func_tbl = &msm_sensor_cci_thru_imx318_func_tbl;
 		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_master_addr = set_info->actuator_params.imx318_i2c_addr;
 		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = set_info->actuator_params.i2c_addr;
 	}
+	//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		cci_client = a_ctrl->i2c_client.cci_client;
+#if 1 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 		cci_client->sid = (actuator_thru_imx318 == 1)?
 		    set_info->actuator_params.imx318_i2c_addr >> 1:
 			set_info->actuator_params.i2c_addr >> 1;
+#else
+		cci_client->sid =
+			set_info->actuator_params.i2c_addr >> 1;
+#endif
 		cci_client->retries = 3;
 		cci_client->id_map = 0;
 		cci_client->cci_i2c_master = a_ctrl->cci_master;
 		cci_client->i2c_freq_mode =
 			set_info->actuator_params.i2c_freq_mode;
 	} else {
+#if 1 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 		a_ctrl->i2c_client.client->addr = (actuator_thru_imx318 == 1)?
 		    set_info->actuator_params.imx318_i2c_addr:
 			set_info->actuator_params.i2c_addr;
+#else
+		a_ctrl->i2c_client.client->addr =
+			set_info->actuator_params.i2c_addr;
+#endif
 	}
 
 	a_ctrl->i2c_data_type = set_info->actuator_params.i2c_data_type;
@@ -1655,10 +1757,15 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		a_ctrl->i2c_reg_tbl = NULL;
 		return -EFAULT;
 	}
-
+#if 1 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	if (set_info->actuator_params.init_setting_size &&
 		set_info->actuator_params.init_setting_size
 		<= MAX_ACTUATOR_INIT_SET && workaround_skip == 0) {
+#else
+	if (set_info->actuator_params.init_setting_size &&
+		set_info->actuator_params.init_setting_size
+		<= MAX_ACTUATOR_INIT_SET) {
+#endif
 		if (a_ctrl->func_tbl->actuator_init_focus) {
 			init_settings = kmalloc(sizeof(struct reg_settings_t) *
 				(set_info->actuator_params.init_setting_size),
@@ -1691,7 +1798,7 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 			}
 		}
 	}
-	workaround_skip = 0;
+	workaround_skip = 0; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 
 	/* Park lens data */
 	a_ctrl->park_lens = set_info->actuator_params.park_lens;
@@ -1702,10 +1809,12 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 
 	a_ctrl->curr_step_pos = 0;
 	a_ctrl->curr_region_index = 0;
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	if (update_fw == 0){
 		msm_actuator_updatefw(a_ctrl);
 	}
 	update_fw = 1;
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	CDBG("Exit\n");
 
 	return rc;
@@ -1714,13 +1823,13 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int rc = 0;
-	uint16_t actuator_status = 0;
+	uint16_t actuator_status = 0; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	CDBG("Enter\n");
 	if (!a_ctrl) {
 		pr_err("failed\n");
 		return -EINVAL;
 	}
-
+//ASUS_BSP +++, jungchi for Pass vcm's cmd through imx318
 	actuator_data_Z1 = 0;
 	actuator_data_Z2 = 0;
 	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
@@ -1734,7 +1843,7 @@ static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x30,&actuator_data_Z2,MSM_CAMERA_I2C_WORD_DATA);
 		actuator_data_Z2 = (((actuator_data_Z2 << 4)+ 0x8000)&0xffff) >> 4;
 		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 		/* create thread for monitor vcm position if under Z1-20um */
 		if (brook_tsk == NULL) {
 			brook_tsk = kthread_create(kbrook, NULL, "brook");
@@ -1744,7 +1853,9 @@ static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 				wake_up_process(brook_tsk);
 			}
 		}
+#endif
 	}
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
 			&a_ctrl->i2c_client, MSM_CCI_INIT);
@@ -1909,7 +2020,7 @@ static long msm_actuator_subdev_ioctl(struct v4l2_subdev *sd,
 	struct msm_actuator_ctrl_t *a_ctrl = v4l2_get_subdevdata(sd);
 	void __user *argp = (void __user *)arg;
 	CDBG("Enter\n");
-	CDBG("%s:%d a_ctrl %p argp %p\n", __func__, __LINE__, a_ctrl, argp);
+	CDBG("%s:%d a_ctrl %pK argp %pK\n", __func__, __LINE__, a_ctrl, argp);
 	switch (cmd) {
 	case VIDIOC_MSM_SENSOR_GET_SUBDEV_ID:
 		return msm_actuator_get_subdev_id(a_ctrl, argp);
@@ -1971,13 +2082,13 @@ static long msm_actuator_subdev_do_ioctl(
 
 			actuator_data.cfg.set_info.actuator_params.i2c_addr =
 				u32->cfg.set_info.actuator_params.i2c_addr;
-
-            actuator_data.cfg.set_info.actuator_params.imx318_i2c_addr =
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
+			actuator_data.cfg.set_info.actuator_params.imx318_i2c_addr =
 				u32->cfg.set_info.actuator_params.imx318_i2c_addr;
 
 			actuator_data.cfg.set_info.actuator_params.i2c_cmd_pass_thru_imx318 =
 				u32->cfg.set_info.actuator_params.i2c_cmd_pass_thru_imx318;
-
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 			actuator_data.cfg.set_info.actuator_params.
 				i2c_freq_mode =
 				u32->cfg.set_info.actuator_params.i2c_freq_mode;
@@ -2093,12 +2204,41 @@ static long msm_actuator_subdev_fops_ioctl(struct file *file, unsigned int cmd,
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int rc = 0;
+	enum msm_sensor_power_seq_gpio_t gpio;
+
 	CDBG("%s called\n", __func__);
 
 	rc = msm_actuator_vreg_control(a_ctrl, 1);
 	if (rc < 0) {
 		pr_err("%s failed %d\n", __func__, __LINE__);
 		return rc;
+	}
+
+	for (gpio = SENSOR_GPIO_AF_PWDM; gpio < SENSOR_GPIO_MAX; gpio++) {
+		if (a_ctrl->gconf &&
+			a_ctrl->gconf->gpio_num_info &&
+			a_ctrl->gconf->gpio_num_info->valid[gpio] == 1) {
+			rc = msm_camera_request_gpio_table(
+				a_ctrl->gconf->cam_gpio_req_tbl,
+				a_ctrl->gconf->cam_gpio_req_tbl_size, 1);
+			if (rc < 0) {
+				pr_err("ERR:%s:Failed in selecting state for actuator: %d\n",
+					__func__, rc);
+				return rc;
+			}
+			if (a_ctrl->cam_pinctrl_status) {
+				rc = pinctrl_select_state(
+					a_ctrl->pinctrl_info.pinctrl,
+					a_ctrl->pinctrl_info.gpio_state_active);
+				if (rc < 0)
+					pr_err("ERR:%s:%d cannot set pin to active state: %d",
+						__func__, __LINE__, rc);
+			}
+
+			gpio_set_value_cansleep(
+				a_ctrl->gconf->gpio_num_info->gpio_num[gpio],
+				1);
+		}
 	}
 
 	/* VREG needs some delay to power up */
@@ -2147,7 +2287,7 @@ static int32_t msm_actuator_i2c_probe(struct i2c_client *client,
 		goto probe_failure;
 	}
 
-	CDBG("client = 0x%p\n",  client);
+	CDBG("client = 0x%pK\n",  client);
 
 	rc = of_property_read_u32(client->dev.of_node, "cell-index",
 		&act_ctrl_t->subdev_id);
@@ -2261,10 +2401,26 @@ static int32_t msm_actuator_platform_probe(struct platform_device *pdev)
 			return rc;
 		}
 	}
+#if 0 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
+	rc = msm_sensor_driver_get_gpio_data(&(msm_actuator_t->gconf),
+		(&pdev->dev)->of_node);
+	if (rc < 0) {
+		pr_err("%s: No/Error Actuator GPIOs\n", __func__);
+	} else {
+		msm_actuator_t->cam_pinctrl_status = 1;
+		rc = msm_camera_pinctrl_init(
+			&(msm_actuator_t->pinctrl_info), &(pdev->dev));
+		if (rc < 0) {
+			pr_err("ERR:%s: Error in reading actuator pinctrl\n",
+				__func__);
+			msm_actuator_t->cam_pinctrl_status = 0;
+		}
+	}
+#endif
 
 	msm_actuator_t->act_v4l2_subdev_ops = &msm_actuator_subdev_ops;
 	msm_actuator_t->actuator_mutex = &msm_actuator_mutex;
-	msm_sensor_global_mutex = msm_actuator_t->actuator_mutex;
+	msm_sensor_global_mutex = msm_actuator_t->actuator_mutex; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	msm_actuator_t->cam_name = pdev->id;
 
 	/* Set platform device handle */
@@ -2304,9 +2460,13 @@ static int32_t msm_actuator_platform_probe(struct platform_device *pdev)
 #endif
 	msm_actuator_t->msm_sd.sd.devnode->fops =
 		&msm_actuator_v4l2_subdev_fops;
+	//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 	create_vcm_proc_file();
+#if 0 //ASUS_BSP, jungchi for fix vcm noise
 	create_vcm_servo_off_proc_file();
+#endif
 	actuator_ctrl_g = msm_actuator_t;
+	//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 	CDBG("Exit\n");
 	return rc;

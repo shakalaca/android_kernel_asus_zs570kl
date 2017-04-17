@@ -1,10 +1,11 @@
 config USB_FUSB302
 	bool "USB FUSB302 driver"
+        default y
 	---help---
 	  USB FUSB302 driver.
 	  
 config TYPEC
 	bool "support Type C feature"
-	default n
+	default y
 	---help---
 	  Say Y here to support Type C feature

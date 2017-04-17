@@ -109,6 +109,47 @@ bool early_boot_irqs_disabled __read_mostly;
 
 enum system_states system_state __read_mostly;
 EXPORT_SYMBOL(system_state);
+//+++ ASUS_BSP : miniporting : Add for uart / kernel log
+int g_user_klog_mode = 1;
+EXPORT_SYMBOL(g_user_klog_mode);
+
+static int set_user_klog_mode(char *str)
+{
+        if ( strcmp("y", str) == 0 )
+        {
+                g_user_klog_mode = 1;
+        }
+        else
+        {
+                g_user_klog_mode = 0;
+        }
+
+        //printk("Kernel log mode = %d\n", g_user_klog_mode);
+        return 0;
+}
+early_param("klog", set_user_klog_mode);
+
+//tyree_liu@asus.com  +++ add for audio debug
+int g_user_dbg_mode = 1;
+EXPORT_SYMBOL(g_user_dbg_mode);
+////tyree_liu@asus.com --- add for audio debug
+
+static int set_user_dbg_mode(char *str)
+{
+        if ( strcmp("y", str) == 0 )
+        {
+                g_user_dbg_mode = 1;
+        }
+        else
+        {
+                g_user_dbg_mode = 0;
+        }
+
+        //printk("Kernel uart dbg mode = %d\n", g_user_dbg_mode);
+        return 0;
+}
+early_param("dbg", set_user_dbg_mode);
+//--- ASUS_BSP : miniporting : Add for uart / kernel log
 
 /*
  * Boot command-line arguments
@@ -148,19 +189,15 @@ EXPORT_SYMBOL_GPL(static_key_initialized);
  * For ex. kdump situaiton where previous kernel has crashed, BIOS has been
  * skipped and devices will be in unknown state.
  */
-
 char lcd_unique_id[64] = {0};
 EXPORT_SYMBOL(lcd_unique_id);
-
 static int get_lcd_uniqueId(char *str)
 {
 	strncpy(lcd_unique_id, str, sizeof(lcd_unique_id));
 	printk("lcd_unique_id = %s\n ", lcd_unique_id);
-
     return 0;
 }
 __setup("LCD_UNIQUE_ID=", get_lcd_uniqueId);
-
 unsigned int reset_devices;
 EXPORT_SYMBOL(reset_devices);
 
@@ -680,6 +717,7 @@ asmlinkage __visible void __init start_kernel(void)
 
 	check_bugs();
 
+	acpi_subsystem_init();
 	sfi_init_late();
 
 	if (efi_enabled(EFI_RUNTIME_SERVICES)) {

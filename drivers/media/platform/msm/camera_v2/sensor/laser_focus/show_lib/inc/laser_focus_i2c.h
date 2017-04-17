@@ -8,7 +8,7 @@
 #ifndef __LINUX_LASER_FORCUS_SENSOR_I2C_H
 #define __LINUX_LASER_FORCUS_SENSOR_I2C_H
 
-#include "msm_cci.h"
+//#include "msm_cci.h"
 #include "msm_laser_focus.h"
 
 /* Write one byte via CCI i2c */

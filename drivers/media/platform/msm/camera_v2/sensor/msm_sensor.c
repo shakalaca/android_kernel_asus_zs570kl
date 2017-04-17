@@ -91,15 +91,22 @@ int32_t msm_sensor_free_sensor_data(struct msm_sensor_ctrl_t *s_ctrl)
 	kfree(s_ctrl->sensordata->power_info.power_down_setting);
 	kfree(s_ctrl->sensordata->csi_lane_params);
 	kfree(s_ctrl->sensordata->sensor_info);
-	kfree(s_ctrl->sensordata->power_info.clk_info);
+	if (s_ctrl->sensor_device_type == MSM_CAMERA_I2C_DEVICE) {
+		msm_camera_i2c_dev_put_clk_info(
+			&s_ctrl->sensor_i2c_client->client->dev,
+			&s_ctrl->sensordata->power_info.clk_info,
+			&s_ctrl->sensordata->power_info.clk_ptr,
+			s_ctrl->sensordata->power_info.clk_info_size);
+	} else {
+		msm_camera_put_clk_info(s_ctrl->pdev,
+			&s_ctrl->sensordata->power_info.clk_info,
+			&s_ctrl->sensordata->power_info.clk_ptr,
+			s_ctrl->sensordata->power_info.clk_info_size);
+	}
+
 	kfree(s_ctrl->sensordata);
 	return 0;
 }
-
-static struct msm_cam_clk_info cam_8974_clk_info[] = {
-	[SENSOR_CAM_MCLK] = {"cam_src_clk", 24000000},
-	[SENSOR_CAM_CLK] = {"cam_clk", 0},
-};
 
 int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -108,7 +115,7 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_i2c_client *sensor_i2c_client;
 
 	if (!s_ctrl) {
-		pr_err("%s:%d failed: s_ctrl %p\n",
+		pr_err("%s:%d failed: s_ctrl %pK\n",
 			__func__, __LINE__, s_ctrl);
 		return -EINVAL;
 	}
@@ -121,7 +128,7 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
 
 	if (!power_info || !sensor_i2c_client) {
-		pr_err("%s:%d failed: power_info %p sensor_i2c_client %p\n",
+		pr_err("%s:%d failed: power_info %pK sensor_i2c_client %pK\n",
 			__func__, __LINE__, power_info, sensor_i2c_client);
 		return -EINVAL;
 	}
@@ -137,15 +144,17 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_slave_info *slave_info;
 	const char *sensor_name;
 	uint32_t retry = 0;
-
+	
 	if (!s_ctrl) {
-		pr_err("%s:%d failed: %p\n",
+		pr_err("%s:%d failed: %pK\n",
 			__func__, __LINE__, s_ctrl);
 		return -EINVAL;
 	}
 
 	if (s_ctrl->is_csid_tg_mode)
 		return 0;
+	
+	pr_err("[8996_camera]%s\t +++ \n",__func__);
 
 	power_info = &s_ctrl->sensordata->power_info;
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
@@ -154,7 +163,7 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 
 	if (!power_info || !sensor_i2c_client || !slave_info ||
 		!sensor_name) {
-		pr_err("%s:%d failed: %p %p %p %p\n",
+		pr_err("%s:%d failed: %pK %pK %pK %pK\n",
 			__func__, __LINE__, power_info,
 			sensor_i2c_client, slave_info, sensor_name);
 		return -EINVAL;
@@ -178,7 +187,7 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			break;
 		}
 	}
-
+	printk("[8996_camera]%s\t --- \n",__func__);
 	return rc;
 }
 
@@ -201,6 +210,7 @@ static uint16_t msm_sensor_id_by_mask(struct msm_sensor_ctrl_t *s_ctrl,
 	return sensor_id;
 }
 
+//ASUS_BSP+++, jungchi for File nodes for cci read/write to imx318
 static struct msm_camera_i2c_client *m_cci_client;
 static struct class *actuator_debug_class;
 static struct device *actuator_debug_dev;
@@ -361,7 +371,7 @@ static ssize_t front_camera_cci_read_store(struct device *dev,
     return count;
 }
 DEVICE_ATTR(front_camera_cci_debug_read, 0664, front_camera_cci_read_show, front_camera_cci_read_store);
-/*---front camera---*/
+//ASUS_BSP---, jungchi for File nodes for cci read/write to imx318
 
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -372,7 +382,7 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	const char *sensor_name;
 
 	if (!s_ctrl) {
-		pr_err("%s:%d failed: %p\n",
+		pr_err("%s:%d failed: %pK\n",
 			__func__, __LINE__, s_ctrl);
 		return -EINVAL;
 	}
@@ -381,7 +391,7 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 	sensor_name = s_ctrl->sensordata->sensor_name;
 
 	if (!sensor_i2c_client || !slave_info || !sensor_name) {
-		pr_err("%s:%d failed: %p %p %p\n",
+		pr_err("%s:%d failed: %pK %pK %pK\n",
 			__func__, __LINE__, sensor_i2c_client, slave_info,
 			sensor_name);
 		return -EINVAL;
@@ -395,32 +405,34 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 		return rc;
 	}
 
-	pr_debug("%s: read id: 0x%x expected id 0x%x:\n",
+	pr_err("[8996_camera]%s: read id: 0x%x expected id 0x%x:\n",
 			__func__, chipid, slave_info->sensor_id);
 	if (msm_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		pr_err("%s chip id %x does not match %x\n",
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
-    if(!m_cci_client && slave_info->sensor_id == 0x0318) {
-        m_cci_client = sensor_i2c_client;
-        actuator_debug_class = class_create(THIS_MODULE, "imx318_cci_debug");
-        actuator_debug_dev = device_create(actuator_debug_class,
-                NULL, 0, "%s", "imx318_cci_debug");
+	//ASUS_BSP+++, jungchi for File nodes for cci read/write to imx318
+	if(!m_cci_client && slave_info->sensor_id == 0x0318) {
+		m_cci_client = sensor_i2c_client;
+		actuator_debug_class = class_create(THIS_MODULE, "imx318_cci_debug");
+		actuator_debug_dev = device_create(actuator_debug_class,
+			NULL, 0, "%s", "imx318_cci_debug");
 
-        (void) device_create_file(actuator_debug_dev, &dev_attr_cci_debug_write);
+		(void) device_create_file(actuator_debug_dev, &dev_attr_cci_debug_write);
 		(void) device_create_file(actuator_debug_dev, &dev_attr_cci_debug_read);
 		(void) device_create_file(actuator_debug_dev, &dev_attr_imx318_temperature);
-    }else if(!m_front_camera_cci_client && slave_info->sensor_id == 0x885a){
-    	m_front_camera_cci_client = sensor_i2c_client;
-        front_camera_debug_class = class_create(THIS_MODULE, "ov8856_cci_debug");
-        front_camera_debug_dev = device_create(front_camera_debug_class,
-                NULL, 0, "%s", "ov8856_cci_debug");
+	}else if(!m_front_camera_cci_client && slave_info->sensor_id == 0x885a){
+		m_front_camera_cci_client = sensor_i2c_client;
+		front_camera_debug_class = class_create(THIS_MODULE, "ov8856_cci_debug");
+		front_camera_debug_dev = device_create(front_camera_debug_class,
+			NULL, 0, "%s", "ov8856_cci_debug");
 
-        (void) device_create_file(front_camera_debug_dev, &dev_attr_front_camera_cci_debug_write);
-        (void) device_create_file(front_camera_debug_dev, &dev_attr_front_camera_cci_debug_read);
-		pr_err("%s ov8856 device_create_file\n",__func__);
-    }
+		(void) device_create_file(front_camera_debug_dev, &dev_attr_front_camera_cci_debug_write);
+		(void) device_create_file(front_camera_debug_dev, &dev_attr_front_camera_cci_debug_read);
+			pr_err("%s ov8856 device_create_file\n",__func__);
+	}
+	//ASUS_BSP---, jungchi for File nodes for cci read/write to imx318
 	return rc;
 }
 
@@ -1628,20 +1640,18 @@ static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
 
 int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 {
-	int32_t                       rc = -ENOMEM;
 	struct msm_camera_cci_client *cci_client = NULL;
-	struct msm_cam_clk_info      *clk_info = NULL;
 	unsigned long mount_pos = 0;
 
 	/* Validate input parameters */
 	if (!s_ctrl) {
-		pr_err("%s:%d failed: invalid params s_ctrl %p\n", __func__,
+		pr_err("%s:%d failed: invalid params s_ctrl %pK\n", __func__,
 			__LINE__, s_ctrl);
 		return -EINVAL;
 	}
 
 	if (!s_ctrl->sensor_i2c_client) {
-		pr_err("%s:%d failed: invalid params sensor_i2c_client %p\n",
+		pr_err("%s:%d failed: invalid params sensor_i2c_client %pK\n",
 			__func__, __LINE__, s_ctrl->sensor_i2c_client);
 		return -EINVAL;
 	}
@@ -1650,7 +1660,7 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 	s_ctrl->sensor_i2c_client->cci_client = kzalloc(sizeof(
 		struct msm_camera_cci_client), GFP_KERNEL);
 	if (!s_ctrl->sensor_i2c_client->cci_client) {
-		pr_err("%s:%d failed: no memory cci_client %p\n", __func__,
+		pr_err("%s:%d failed: no memory cci_client %pK\n", __func__,
 			__LINE__, s_ctrl->sensor_i2c_client->cci_client);
 		return -ENOMEM;
 	}
@@ -1681,19 +1691,6 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 	if (!s_ctrl->sensor_v4l2_subdev_ops)
 		s_ctrl->sensor_v4l2_subdev_ops = &msm_sensor_subdev_ops;
 
-	/* Initialize clock info */
-	clk_info = kzalloc(sizeof(cam_8974_clk_info), GFP_KERNEL);
-	if (!clk_info) {
-		pr_err("%s:%d failed no memory clk_info %p\n", __func__,
-			__LINE__, clk_info);
-		rc = -ENOMEM;
-		goto FREE_CCI_CLIENT;
-	}
-	memcpy(clk_info, cam_8974_clk_info, sizeof(cam_8974_clk_info));
-	s_ctrl->sensordata->power_info.clk_info = clk_info;
-	s_ctrl->sensordata->power_info.clk_info_size =
-		ARRAY_SIZE(cam_8974_clk_info);
-
 	/* Update sensor mount angle and position in media entity flag */
 	mount_pos = s_ctrl->sensordata->sensor_info->position << 16;
 	mount_pos = mount_pos | ((s_ctrl->sensordata->sensor_info->
@@ -1701,8 +1698,4 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 	s_ctrl->msm_sd.sd.entity.flags = mount_pos | MEDIA_ENT_FL_DEFAULT;
 
 	return 0;
-
-FREE_CCI_CLIENT:
-	kfree(cci_client);
-	return rc;
 }

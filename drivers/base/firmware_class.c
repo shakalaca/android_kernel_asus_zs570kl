@@ -302,8 +302,7 @@ static const char * const fw_path[] = {
 	"/lib/firmware/updates/" UTS_RELEASE,
 	"/lib/firmware/updates",
 	"/lib/firmware/" UTS_RELEASE,
-	"/lib/firmware",
-	"/firmware/image"
+	"/lib/firmware"
 };
 
 /*
@@ -367,6 +366,10 @@ static int fw_get_filesystem_firmware(struct device *device,
 	if (!path)
 		return false;
 
+
+	//dev_warn(device, "firmware, attempted to load %s\n",buf->fw_id); //for debug
+
+
 	for (i = 0; i < ARRAY_SIZE(fw_path); i++) {
 		struct file *file;
 
@@ -383,41 +386,10 @@ static int fw_get_filesystem_firmware(struct device *device,
 		}
 		/* ASUS BSP ---*/
 
-		if(!strcmp( buf->fw_id , "slpi.mdt" )) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b00")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b01")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b02")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b03")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b04")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b05")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b06")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b07")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b08")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b09")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b10")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b11")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b12")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b13")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b14")) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-		} else if(!strcmp( buf->fw_id , "slpi.b15")) {
+		if (!strncmp(buf->fw_id , "slpi", 4)) {
 			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
 		}
+
 		file = filp_open(path, O_RDONLY, 0);
 		if (IS_ERR(file))
 			continue;

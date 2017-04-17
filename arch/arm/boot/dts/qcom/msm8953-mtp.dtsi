@@ -15,45 +15,31 @@
 #include "msm8953-audio-mtp.dtsi"
 #include "msm8953-camera-sensor-mtp.dtsi"
 
-&i2c_3 { /* BLSP1 QUP3 */
-	focaltech@38 {
-		compatible = "focaltech,5x06";
-		reg = <0x38>;
+&spi_3 { /* BLSP1 QUP3 */
+	spi-max-frequency = <16000000>;
+	maxim_sti@0 {
+		status = "disabled";
+		compatible = "maxim,maxim_sti";
+		reg = <0>;
 		interrupt-parent = <&tlmm>;
-		interrupts = <65 0x2008>;
-		vdd-supply = <&pm8953_l10>;
-		vcc_i2c-supply = <&pm8953_l6>;
-		/* pins used by touchscreen */
-		pinctrl-names = "pmx_ts_active","pmx_ts_suspend","pmx_ts_release";
+		interrupts = <65 0>;
+		spi-max-frequency = <16000000>;
+		avdd-supply = <&pm8953_l10>;
+		dvdd-supply = <&pm8953_l5>;
+		maxim_sti,irq-gpio = <&tlmm 65 0x00>;
+		maxim_sti,reset-gpio = <&tlmm 64 0x00>;
+		maxim_sti,touch_fusion = "/vendor/bin/touch_fusion";
+		maxim_sti,config_file = "/etc/firmware/qtc800s.cfg";
+		maxim_sti,fw_name = "qtc800s.bin";
+		pinctrl-names = "pmx_ts_active","pmx_ts_suspend",
+						"pmx_ts_release";
 		pinctrl-0 = <&ts_int_active &ts_reset_active>;
 		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
 		pinctrl-2 = <&ts_release>;
-		focaltech,name = "ft5346";
-		focaltech,family-id = <0x54>;
-		focaltech,reset-gpio = <&tlmm 64 0x0>;
-		focaltech,irq-gpio = <&tlmm 65 0x2008>;
-		focaltech,display-coords = <0 0 720 1280>;
-		focaltech,panel-coords = <0 0 720 1400>;
-		focaltech,button-map= <139 102 158>;
-		focaltech,no-force-update;
-		focaltech,i2c-pull-up;
-		focaltech,group-id = <1>;
-		focaltech,hard-reset-delay-ms = <20>;
-		focaltech,soft-reset-delay-ms = <200>;
-		focaltech,num-max-touches = <5>;
-		focaltech,fw-delay-aa-ms = <30>;
-		focaltech,fw-delay-55-ms = <30>;
-		focaltech,fw-upgrade-id1 = <0x79>;
-		focaltech,fw-upgrade-id2 = <0x18>;
-		focaltech,fw-delay-readid-ms = <10>;
-		focaltech,fw-delay-era-flsh-ms = <2000>;
-		focaltech,fw-auto-cal;
-		focaltech,ignore-id-check;
 	};
 };
 
 &i2c_5 { /* BLSP2 QUP1 (NFC) */
-/*
 	nq@28 {
 		compatible = "qcom,nq-nci";
 		reg = <0x28>;
@@ -71,57 +57,13 @@
 		clocks = <&clock_gcc clk_bb_clk2_pin>;
 		clock-names = "ref_clk";
 	};
-*/
-};
-
-&i2c_6 { /* BLSP2 QUP2 */
-	ap3045@1c{ 
-		compatible = "di,ap3045";
-		reg = <0x1c>;
-		interrupt-parent = <&tlmm>;
-		interrupts = <43 0>;
-		vdd-supply = <&pm8953_l10>;
-		//vcc_i2c-supply = <&pm8950_l6>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&ap3045_default>;
-		ap,use-polling;
-		ap,interrupt-gpio = <&tlmm 43 0>;
-		intel,ps-low-thres = < 70 >;
-		intel,ps-hight-thres = < 80 >;
-		intel,als-time = <0x10>;		
-		intel,als-persis-time = <0x0f>;
-		intel,int-ctrl = <0xA8>;
-		intel,ps-gain = < 0x40 >; 
-		intel,ps-led-control = <0x20>;  /* 33T */
-		intel,ps-time = <0x01>;  
-		intel,als-gain = < 0x06 >; /* 0:full */
-		pm,class-name = "ap3045_class";
-		pm,user-name = "ext_proximity_sensor";
-		pm,state-D0 = "enable";
-		pm,state-D3 = "disable";
-		
-	};
-
-	cm3323e@10{
-		compatible = "capella,cm3323e";
-		reg = <0x10>;
-		vdd-supply = <&pm8953_l17>;
-	};
 };
 
 &pm8953_l10 {
-	regulator-max-microvolt = <3000000>;
+	regulator-max-microvolt = <2850000>;
 };
 
 &soc {
-	hall_sensor {
-		compatible = "qcom,hall";
-		pinctrl-names = "hall_gpio_high","hall_gpio_low";
-		pinctrl-0 = <&gpio_hall_active>;
-		pinctrl-1 = <&gpio_hall_suspend>;
-		qcom,hall-gpio = <&tlmm 12 0x0>;
-	};
-
 	gpio_keys {
 		compatible = "gpio-keys";
 		input-name = "gpio-keys";
@@ -129,7 +71,6 @@
 		pinctrl-0 = <&gpio_key_active>;
 		pinctrl-1 = <&gpio_key_suspend>;
 
-/* <ASUS_Lotta_Lu-2016/02/29> Note this beacuse because the gpio 87 is not for camera_focus ++++
 		camera_focus {
 			label = "camera_focus";
 			gpios = <&tlmm 87 0x1>;
@@ -137,7 +78,6 @@
 			linux,code = <0x210>;
 			debounce-interval = <15>;
 		};
-*/
 
 		camera_snapshot {
 			label = "camera_snapshot";
@@ -154,15 +94,6 @@
 			linux,code = <115>;
 			debounce-interval = <15>;
 		};
-//<ASUS_Hank2_Liu_20160217 Porting Volume Down Key> ++++++
-		vol_down {
-			label = "volume_down";
-			gpios = <&tlmm 13 0x1>;
-			linux,input-type = <1>;
-			linux,code = <114>;
-			debounce-interval = <15>;
-		};
-//<ASUS_Hank2_Liu_20160217 Porting Volume Down Key> ------
 	};
 
 	hbtp {
@@ -207,7 +138,7 @@
 };
 
 &mdss_dsi0 {
-	qcom,dsi-pref-prim-pan = <&dsi_tm_er63350_1080p_video>;
+	qcom,dsi-pref-prim-pan = <&dsi_truly_1080_vid>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
 	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
 	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
@@ -234,16 +165,6 @@
 	status = "ok";
 	qpnp,qpnp-labibb-mode = "lcd";
 };
-
-//<ASUS_Hank2_Liu_20160217 Bring up Panel in Kernel> ++++++
-&dsi_tm_er63350_1080p_video {
-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
-};
-
-&dsi_ctc_ili7807b_1080p_video {
-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
-};
-//<ASUS_Hank2_Liu_20160217 Bring up Panel in Kernel> ------
 
 &dsi_truly_1080_vid {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
@@ -347,11 +268,10 @@
 
 &pmi8950_charger {
 	qcom,battery-data = <&mtp_batterydata>;
-	adp-power-supply = <&pm8953_l8>;
-	//qcom,chg-led-sw-controls;
-	//qcom,chg-led-support;
-	//qcom,external-typec;
-	//qcom,typec-psy-name = "typec";
+	qcom,chg-led-sw-controls;
+	qcom,chg-led-support;
+	qcom,external-typec;
+	qcom,typec-psy-name = "typec";
 };
 
 &pm8953_gpios {

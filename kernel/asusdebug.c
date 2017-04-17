@@ -22,15 +22,14 @@
 #include <linux/slab.h>
 //extern int g_user_dbg_mode;
 
-#include <linux/rtc.h>
-#include "rtmutex_common.h"
+#include "locking/rtmutex_common.h"
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 int entering_suspend = 0;
 #endif
-phys_addr_t PRINTK_BUFFER_PA = 0x8FE00000;
+phys_addr_t PRINTK_BUFFER_PA = 0xA0100000;
 void *PRINTK_BUFFER_VA;
-phys_addr_t RTB_BUFFER_PA = 0x8FE00000 + SZ_1M;
+phys_addr_t RTB_BUFFER_PA = 0xA0100000 + SZ_1M;
 extern struct timezone sys_tz;
 #define RT_MUTEX_HAS_WAITERS	1UL
 #define RT_MUTEX_OWNER_MASKALL	1UL
@@ -208,6 +207,7 @@ void print_all_thread_info(void)
     #if 1
     g_phonehang_log = (char*)PHONE_HANG_LOG_BUFFER;//phys_to_virt(PHONE_HANG_LOG_BUFFER);
     g_iPtr = 0;
+    //printk("%s %u  g_phonehang_log=%p\n", __FUNCTION__, __LINE__, g_phonehang_log);
     memset_nc(g_phonehang_log, 0, PHONE_HANG_LOG_SIZE);
     #endif
 
@@ -509,6 +509,7 @@ void save_all_thread_info(void)
     #if 1
     g_phonehang_log = (char*)PHONE_HANG_LOG_BUFFER;//phys_to_virt(PHONE_HANG_LOG_BUFFER);
     g_iPtr = 0;
+    //printk("%s %u  g_phonehang_log=%p\n", __FUNCTION__, __LINE__, g_phonehang_log);
     memset_nc(g_phonehang_log, 0, PHONE_HANG_LOG_SIZE);
     #endif
 
@@ -952,7 +953,9 @@ static void do_write_event_worker(struct work_struct *work)
 			g_Asus_Eventlog_read %= ASUS_EVTLOG_MAX_ITEM;
 			mutex_unlock(&mA);
 
-			if (pchar[str_len - 1] != '\n') {
+			if (pchar[str_len - 1] != '\n' ) {
+				if(str_len + 1 >= ASUS_EVTLOG_STR_MAXLEN)
+					str_len = ASUS_EVTLOG_STR_MAXLEN - 2;
 				pchar[str_len] = '\n';
 				pchar[str_len + 1] = '\0';
 			}
@@ -993,7 +996,7 @@ void ASUSEvtlog(const char *fmt, ...)
 		ts.tv_sec -= sys_tz.tz_minuteswest * 60;
 		rtc_time_to_tm(ts.tv_sec, &tm);
 		getrawmonotonic(&ts);
-		sprintf(buffer, "(%ld)%04d-%02d-%02d %02d:%02d:%02d :", ts.tv_sec, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+		sprintf(buffer, "[debug](%ld)%04d-%02d-%02d %02d:%02d:%02d :", ts.tv_sec, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 		/*printk(buffer);*/
 		va_start(args, fmt);
 		vscnprintf(buffer + strlen(buffer), ASUS_EVTLOG_STR_MAXLEN - strlen(buffer), fmt, args);
@@ -1186,14 +1189,63 @@ static struct file_operations turnon_asusdebug_proc_ops = {
 	.read = turnon_asusdebug_proc_read,
 	.write = turnon_asusdebug_proc_write,
  };
+///////////////////////////////////////////////////////////////////////
+//
+// printk controller
+//
+///////////////////////////////////////////////////////////////////////
+static int klog_proc_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", g_user_klog_mode);
+	return 0;
+}
 
+static int klog_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, klog_proc_show, NULL);
+}
+
+
+static ssize_t klog_proc_write(struct file *file, const char *buf,
+	size_t count, loff_t *pos)
+{
+	char lbuf[32];
+
+	if (count >= sizeof(lbuf))
+		count = sizeof(lbuf)-1;
+
+	if (copy_from_user(lbuf, buf, count))
+		return -EFAULT;
+	lbuf[count] = 0;
+
+	if(0 == strncmp(lbuf, "1", 1))
+	{
+		g_user_klog_mode = 1;
+	}
+	else
+	{
+		g_user_klog_mode = 0;
+	}
+
+	return count;
+}
+
+static const struct file_operations klog_proc_fops = {
+	.open		= klog_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+	.write		= klog_proc_write,
+};
 static int __init proc_asusdebug_init(void)
 {
 	proc_create("asusdebug", S_IALLUGO, NULL, &proc_asusdebug_operations);
 	proc_create("asusevtlog", S_IRWXUGO, NULL, &proc_asusevtlog_operations);
 	proc_create("asusevtlog-switch", S_IRWXUGO, NULL, &proc_evtlogswitch_operations);
 	proc_create("asusdebug-switch", S_IRWXUGO, NULL, &turnon_asusdebug_proc_ops);
+	proc_create_data("asusklog", S_IRWXUGO, NULL, &klog_proc_fops, NULL);
 	PRINTK_BUFFER_VA = ioremap(PRINTK_BUFFER_PA, PRINTK_BUFFER_SIZE);
+//printk("PRINTK_BUFFER_VA=%p\n", PRINTK_BUFFER_VA);
 	mutex_init(&mA);
 	fake_mutex.owner = current;
 	fake_mutex.mutex_owner_asusdebug = current;

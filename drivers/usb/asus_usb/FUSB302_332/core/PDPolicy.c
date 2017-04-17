@@ -2225,7 +2225,7 @@ void PolicySinkTransitionSink(void)
             {
                 case CMTPS_RDY:
                     PolicyState = peSinkReady;                                  // Go to the ready state
-                    platform_notify_pd_contract(TRUE, PartnerCaps.FPDOSupply.Voltage, SinkRequest.FVRDO.MinMaxCurrent);
+                    platform_notify_pd_contract(TRUE, CapsReceived[SinkRequest.FVRDO.ObjectPosition-1].FPDOSupply.Voltage, SinkRequest.FVRDO.OpCurrent);
                     break;
                 case CMTSoftReset:
                     PolicyState = peSinkSoftReset;                              // Go to the soft reset state if we received a reset command

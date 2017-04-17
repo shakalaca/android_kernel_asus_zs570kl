@@ -24,7 +24,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: wldev_common.c 633657 2016-04-25 03:22:30Z $
+ * $Id: wldev_common.c 665539 2016-10-18 08:08:15Z $
  */
 
 #include <osl.h>
@@ -55,6 +55,10 @@
 	} while (0)
 
 extern int dhd_ioctl_entry_local(struct net_device *net, wl_ioctl_t *ioc, int cmd);
+
+#ifdef CUSTOMER_HW_ZEN
+extern int wl_check_associated_5g_band(struct net_device *dev);
+#endif /* CUSTOMER_HW_ZEN */
 
 s32 wldev_ioctl(
 	struct net_device *dev, u32 cmd, void *arg, u32 len, u32 set)
@@ -332,37 +336,43 @@ int wldev_set_band(
 	struct net_device *dev, uint band)
 {
 	int error = -1;
-    int error1 = -1;
-    uint pband;
 
 	if ((band == WLC_BAND_AUTO) || (band == WLC_BAND_5G) || (band == WLC_BAND_2G)) {
-        
-        error1 = wldev_ioctl(dev, WLC_GET_BAND, &pband, sizeof(uint), 0);
-        printf("%s band is %d pband is %d\n", __FUNCTION__, band, pband);
-        if (band != WLC_BAND_AUTO && pband != band) {
-            scb_val_t scbval;
-            bzero(&scbval, sizeof(scb_val_t));
-            switch(pband) {
-                case WLC_BAND_AUTO:
-                    if (band == WLC_BAND_2G) {
-                        error = wldev_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t), true);
-                        printf("%s change band disassoc first error %d\n", __FUNCTION__, error);
-                        msleep(1000);
-                    }
-                    break;
-                case WLC_BAND_5G:
-                    if (band == WLC_BAND_2G) {
-                        error = wldev_ioctl(dev, WLC_DISASSOC, &scbval, sizeof(scb_val_t), true);
-                        printf("%s change band disassoc first error %d\n", __FUNCTION__, error);
-                        msleep(1000);
-                    }
-                    break;
-                default:
-                    printf("%s pband is %d do nothing\n", __FUNCTION__, pband);
-                    break;
-            } 
-        }
-
+#ifdef CUSTOMER_HW_ZEN
+		int error1 = -1;
+		uint pband;
+		bool is_associated_5g = 0;
+		error1 = wldev_ioctl(dev, WLC_GET_BAND, &pband, sizeof(uint), 0);
+		printf("%s band is %d pband is %d\n", __FUNCTION__, band, pband);
+		is_associated_5g = wl_check_associated_5g_band(dev);
+		if (band != WLC_BAND_AUTO && pband != band) {
+			scb_val_t scbval;
+			bzero(&scbval, sizeof(scb_val_t));
+			switch (pband) {
+				case WLC_BAND_AUTO:
+					if ((band == WLC_BAND_2G) && is_associated_5g) {
+						error = wldev_ioctl(dev, WLC_DISASSOC,
+								&scbval, sizeof(scb_val_t), true);
+						printf("%s change band disassoc first error %d\n",
+								__FUNCTION__, error);
+						msleep(1000);
+					}
+				break;
+				case WLC_BAND_5G:
+					if ((band == WLC_BAND_2G) && is_associated_5g) {
+						error = wldev_ioctl(dev, WLC_DISASSOC,
+								&scbval, sizeof(scb_val_t), true);
+						printf("%s change band disassoc first error %d\n",
+								__FUNCTION__, error);
+						msleep(1000);
+					}
+				break;
+				default:
+					printf("%s pband is %d do nothing\n", __FUNCTION__, pband);
+				break;
+			}
+		}
+#endif /* CUSTOMER_HW_ZEN */
 		error = wldev_ioctl(dev, WLC_SET_BAND, &band, sizeof(band), true);
 		if (!error)
 			dhd_bus_band_set(dev, band);

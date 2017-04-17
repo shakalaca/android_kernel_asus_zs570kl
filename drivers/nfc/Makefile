@@ -14,6 +14,5 @@ obj-$(CONFIG_NFC_TRF7970A)	+= trf7970a.o
 obj-$(CONFIG_NFC_ST21NFCA)  	+= st21nfca/
 obj-$(CONFIG_NFC_ST21NFCB)	+= st21nfcb/
 obj-$(CONFIG_NFC_NQ)		+= nq-nci.o
-obj-$(CONFIG_NFC_NXP_PN5XX) 	+= pn5xx_i2c.o
 
 ccflags-$(CONFIG_NFC_DEBUG) := -DDEBUG

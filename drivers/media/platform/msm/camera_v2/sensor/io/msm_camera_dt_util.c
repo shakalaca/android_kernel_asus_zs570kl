@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,7 +34,7 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 
 	/* Validate input parameters */
 	if (!cam_vreg || !power_setting) {
-		pr_err("%s:%d failed: cam_vreg %p power_setting %p", __func__,
+		pr_err("%s:%d failed: cam_vreg %pK power_setting %pK", __func__,
 			__LINE__,  cam_vreg, power_setting);
 		return -EINVAL;
 	}
@@ -155,7 +155,6 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 			if (j == num_vreg)
 				power_setting[i].seq_val = INVALID_VREG;
 			break;
-
 		case CAM_V_CUSTOM2:
 			for (j = 0; j < num_vreg; j++) {
 				if (!strcmp(cam_vreg[j].reg_name,
@@ -184,7 +183,6 @@ int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 			break;
 		}
 	}
-
 	return 0;
 }
 
@@ -762,7 +760,6 @@ int msm_camera_init_gpio_pin_tbl(struct device_node *of_node,
 		rc = -ENOMEM;
 		return rc;
 	}
-
 	rc = of_property_read_u32(of_node, "qcom,gpio-vana", &val);
 	if (rc != -EINVAL) {
 		if (rc < 0) {
@@ -1036,6 +1033,7 @@ int msm_camera_get_dt_vreg_data(struct device_node *of_node,
 	if (!count || (count == -EINVAL)) {
 		pr_err("%s:%d number of entries is 0 or not present in dts\n",
 			__func__, __LINE__);
+		*num_vreg = 0;
 		return 0;
 	}
 
@@ -1220,6 +1218,66 @@ static int msm_camera_pinctrl_init(struct msm_camera_power_ctrl_t *ctrl)
 	return 0;
 }
 
+int32_t msm_sensor_driver_get_gpio_data(
+	struct msm_camera_gpio_conf **gpio_conf,
+	struct device_node *of_node)
+{
+	int32_t                      rc = 0, i = 0;
+	uint16_t                    *gpio_array = NULL;
+	int16_t                     gpio_array_size = 0;
+	struct msm_camera_gpio_conf *gconf = NULL;
+
+	/* Validate input parameters */
+	if (!of_node) {
+		pr_err("failed: invalid param of_node %pK", of_node);
+		return -EINVAL;
+	}
+
+	gpio_array_size = of_gpio_count(of_node);
+	CDBG("gpio count %d\n", gpio_array_size);
+	if (gpio_array_size <= 0)
+		return 0;
+
+	gconf = kzalloc(sizeof(struct msm_camera_gpio_conf),
+		GFP_KERNEL);
+	if (!gconf)
+		return -ENOMEM;
+
+	*gpio_conf = gconf;
+
+	gpio_array = kcalloc(gpio_array_size, sizeof(uint16_t), GFP_KERNEL);
+	if (!gpio_array)
+		goto FREE_GPIO_CONF;
+
+	for (i = 0; i < gpio_array_size; i++) {
+		gpio_array[i] = of_get_gpio(of_node, i);
+		CDBG("gpio_array[%d] = %d", i, gpio_array[i]);
+	}
+	rc = msm_camera_get_dt_gpio_req_tbl(of_node, gconf, gpio_array,
+		gpio_array_size);
+	if (rc < 0) {
+		pr_err("failed in msm_camera_get_dt_gpio_req_tbl\n");
+		goto FREE_GPIO_CONF;
+	}
+
+	rc = msm_camera_init_gpio_pin_tbl(of_node, gconf, gpio_array,
+		gpio_array_size);
+	if (rc < 0) {
+		pr_err("failed in msm_camera_init_gpio_pin_tbl\n");
+		goto FREE_GPIO_REQ_TBL;
+	}
+	kfree(gpio_array);
+	return rc;
+
+FREE_GPIO_REQ_TBL:
+	kfree(gconf->cam_gpio_req_tbl);
+FREE_GPIO_CONF:
+	kfree(gconf);
+	kfree(gpio_array);
+	*gpio_conf = NULL;
+	return rc;
+}
+
 int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 	enum msm_camera_device_type_t device_type,
 	struct msm_camera_i2c_client *sensor_i2c_client)
@@ -1229,7 +1287,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 
 	CDBG("%s:%d\n", __func__, __LINE__);
 	if (!ctrl || !sensor_i2c_client) {
-		pr_err("failed ctrl %p sensor_i2c_client %p\n", ctrl,
+		pr_err("failed ctrl %pK sensor_i2c_client %pK\n", ctrl,
 			sensor_i2c_client);
 		return -EINVAL;
 	}
@@ -1263,7 +1321,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 		switch (power_setting->seq_type) {
 		case SENSOR_CLK:
 			if (power_setting->seq_val >= ctrl->clk_info_size) {
-				pr_err("%s clk index %d >= max %d\n", __func__,
+				pr_err("%s clk index %d >= max %zu\n", __func__,
 					power_setting->seq_val,
 					ctrl->clk_info_size);
 				goto power_up_failed;
@@ -1271,15 +1329,11 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 			if (power_setting->config_val)
 				ctrl->clk_info[power_setting->seq_val].
 					clk_rate = power_setting->config_val;
-
-			rc = msm_cam_clk_enable(ctrl->dev,
-				&ctrl->clk_info[0],
-				(struct clk **)&power_setting->data[0],
-				ctrl->clk_info_size,
-				1);
+			rc = msm_camera_clk_enable(ctrl->dev,
+				ctrl->clk_info, ctrl->clk_ptr,
+				ctrl->clk_info_size, true);
 			if (rc < 0) {
-				pr_err("%s: clk enable failed\n",
-					__func__);
+				pr_err("%s: clk enable failed\n", __func__);
 				goto power_up_failed;
 			}
 			break;
@@ -1309,6 +1363,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 		case SENSOR_VREG:
 			if (power_setting->seq_val == INVALID_VREG)
 				break;
+
 			if (power_setting->seq_val >= CAM_VREG_MAX) {
 				pr_err("%s vreg index %d >= max %d\n", __func__,
 					power_setting->seq_val,
@@ -1323,7 +1378,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 					&power_setting->data[0],
 					1);
 			else
-				pr_err("ERR:%s: %d usr_idx:%d dts_idx:%d\n",
+				pr_err("%s: %d usr_idx:%d dts_idx:%d\n",
 					__func__, __LINE__,
 					power_setting->seq_val, ctrl->num_vreg);
 			break;
@@ -1352,7 +1407,6 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 			goto power_up_failed;
 		}
 	}
-
 	CDBG("%s exit\n", __func__);
 	return 0;
 power_up_failed:
@@ -1362,14 +1416,6 @@ power_up_failed:
 		power_setting = &ctrl->power_setting[index];
 		CDBG("%s type %d\n", __func__, power_setting->seq_type);
 		switch (power_setting->seq_type) {
-
-		case SENSOR_CLK:
-			msm_cam_clk_enable(ctrl->dev,
-				&ctrl->clk_info[0],
-				(struct clk **)&power_setting->data[0],
-				ctrl->clk_info_size,
-				0);
-			break;
 		case SENSOR_GPIO:
 			if (!ctrl->gpio_conf->gpio_num_info)
 				continue;
@@ -1454,7 +1500,7 @@ int msm_camera_power_down(struct msm_camera_power_ctrl_t *ctrl,
 
 	CDBG("%s:%d\n", __func__, __LINE__);
 	if (!ctrl || !sensor_i2c_client) {
-		pr_err("failed ctrl %p sensor_i2c_client %p\n", ctrl,
+		pr_err("failed ctrl %pK sensor_i2c_client %pK\n", ctrl,
 			sensor_i2c_client);
 		return -EINVAL;
 	}

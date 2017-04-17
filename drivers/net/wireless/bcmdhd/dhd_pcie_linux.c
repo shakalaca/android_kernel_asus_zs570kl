@@ -1344,7 +1344,7 @@ int dhdpcie_oob_intr_register(dhd_bus_t *bus)
 	}
 
 	if (dhdpcie_osinfo->oob_irq_num > 0) {
-		DHD_INFO_HW4(("%s OOB irq=%d flags=%X \n", __FUNCTION__,
+		DHD_ERROR(("%s OOB irq=%d flags=%X \n", __FUNCTION__,
 			(int)dhdpcie_osinfo->oob_irq_num,
 			(int)dhdpcie_osinfo->oob_irq_flags));
 		err = request_irq(dhdpcie_osinfo->oob_irq_num, wlan_oob_irq,

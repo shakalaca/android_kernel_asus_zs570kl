@@ -5,8 +5,8 @@
 #include <linux/rwsem.h>
 #include <linux/leds.h>
 
-//led+++
+//vkLed+++
 void set_button_backlight(bool status);
-//led---
+//vkLed---
 
 #endif	/* __LEDS_H_INCLUDED */

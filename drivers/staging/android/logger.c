@@ -30,7 +30,6 @@
 #include <linux/vmalloc.h>
 #include <linux/aio.h>
 #include "logger.h"
-#include "logger_kernel.h"
 
 #include <asm/ioctls.h>
 
@@ -38,14 +37,13 @@
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
  * @buffer:	The actual ring buffer
  * @misc:	The "misc" device representing the log
- * @wq:	The wait queue for @readers
+ * @wq:		The wait queue for @readers
  * @readers:	This log's readers
  * @mutex:	The mutex that protects the @buffer
  * @w_off:	The current write head offset
  * @head:	The head, or location that readers start reading at.
  * @size:	The size of the log
  * @logs:	The list of log channels
- * @plugins:    The list of plugins (to export traces to different outputs)
  *
  * This structure lives from module insertion until module removal, so it does
  * not need additional reference counting. The structure is protected by the
@@ -61,7 +59,6 @@ struct logger_log {
 	size_t			head;
 	size_t			size;
 	struct list_head	logs;
-	struct list_head        plugins;
 };
 
 static LIST_HEAD(log_list);
@@ -111,9 +108,10 @@ static inline struct logger_log *file_get_log(struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
 		struct logger_reader *reader = file->private_data;
+
 		return reader->log;
-	} else
-		return file->private_data;
+	}
+	return file->private_data;
 }
 
 /*
@@ -127,6 +125,7 @@ static struct logger_entry *get_entry_header(struct logger_log *log,
 		size_t off, struct logger_entry *scratch)
 {
 	size_t len = min(sizeof(struct logger_entry), log->size - off);
+
 	if (len != sizeof(struct logger_entry)) {
 		memcpy(((void *) scratch), log->buffer + off, len);
 		memcpy(((void *) scratch) + len, log->buffer,
@@ -160,8 +159,7 @@ static size_t get_user_hdr_len(int ver)
 {
 	if (ver < 2)
 		return sizeof(struct user_logger_entry_compat);
-	else
-		return sizeof(struct logger_entry);
+	return sizeof(struct logger_entry);
 }
 
 static ssize_t copy_header_to_user(int ver, struct logger_entry *entry,
@@ -413,81 +411,27 @@ static void fix_up_readers(struct logger_log *log, size_t len)
 }
 
 /*
- * do_write_log - writes 'len' bytes from 'buf' to 'log'
- *
- * The caller needs to hold log->mutex.
- */
-static void do_write_log(struct logger_log *log, const void *buf, size_t count)
-{
-	size_t len;
-
-	len = min(count, log->size - log->w_off);
-	memcpy(log->buffer + log->w_off, buf, len);
-
-	if (count != len)
-		memcpy(log->buffer, buf + len, count - len);
-
-	log->w_off = logger_offset(log, log->w_off + count);
-
-}
-
-/*
- * do_write_log_user - writes 'len' bytes from the user-space buffer 'buf' to
- * the log 'log'
- *
- * The caller needs to hold log->mutex.
- *
- * Returns 'count' on success, negative error code on failure.
- */
-static ssize_t do_write_log_from_user(struct logger_log *log,
-				      const void __user *buf, size_t count)
-{
-	size_t len;
-
-	len = min(count, log->size - log->w_off);
-	if (len && copy_from_user(log->buffer + log->w_off, buf, len))
-		return -EFAULT;
-
-	if (count != len)
-		if (copy_from_user(log->buffer, buf + len, count - len))
-			/*
-			 * Note that by not updating w_off, this abandons the
-			 * portion of the new entry that *was* successfully
-			 * copied, just above.  This is intentional to avoid
-			 * message corruption from missing fragments.
-			 */
-			return -EFAULT;
-
-	log->w_off = logger_offset(log, log->w_off + count);
-
-	return count;
-}
-
-/*
- * logger_aio_write - our write method, implementing support for write(),
+ * logger_write_iter - our write method, implementing support for write(),
  * writev(), and aio_write(). Writes are our fast path, and we try to optimize
  * them above all else.
  */
-static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
-			 unsigned long nr_segs, loff_t ppos)
+static ssize_t logger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct logger_log *log = file_get_log(iocb->ki_filp);
-	size_t orig;
 	struct logger_entry header;
 	struct timespec now;
-	ssize_t ret = 0;
-	unsigned long num_segs = nr_segs;
-	struct logger_plugin *plugin;
+	size_t len, count, w_off;
 
-	//now = current_kernel_time();
-	getnstimeofday(&now);
+	count = min_t(size_t, iocb->ki_nbytes, LOGGER_ENTRY_MAX_PAYLOAD);
+
+	now = current_kernel_time();
 
 	header.pid = current->tgid;
 	header.tid = current->pid;
 	header.sec = now.tv_sec;
 	header.nsec = now.tv_nsec;
 	header.euid = current_euid();
-	header.len = min_t(size_t, iocb->ki_nbytes, LOGGER_ENTRY_MAX_PAYLOAD);
+	header.len = count;
 	header.hdr_size = sizeof(struct logger_entry);
 
 	/* null writes succeed, return zero */
@@ -495,8 +439,6 @@ static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		return 0;
 
 	mutex_lock(&log->mutex);
-
-	orig = log->w_off;
 
 	/*
 	 * Fix up any readers, pulling them forward to the first readable
@@ -506,43 +448,38 @@ static ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	 */
 	fix_up_readers(log, sizeof(struct logger_entry) + header.len);
 
-	do_write_log(log, &header, sizeof(struct logger_entry));
+	len = min(sizeof(header), log->size - log->w_off);
+	memcpy(log->buffer + log->w_off, &header, len);
+	memcpy(log->buffer, (char *)&header + len, sizeof(header) - len);
 
-	while (nr_segs-- > 0) {
-		size_t len;
-		ssize_t nr;
+	/* Work with a copy until we are ready to commit the whole entry */
+	w_off =  logger_offset(log, log->w_off + sizeof(struct logger_entry));
 
-		/* figure out how much of this vector we can keep */
-		len = min_t(size_t, iov->iov_len, header.len - ret);
+	len = min(count, log->size - w_off);
 
-		/* send this segment's payload to the different plugins */
-		list_for_each_entry(plugin, &log->plugins, list)
-			plugin->write_seg(iov->iov_base, len,
-				true, /* from_user */
-				(nr_segs + 1 == num_segs), /* start of msg ? */
-				(nr_segs == 0), /* end of msg ? */
-				plugin->data); /* call-back data */
-
-		/* write out this segment's payload to the log's buffer */
-		nr = do_write_log_from_user(log, iov->iov_base, len);
-		if (unlikely(nr < 0)) {
-			log->w_off = orig;
-			list_for_each_entry(plugin, &log->plugins, list)
-				plugin->write_seg_recover(plugin->data);
-			mutex_unlock(&log->mutex);
-			return nr;
-		}
-
-		iov++;
-		ret += nr;
+	if (copy_from_iter(log->buffer + w_off, len, from) != len) {
+		/*
+		 * Note that by not updating log->w_off, this abandons the
+		 * portion of the new entry that *was* successfully
+		 * copied, just above.  This is intentional to avoid
+		 * message corruption from missing fragments.
+		 */
+		mutex_unlock(&log->mutex);
+		return -EFAULT;
 	}
 
+	if (copy_from_iter(log->buffer, count - len, from) != count - len) {
+		mutex_unlock(&log->mutex);
+		return -EFAULT;
+	}
+
+	log->w_off = logger_offset(log, w_off + count);
 	mutex_unlock(&log->mutex);
 
 	/* wake up any blocked readers */
 	wake_up_interruptible(&log->wq);
 
-	return ret;
+	return len;
 }
 
 static struct logger_log *get_log_from_minor(int minor)
@@ -552,17 +489,6 @@ static struct logger_log *get_log_from_minor(int minor)
 	list_for_each_entry(log, &log_list, logs)
 		if (log->misc.minor == minor)
 			return log;
-	return NULL;
-}
-
-static struct logger_log *get_log_from_name(const char *name)
-{
-	struct logger_log *log;
-
-	list_for_each_entry(log, &log_list, logs)
-		if (strncmp(log->misc.name, name, strlen(name)) == 0)
-			return log;
-
 	return NULL;
 }
 
@@ -669,6 +595,7 @@ static unsigned int logger_poll(struct file *file, poll_table *wait)
 static long logger_set_version(struct logger_reader *reader, void __user *arg)
 {
 	int version;
+
 	if (copy_from_user(&version, arg, sizeof(int)))
 		return -EFAULT;
 
@@ -725,7 +652,7 @@ static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			ret = -EBADF;
 			break;
 		}
-		if (!(in_egroup_p(file->f_dentry->d_inode->i_gid) ||
+		if (!(in_egroup_p(file_inode(file)->i_gid) ||
 				capable(CAP_SYSLOG))) {
 			ret = -EPERM;
 			break;
@@ -761,7 +688,7 @@ static long logger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 static const struct file_operations logger_fops = {
 	.owner = THIS_MODULE,
 	.read = logger_read,
-	.aio_write = logger_aio_write,
+	.write_iter = logger_write_iter,
 	.poll = logger_poll,
 	.unlocked_ioctl = logger_ioctl,
 	.compat_ioctl = logger_ioctl,
@@ -802,7 +729,6 @@ static int __init create_log(char *log_name, int size)
 
 	init_waitqueue_head(&log->wq);
 	INIT_LIST_HEAD(&log->readers);
-	INIT_LIST_HEAD(&log->plugins);
 	mutex_init(&log->mutex);
 	log->w_off = 0;
 	log->head = 0;
@@ -816,13 +742,16 @@ static int __init create_log(char *log_name, int size)
 	if (unlikely(ret)) {
 		pr_err("failed to register misc device for log '%s'!\n",
 				log->misc.name);
-		goto out_free_log;
+		goto out_free_misc_name;
 	}
 
 	pr_info("created %luK log '%s'\n",
 		(unsigned long) log->size >> 10, log->misc.name);
 
 	return 0;
+
+out_free_misc_name:
+	kfree(log->misc.name);
 
 out_free_log:
 	kfree(log);
@@ -851,7 +780,11 @@ static int __init logger_init(void)
 	ret = create_log(LOGGER_LOG_SYSTEM, 256*1024);
 	if (unlikely(ret))
 		goto out;
-      
+
+        ret = create_log(LOGGER_LOG_SECURITY, 256*1024);
+        if (unlikely(ret))
+                goto out;
+
 out:
 	return ret;
 }
@@ -870,51 +803,9 @@ static void __exit logger_exit(void)
 	}
 }
 
+
 device_initcall(logger_init);
 module_exit(logger_exit);
-
-#include "logger_kernel.c"
-
-/**
- * @logger_add_plugin() - adds a plugin to a given log
- *
- * @plugin: The @logger_plugin to be added
- * @name:   The name of the targetted log
- */
-void logger_add_plugin(struct logger_plugin *plugin, const char *name)
-{
-	struct logger_log *log = get_log_from_name(name);
-
-	if ((plugin == NULL) || (log == NULL))
-		return;
-
-	mutex_lock(&log->mutex);
-	list_add_tail(&plugin->list, &log->plugins);
-	plugin->init(plugin->data);
-	mutex_unlock(&log->mutex);
-}
-EXPORT_SYMBOL(logger_add_plugin);
-
-/**
- * @logger_remove_plugin() - removes a plugin from a given log
- *
- * @plugin: The @logger_plugin to be removed
- * @name:   The name of the targetted log
- */
-void logger_remove_plugin(struct logger_plugin *plugin, const char *name)
-{
-	struct logger_log *log = get_log_from_name(name);
-
-	if ((plugin == NULL) || (log == NULL))
-		return;
-
-	mutex_lock(&log->mutex);
-	plugin->exit(plugin->data);
-	list_del(&plugin->list);
-	mutex_unlock(&log->mutex);
-}
-EXPORT_SYMBOL(logger_remove_plugin);
-
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Robert Love, <rlove@google.com>");

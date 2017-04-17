@@ -22,6 +22,10 @@ obj-$(CONFIG_BT_WILINK)		+= btwilink.o
 obj-$(CONFIG_MSM_BT_POWER)	+= bluetooth-power.o
 obj-$(CONFIG_MSM_BT_BLUESLEEP)  += bluesleep.o
 
+obj-$(CONFIG_BTFM_SLIM)				+= btfm_slim.o
+obj-$(CONFIG_BTFM_SLIM)				+= btfm_slim_codec.o
+obj-$(CONFIG_BTFM_SLIM_WCN3990)		+= btfm_slim_wcn3990.o
+
 btmrvl-y			:= btmrvl_main.o
 btmrvl-$(CONFIG_DEBUG_FS)	+= btmrvl_debugfs.o
 

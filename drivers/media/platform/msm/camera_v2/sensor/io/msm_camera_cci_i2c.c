@@ -12,7 +12,7 @@
 
 #include <soc/qcom/camera2.h>
 #include "msm_camera_i2c.h"
-#include "msm_camera_i2c_imx318_bypass.h"
+#include "msm_camera_i2c_imx318_bypass.h" //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 #include "msm_cci.h"
 
 #undef CDBG
@@ -20,6 +20,7 @@
 #define S_I2C_DBG(fmt, args...) pr_debug(fmt, ##args)
 static bool ois_special_cmd_finished = FALSE;
 
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 int32_t msm_camera_cci_i2c_thru_imx318_read(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t *data,
 	enum msm_camera_i2c_data_type data_type)
@@ -60,6 +61,7 @@ int32_t msm_camera_cci_i2c_thru_imx318_read(struct msm_camera_i2c_client *client
 	CDBG("%s addr = 0x%x data: 0x%x\n", __func__, addr, *data);
 	return rc;
 }
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 int32_t msm_camera_cci_i2c_read(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t *data,
@@ -70,7 +72,8 @@ int32_t msm_camera_cci_i2c_read(struct msm_camera_i2c_client *client,
 	struct msm_camera_cci_ctrl cci_ctrl;
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
-		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
+		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR
+		&& client->addr_type != MSM_CAMERA_I2C_3B_ADDR)
 		|| (data_type != MSM_CAMERA_I2C_BYTE_DATA
 		&& data_type != MSM_CAMERA_I2C_WORD_DATA))
 		return rc;
@@ -106,9 +109,16 @@ int32_t msm_camera_cci_i2c_read_seq(struct msm_camera_i2c_client *client,
 	struct msm_camera_cci_ctrl cci_ctrl;
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
-		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
+		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR
+		&& client->addr_type != MSM_CAMERA_I2C_3B_ADDR)
 		|| num_byte == 0)
 		return rc;
+
+	if (num_byte > I2C_REG_DATA_MAX) {
+			pr_err("%s: Error num_byte:0x%x exceeds 8K max supported:0x%x\n",
+			__func__, num_byte, I2C_REG_DATA_MAX);
+		return rc;
+	}
 
 	buf = kzalloc(num_byte, GFP_KERNEL);
 	if (!buf) {
@@ -137,6 +147,7 @@ int32_t msm_camera_cci_i2c_read_seq(struct msm_camera_i2c_client *client,
 	return rc;
 }
 
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 int32_t msm_camera_cci_i2c_thru_imx318_write(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
 	enum msm_camera_i2c_data_type data_type)
@@ -180,6 +191,7 @@ int32_t msm_camera_cci_i2c_thru_imx318_write(struct msm_camera_i2c_client *clien
 
 	return rc;
 }
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 int32_t msm_camera_cci_i2c_write(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
@@ -197,11 +209,8 @@ int32_t msm_camera_cci_i2c_write(struct msm_camera_i2c_client *client,
 
 	//for OIS(ROHM BU63163_165) special CMD 
 	if(client->cci_client->sid << 1==0x1c && addr==0x8c && data==0x1)client->addr_type = MSM_CAMERA_I2C_BYTE_ADDR;
-
-
 	CDBG("%s:%d reg addr = 0x%x data type: %d\n",
 		__func__, __LINE__, addr, data_type);
-
 	reg_conf_tbl.reg_addr = addr;
 	reg_conf_tbl.reg_data = data;
 	reg_conf_tbl.delay = 0;
@@ -370,6 +379,12 @@ int32_t msm_camera_cci_i2c_write_seq_table(
 	client_addr_type = client->addr_type;
 	client->addr_type = write_setting->addr_type;
 
+	if (reg_setting->reg_data_size > I2C_SEQ_REG_DATA_MAX) {
+		pr_err("%s: number of bytes %u exceeding the max supported %d\n",
+		__func__, reg_setting->reg_data_size, I2C_SEQ_REG_DATA_MAX);
+		return rc;
+	}
+
 	for (i = 0; i < write_setting->size; i++) {
 		rc = msm_camera_cci_i2c_write_seq(client, reg_setting->reg_addr,
 			reg_setting->reg_data, reg_setting->reg_data_size);
@@ -387,6 +402,7 @@ int32_t msm_camera_cci_i2c_write_seq_table(
 	return rc;
 }
 
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 int32_t msm_camera_cci_i2c_write_table_w_thru_imx318_microdelay(
 	struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_setting *write_setting)
@@ -448,6 +464,7 @@ int32_t msm_camera_cci_i2c_write_table_w_thru_imx318_microdelay(
 
 	return rc;
 }
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 int32_t msm_camera_cci_i2c_write_table_w_microdelay(
 	struct msm_camera_i2c_client *client,
@@ -481,63 +498,7 @@ int32_t msm_camera_cci_i2c_write_table_w_microdelay(
 	rc = cci_ctrl.status;
 	return rc;
 }
-/*
-static int32_t msm_camera_cci_i2c_thru_imx318_compare(struct msm_camera_i2c_client *client,
-	uint32_t addr, uint16_t data,
-	enum msm_camera_i2c_data_type data_type)
-{
-	int32_t rc;
-	uint16_t reg_data = 0;
-	int data_len = 0;
-	switch (data_type) {
-	case MSM_CAMERA_I2C_BYTE_DATA:
-	case MSM_CAMERA_I2C_WORD_DATA:
-		data_len = data_type;
-		break;
-	case MSM_CAMERA_I2C_SET_BYTE_MASK:
-	case MSM_CAMERA_I2C_UNSET_BYTE_MASK:
-		data_len = MSM_CAMERA_I2C_BYTE_DATA;
-		break;
-	case MSM_CAMERA_I2C_SET_WORD_MASK:
-	case MSM_CAMERA_I2C_UNSET_WORD_MASK:
-		data_len = MSM_CAMERA_I2C_WORD_DATA;
-		break;
-	default:
-		pr_err("%s: Unsupport data type: %d\n", __func__, data_type);
-		break;
-	}
 
-	rc = msm_camera_cci_i2c_read(client, addr, &reg_data, data_len);
-	if (rc < 0)
-		return rc;
-
-	rc = I2C_COMPARE_MISMATCH;
-	switch (data_type) {
-	case MSM_CAMERA_I2C_BYTE_DATA:
-	case MSM_CAMERA_I2C_WORD_DATA:
-		if (data == reg_data)
-			rc = I2C_COMPARE_MATCH;
-		break;
-	case MSM_CAMERA_I2C_SET_BYTE_MASK:
-	case MSM_CAMERA_I2C_SET_WORD_MASK:
-		if ((reg_data & data) == data)
-			rc = I2C_COMPARE_MATCH;
-		break;
-	case MSM_CAMERA_I2C_UNSET_BYTE_MASK:
-	case MSM_CAMERA_I2C_UNSET_WORD_MASK:
-		if (!(reg_data & data))
-			rc = I2C_COMPARE_MATCH;
-		break;
-	default:
-		pr_err("%s: Unsupport data type: %d\n", __func__, data_type);
-		break;
-	}
-
-	pr_err("%s: Register and data match result %d\n", __func__,
-		rc);
-	return rc;
-}
-*/
 static int32_t msm_camera_cci_i2c_compare(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
 	enum msm_camera_i2c_data_type data_type)
@@ -545,6 +506,7 @@ static int32_t msm_camera_cci_i2c_compare(struct msm_camera_i2c_client *client,
 	int32_t rc;
 	uint16_t reg_data = 0;
 	int data_len = 0;
+
 	switch (data_type) {
 	case MSM_CAMERA_I2C_BYTE_DATA:
 	case MSM_CAMERA_I2C_WORD_DATA:
@@ -594,6 +556,7 @@ static int32_t msm_camera_cci_i2c_compare(struct msm_camera_i2c_client *client,
 	return rc;
 }
 
+//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
 int32_t msm_camera_cci_i2c_thru_imx318_poll(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
 	enum msm_camera_i2c_data_type data_type, uint32_t delay_ms)
@@ -611,6 +574,7 @@ int32_t msm_camera_cci_i2c_thru_imx318_poll(struct msm_camera_i2c_client *client
 	}
     return rc;
 }
+//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 int32_t msm_camera_cci_i2c_poll(struct msm_camera_i2c_client *client,
 	uint32_t addr, uint16_t data,
@@ -618,6 +582,7 @@ int32_t msm_camera_cci_i2c_poll(struct msm_camera_i2c_client *client,
 {
 	int32_t rc = -EFAULT;
 	int32_t i = 0;
+	
 	S_I2C_DBG("%s: addr: 0x%x data: 0x%x dt: %d\n",
 		__func__, addr, data, data_type);
 
@@ -680,6 +645,7 @@ static int32_t msm_camera_cci_i2c_set_write_mask_data(
 {
 	int32_t rc;
 	uint16_t reg_data;
+
 	CDBG("%s\n", __func__);
 	if (mask == -1)
 		return 0;
@@ -709,8 +675,10 @@ int32_t msm_camera_cci_i2c_write_conf_tbl(
 {
 	int i;
 	int32_t rc = -EFAULT;
+
 	for (i = 0; i < size; i++) {
 		enum msm_camera_i2c_data_type dt;
+
 		if (reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL) {
 			rc = msm_camera_cci_i2c_poll(client,
 				reg_conf_tbl->reg_addr,

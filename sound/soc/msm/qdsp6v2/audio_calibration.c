@@ -40,6 +40,7 @@ static struct audio_cal_info	audio_cal;
 
 struct switch_dev hires_sdev;
 
+
 static bool callbacks_are_equal(struct audio_cal_callbacks *callback1,
 				struct audio_cal_callbacks *callback2)
 {
@@ -412,7 +413,7 @@ static long audio_cal_shared_ioctl(struct file *file, unsigned int cmd,
 			pr_err("%s: [HI-RES] fail to copy is_hires\n", __func__);
 			ret = -EFAULT;
 		} else {
-			pr_info("%s: [HI-RES] set hires state=%s\n", __func__, is_hires ? "true" : "false");
+			pr_err("%s: [HI-RES] set hires state=%s\n", __func__, is_hires ? "true" : "false");
 			switch_set_state(&hires_sdev, is_hires ? 2 : 0); /* need to sync with WiredAccessoryManager.java */
 		}
 		mutex_unlock(&audio_cal.cal_mutex[AUDIO_SET_HIRES_STATE_TYPE]);
@@ -547,7 +548,6 @@ static long audio_cal_ioctl(struct file *f,
 							204, compat_uptr_t)
 #define AUDIO_POST_CALIBRATION32	_IOWR(CAL_IOCTL_MAGIC, \
 							205, compat_uptr_t)
-
 #define AUDIO_SET_HIRES_STATE32		_IOWR(CAL_IOCTL_MAGIC, \
 							219, compat_uptr_t)
 

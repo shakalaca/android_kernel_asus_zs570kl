@@ -7,14 +7,6 @@
 obj-$(CONFIG_INPUT)		+= input-core.o
 input-core-y := input.o input-compat.o input-mt.o ff-core.o
 
-ifeq ($(TARGET_BUILD_VARIANT), userdebug)
-KBUILD_CFLAGS += -DCONFIG_ASUS_SENSOR_ENG_CMD
-endif
-
-ifeq ($(TARGET_BUILD_VARIANT), eng)
-KBUILD_CFLAGS += -DCONFIG_ASUS_SENSOR_ENG_CMD
-endif
-
 obj-$(CONFIG_INPUT_FF_MEMLESS)	+= ff-memless.o
 obj-$(CONFIG_INPUT_POLLDEV)	+= input-polldev.o
 obj-$(CONFIG_INPUT_SPARSEKMAP)	+= sparse-keymap.o

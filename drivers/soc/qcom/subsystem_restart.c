@@ -40,6 +40,8 @@
 
 #include <asm/current.h>
 
+#include "peripheral-loader.h"
+
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
 static uint disable_restart_work;
@@ -71,17 +73,20 @@ enum p_subsys_state {
 
 /**
  * enum subsys_state - state of a subsystem (public)
+ * @SUBSYS_OFFLINING: subsystem is offlining
  * @SUBSYS_OFFLINE: subsystem is offline
  * @SUBSYS_ONLINE: subsystem is online
  *
  * The 'public' side of the subsytem state, exposed to userspace.
  */
 enum subsys_state {
+	SUBSYS_OFFLINING,
 	SUBSYS_OFFLINE,
 	SUBSYS_ONLINE,
 };
 
 static const char * const subsys_states[] = {
+	[SUBSYS_OFFLINING] = "OFFLINING",
 	[SUBSYS_OFFLINE] = "OFFLINE",
 	[SUBSYS_ONLINE] = "ONLINE",
 };
@@ -186,6 +191,11 @@ static struct subsys_device *to_subsys(struct device *d)
 	return container_of(d, struct subsys_device, dev);
 }
 
+void complete_err_ready(struct subsys_device *subsys)
+{
+	complete(&subsys->err_ready);
+}
+
 static struct subsys_tracking *subsys_get_track(struct subsys_device *subsys)
 {
 	struct subsys_soc_restart_order *order = subsys->restart_order;
@@ -262,7 +272,7 @@ static ssize_t firmware_name_store(struct device *dev,
 	pr_info("Changing subsys fw_name to %s\n", buf);
 	mutex_lock(&track->lock);
 	strlcpy(subsys->desc->fw_name, buf,
-			 min(count + 1, sizeof(subsys->desc->fw_name)));
+			min(count + 1, sizeof(subsys->desc->fw_name)));
 	mutex_unlock(&track->lock);
 	return orig_count;
 }
@@ -303,7 +313,7 @@ static ssize_t system_debug_store(struct device *dev,
 /*ASUS-BBSP Modify for saving ramdump - devpath+++*/
 static ssize_t devpath_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s\n", kobject_get_path(&(to_subsys(dev)->desc->dev->kobj), GFP_KERNEL));
+        return snprintf(buf, PAGE_SIZE, "%s\n", kobject_get_path(&(to_subsys(dev)->desc->dev->kobj), GFP_KERNEL));
 }
 /*ASUS-BBSP Modify for saving ramdump - devpath---*/
 
@@ -349,7 +359,7 @@ static struct device_attribute subsys_attrs[] = {
 	__ATTR(restart_level, 0644, restart_level_show, restart_level_store),
 	__ATTR(firmware_name, 0644, firmware_name_show, firmware_name_store),
 	__ATTR(system_debug, 0644, system_debug_show, system_debug_store),
-	__ATTR_RO(devpath),/*ASUS-BBSP Modify for saving ramdump - devpath+*/
+        __ATTR_RO(devpath),/*ASUS-BBSP Modify for saving ramdump - devpath+*/
 	__ATTR_NULL,
 };
 
@@ -381,33 +391,33 @@ module_param(ssr_reason, charp, 0444);
 void subsys_save_reason(char *name, char *reason)
 {
 /*ASUS-BBSP Skip ramdump or panic in a specific reason+++*/
-	if (strlen(ssr_panic) > 0) {
-		char *pch = strstr(ssr_panic, "\n");
-		if(pch != NULL)
-			strncpy(pch, "\0", 1);
-		if (strstr(reason, ssr_panic) != NULL)
-			panic("%s", reason);
-	}
+        if (strlen(ssr_panic) > 0) {
+                char *pch = strstr(ssr_panic, "\n");
+                if(pch != NULL)
+                        strncpy(pch, "\0", 1);
+                if (strstr(reason, ssr_panic) != NULL)
+                        panic("%s", reason);
+                }
 /*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
 
-	strlcpy(ssr_reason, reason, MAX_SSR_REASON_LEN);
-	//ASUSEvtlog("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Add SSR inform to ASUSEvtLog+*/
+                strlcpy(ssr_reason, reason, MAX_SSR_REASON_LEN);
+                //ASUSEvtlog("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Add SSR inform to ASUSEvtLog+*/
 }
 /*ASUS-BBSP Save SSR reason---*/
 
 /*ASUS-BBSP Skip ramdump or panic in a specific reason+++*/
 int get_ssr_enable_ramdumps(void)
 {
-	if (strlen(ssr_no_dump) > 0) {
-		char *pch = strstr(ssr_no_dump, "\n");
-		if(pch != NULL)
-			strncpy(pch, "\0", 1);
-		if (strstr(ssr_reason, ssr_no_dump) != NULL) {
-			pr_err("[SSR] Skip ramdump for reason = %s, no_dump = %s", ssr_reason, ssr_no_dump);
-			return 0;
-		}
-	}
-	return 1;
+        if (strlen(ssr_no_dump) > 0) {
+                char *pch = strstr(ssr_no_dump, "\n");
+                if(pch != NULL)
+                        strncpy(pch, "\0", 1);
+                if (strstr(ssr_reason, ssr_no_dump) != NULL) {
+                        pr_err("[SSR] Skip ramdump for reason = %s, no_dump = %s", ssr_reason, ssr_no_dump);
+                        return 0;
+                }
+        }
+        return 1;
 }
 /*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
 
@@ -572,8 +582,8 @@ static void notify_each_subsys_device(struct subsys_device **list,
 			send_sysmon_notif(dev);
 
 		notif_data.crashed = subsys_get_crash_status(dev);
-		//notif_data.enable_ramdump = is_ramdump_enabled(dev);
-		notif_data.enable_ramdump = (is_ramdump_enabled(dev) && get_ssr_enable_ramdumps());/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
+                //notif_data.enable_ramdump = is_ramdump_enabled(dev);
+		notif_data.enable_ramdump = is_ramdump_enabled(dev) && get_ssr_enable_ramdumps();/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
 		notif_data.enable_mini_ramdumps = enable_mini_ramdumps;
 		notif_data.no_auth = dev->desc->no_auth;
 		notif_data.pdev = pdev;
@@ -595,6 +605,10 @@ static void enable_all_irqs(struct subsys_device *dev)
 		enable_irq(dev->desc->err_fatal_irq);
 	if (dev->desc->stop_ack_irq && dev->desc->stop_ack_handler)
 		enable_irq(dev->desc->stop_ack_irq);
+	if (dev->desc->generic_irq && dev->desc->generic_handler) {
+		enable_irq(dev->desc->generic_irq);
+		irq_set_irq_wake(dev->desc->generic_irq, 1);
+	}
 }
 
 static void disable_all_irqs(struct subsys_device *dev)
@@ -609,32 +623,22 @@ static void disable_all_irqs(struct subsys_device *dev)
 		disable_irq(dev->desc->err_fatal_irq);
 	if (dev->desc->stop_ack_irq && dev->desc->stop_ack_handler)
 		disable_irq(dev->desc->stop_ack_irq);
-}
-
-int wait_for_shutdown_ack(struct subsys_desc *desc)
-{
-	int count;
-
-	if (desc && !desc->shutdown_ack_gpio)
-		return 0;
-
-	for (count = SHUTDOWN_ACK_MAX_LOOPS; count > 0; count--) {
-		if (gpio_get_value(desc->shutdown_ack_gpio))
-			return count;
-		msleep(SHUTDOWN_ACK_DELAY_MS);
+	if (dev->desc->generic_irq && dev->desc->generic_handler) {
+		disable_irq(dev->desc->generic_irq);
+		irq_set_irq_wake(dev->desc->generic_irq, 0);
 	}
-
-	pr_err("[%s]: Timed out waiting for shutdown ack\n", desc->name);
-
-	return -ETIMEDOUT;
 }
-EXPORT_SYMBOL(wait_for_shutdown_ack);
 
 static int wait_for_err_ready(struct subsys_device *subsys)
 {
 	int ret;
 
-	if (!subsys->desc->err_ready_irq || enable_debug == 1)
+	/*
+	 * If subsys is using generic_irq in which case err_ready_irq will be 0,
+	 * don't return.
+	 */
+	if ((subsys->desc->generic_irq <= 0 && !subsys->desc->err_ready_irq) ||
+				enable_debug == 1 || is_timeout_disabled())
 		return 0;
 
 	ret = wait_for_completion_timeout(&subsys->err_ready,
@@ -666,7 +670,7 @@ static void subsystem_ramdump(struct subsys_device *dev, void *data)
 
 	if (dev->desc->ramdump)
 		//if (dev->desc->ramdump(is_ramdump_enabled(dev), dev->desc) < 0)
-		if (dev->desc->ramdump((is_ramdump_enabled(dev) && get_ssr_enable_ramdumps()), dev->desc) < 0)/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
+                if (dev->desc->ramdump((is_ramdump_enabled(dev) && get_ssr_enable_ramdumps()), dev->desc) < 0)/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
 			pr_warn("%s[%p]: Ramdump failed.\n", name, current);
 	dev->do_ramdump_on_put = false;
 }
@@ -767,6 +771,7 @@ static void subsys_stop(struct subsys_device *subsys)
 
 	if (!of_property_read_bool(subsys->desc->dev->of_node,
 					"qcom,pil-force-shutdown")) {
+		subsys_set_state(subsys, SUBSYS_OFFLINING);
 		subsys->desc->sysmon_shutdown_ret =
 				sysmon_send_shutdown(subsys->desc);
 		if (subsys->desc->sysmon_shutdown_ret)
@@ -779,6 +784,31 @@ static void subsys_stop(struct subsys_device *subsys)
 	disable_all_irqs(subsys);
 	notify_each_subsys_device(&subsys, 1, SUBSYS_AFTER_SHUTDOWN, NULL);
 }
+
+int wait_for_shutdown_ack(struct subsys_desc *desc)
+{
+	int count;
+	struct subsys_device *dev;
+
+	if (!desc || !desc->shutdown_ack_gpio)
+		return 0;
+
+	dev = find_subsys(desc->name);
+	if (!dev)
+		return 0;
+
+	for (count = SHUTDOWN_ACK_MAX_LOOPS; count > 0; count--) {
+		if (gpio_get_value(desc->shutdown_ack_gpio))
+			return count;
+		else if (subsys_get_crash_status(dev))
+			break;
+		msleep(SHUTDOWN_ACK_DELAY_MS);
+	}
+
+	pr_err("[%s]: Timed out waiting for shutdown ack\n", desc->name);
+	return -ETIMEDOUT;
+}
+EXPORT_SYMBOL(wait_for_shutdown_ack);
 
 void *__subsystem_get(const char *name, const char *fw_name)
 {
@@ -930,6 +960,18 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 		track = &dev->track;
 	}
 
+	/*
+	 * If a system reboot/shutdown is under way, ignore subsystem errors.
+	 * However, print a message so that we know that a subsystem behaved
+	 * unexpectedly here.
+	 */
+	if (system_state == SYSTEM_RESTART
+		|| system_state == SYSTEM_POWER_OFF) {
+		WARN(1, "SSR aborted: %s, system reboot/shutdown is under way\n",
+			desc->name);
+		return;
+	}
+
 	mutex_lock(&track->lock);
 	do_epoch_check(dev);
 
@@ -939,8 +981,8 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 		return;
 	}
 
-	if (get_ssr_enable_ramdumps())/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
-		kobject_uevent(&(desc->dev->kobj), KOBJ_OFFLINE);/*ASUS-BBSP Modify for saving ramdump+*/
+        if (get_ssr_enable_ramdumps())/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
+                kobject_uevent(&(desc->dev->kobj), KOBJ_OFFLINE);/*ASUS-BBSP Modify for saving ramdump+*/
 
 	/*
 	 * It's necessary to take the registration lock because the subsystem
@@ -977,8 +1019,8 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	mutex_unlock(&soc_order_reg_lock);
 	mutex_unlock(&track->lock);
 
-	if (get_ssr_enable_ramdumps())/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
-		kobject_uevent(&(desc->dev->kobj), KOBJ_ONLINE);/*ASUS-BBSP Modify for saving ramdump+*/
+        if (get_ssr_enable_ramdumps())/*ASUS-BBSP Skip ramdump or panic in a specific reason+*/
+                kobject_uevent(&(desc->dev->kobj), KOBJ_ONLINE);/*ASUS-BBSP Modify for saving ramdump+*/
 
 	spin_lock_irqsave(&track->s_lock, flags);
 	track->p_state = SUBSYS_NORMAL;
@@ -1539,6 +1581,13 @@ static int subsys_parse_devicetree(struct subsys_desc *desc)
 	if (ret > 0)
 		desc->wdog_bite_irq = ret;
 
+	if (of_property_read_bool(pdev->dev.of_node,
+					"qcom,pil-generic-irq-handler")) {
+		ret = platform_get_irq(pdev, 0);
+		if (ret > 0)
+			desc->generic_irq = ret;
+	}
+
 	order = ssr_parse_restart_orders(desc);
 	if (IS_ERR(order)) {
 		pr_err("Could not initialize SSR restart order, err = %ld\n",
@@ -1588,6 +1637,18 @@ static int subsys_setup_irqs(struct subsys_device *subsys)
 			return ret;
 		}
 		disable_irq(desc->wdog_bite_irq);
+	}
+
+	if (desc->generic_irq && desc->generic_handler) {
+		ret = devm_request_irq(desc->dev, desc->generic_irq,
+			desc->generic_handler,
+			IRQF_TRIGGER_HIGH, desc->name, desc);
+		if (ret < 0) {
+			dev_err(desc->dev, "[%s]: Unable to register generic irq handler!: %d\n",
+				desc->name, ret);
+			return ret;
+		}
+		disable_irq(desc->generic_irq);
 	}
 
 	if (desc->err_ready_irq) {
@@ -1819,12 +1880,12 @@ static int __init subsys_restart_init(void)
 	if (ret)
 		goto err_soc;
 
-	ssr_reason = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);/*ASUS-BBSP Save SSR reason+*/
+        ssr_reason = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);/*ASUS-BBSP Save SSR reason+*/
 
-	/*ASUS-BBSP Skip ramdump or panic in a specific reason+++*/
-	ssr_panic = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);
-	ssr_no_dump = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);
-	/*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
+        /*ASUS-BBSP Skip ramdump or panic in a specific reason+++*/
+        ssr_panic = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);
+        ssr_no_dump = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);
+        /*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
 
 	return 0;
 

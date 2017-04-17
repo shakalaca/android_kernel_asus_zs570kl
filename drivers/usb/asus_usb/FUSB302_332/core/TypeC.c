@@ -232,7 +232,7 @@ void InitializeTypeCVariables(USBTypeCPort prefer_portype)
 #endif /* FSC_DTS */
 
 #ifdef FSC_HAVE_ACCMODE
-    blnAccSupport = TRUE;                   // Enable accessory support by default
+    blnAccSupport = FALSE;                  // Disable accessory support by default
     poweredAccSupport = TRUE;
     Registers.Control4.TOG_USRC_EXIT = 1;   // Enable Ra-Ra Toggle Exit
     DeviceWrite(regControl4, 1, &Registers.Control4.byte);
@@ -741,7 +741,7 @@ void StateMachineAttachWaitSink(void)
         SetStateDebugAccessorySink();
     }
 #endif /* FSC_HAVE_ACCMODE */
-    else if (isVBUSOverVoltage(VBUS_MDAC_4P62))                                           // If we have detected VBUS and we have detected an Rp for >tCCDebounce...
+    else if (isVBUSOverVoltage(VBUS_MDAC_4P20))                                           // If we have detected VBUS and we have detected an Rp for >tCCDebounce...
     {
         if ((CCTermCCDebounce > CCTypeOpen) 
                 && (CCTermCCDebounce < CCTypeUndefined) 

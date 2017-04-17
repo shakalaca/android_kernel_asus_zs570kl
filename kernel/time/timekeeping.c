@@ -202,8 +202,7 @@ static inline s64 timekeeping_get_ns(struct tk_read_base *tkr)
 	/* calculate the delta since the last update_wall_time: */
 	delta = clocksource_delta(cycle_now, tkr->cycle_last, tkr->mask);
 
-	nsec = delta * tkr->mult + tkr->xtime_nsec;
-	nsec >>= tkr->shift;
+	nsec = (delta * tkr->mult + tkr->xtime_nsec) >> tkr->shift;
 
 	/* If arch requires, add in get_arch_timeoffset() */
 	return nsec + arch_gettimeoffset();
@@ -227,17 +226,6 @@ static inline s64 timekeeping_get_ns_raw(struct timekeeper *tk)
 	/* If arch requires, add in get_arch_timeoffset() */
 	return nsec + arch_gettimeoffset();
 }
-
-//[Power] +++ Add for trace suspend time
-//fix nsec overflow during suspend in the original timekeeping_get_ns
-s64 get_ns_from_hw(void)
-{
-	struct timekeeper *tk = &tk_core.timekeeper;
-	s64 nsecs = timekeeping_get_ns_raw(tk);
-	return nsecs;
-}
-EXPORT_SYMBOL_GPL(get_ns_from_hw);
-//[Power] +++ Add for trace suspend time
 
 /**
  * update_fast_timekeeper - Update the fast and NMI safe monotonic timekeeper.
@@ -1380,7 +1368,7 @@ static __always_inline void timekeeping_freqadjust(struct timekeeper *tk,
 	negative = (tick_error < 0);
 
 	/* Sort out the magnitude of the correction */
-	tick_error = abs(tick_error);
+	tick_error = abs64(tick_error);
 	for (adj = 0; tick_error > interval; adj++)
 		tick_error >>= 1;
 

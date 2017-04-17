@@ -30,6 +30,7 @@
 #include <trace/events/power.h>
 #include <linux/compiler.h>
 #include <linux/wakeup_reason.h>
+#include <linux/asusdebug.h>
 
 #include "power.h"
 
@@ -542,8 +543,9 @@ int pm_suspend(suspend_state_t state)
 
 	if (state <= PM_SUSPEND_ON || state >= PM_SUSPEND_MAX)
 		return -EINVAL;
-
 	pm_suspend_marker("entry");
+	if (state == 3)
+		ASUSEvtlog("[PM]request_suspend_state: (0->3)\n");
 	error = enter_state(state);
 	if (error) {
 		suspend_stats.fail++;
@@ -552,6 +554,8 @@ int pm_suspend(suspend_state_t state)
 		suspend_stats.success++;
 	}
 	pm_suspend_marker("exit");
+	if (state == 3)
+		ASUSEvtlog("[PM]request_suspend_state: (3->0)\n");
 	return error;
 }
 EXPORT_SYMBOL(pm_suspend);

@@ -21,6 +21,12 @@ config RADIO_SI470X
 
 source "drivers/media/radio/si470x/Kconfig"
 
+config RADIO_SI4709
+	bool "Silicon Labs Si470x FM Radio Receiver support"
+	depends on VIDEO_V4L2
+
+source "drivers/media/radio/si4709/Kconfig"
+
 config RADIO_SI4713
 	tristate "Silicon Labs Si4713 FM Radio with RDS Transmitter support"
 	depends on VIDEO_V4L2

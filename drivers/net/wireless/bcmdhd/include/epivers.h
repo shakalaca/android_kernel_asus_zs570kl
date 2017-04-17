@@ -35,17 +35,17 @@
 
 #define	EPI_RC_NUMBER		155
 
-#define	EPI_INCREMENTAL_NUMBER	8
+#define	EPI_INCREMENTAL_NUMBER	9
 
 #define	EPI_BUILD_NUMBER	0
 
-#define	EPI_VERSION		1, 363, 155, 8
+#define	EPI_VERSION		1, 363, 155, 9
 
 #define	EPI_VERSION_NUM		0x0116b9b0
 
 #define EPI_VERSION_DEV		1.363.155
 
 /* Driver Version String, ASCII, 32 chars max */
-#define	EPI_VERSION_STR		"1.363.155.8 (r650650)"
+#define	EPI_VERSION_STR		"1.363.155.9 (r674917)"
 
 #endif /* _epivers_h_ */
