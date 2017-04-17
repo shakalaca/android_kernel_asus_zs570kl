@@ -140,14 +140,12 @@
 #define F51_CUSTOM_CTRL 0x407
 
 #ifdef WAKEUP_GESTURE
-#define  KEY_GESTURE_E		KEY_E//KEY_F21//KEY_E
-#define  KEY_GESTURE_C		KEY_C//KEY_F20//KEY_C
-//#define  KEY_GESTURE_M	KEY_M 
-//#define  KEY_GESTURE_L	KEY_L
-#define  KEY_GESTURE_W		KEY_W//KEY_F23//KEY_W
-#define  KEY_GESTURE_S		KEY_S//KEY_F22//KEY_S 
-#define  KEY_GESTURE_V		KEY_V//KEY_F18//KEY_V
-#define  KEY_GESTURE_Z		KEY_Z//KEY_F19//KEY_Z
+#define  KEY_GESTURE_V          263
+#define  KEY_GESTURE_Z          264
+#define  KEY_GESTURE_C          265
+#define  KEY_GESTURE_E          266
+#define  KEY_GESTURE_S          267
+#define  KEY_GESTURE_W          268
 #define  KEY_GESTURE_DCLICK	KEY_POWER
 #define  KEY_GESTURE_SWIPE_UP	KEY_WAKEUP
 
