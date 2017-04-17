@@ -73,12 +73,16 @@
 #define WAKEUP_GESTURE true
 
 #define ASUS_TOUCH_PROXIMITY_NODE	//<ASUS_Proximity+>
+#define ASUS_KEYPAD_MODE
 
 //<ASUS_Proximity+>
 #ifdef ASUS_TOUCH_PROXIMITY_NODE	
 #define PROXIMITY_NAME "asus_touch_proximity_status"
 #endif
 //<ASUS_Proximity->
+#ifdef ASUS_KEYPAD_MODE
+#define KEYPAD_MODE_NAME "keypad_mode"
+#endif
 
 #define NO_0D_WHILE_2D
 #define REPORT_2D_Z
@@ -206,6 +210,9 @@ static unsigned char proc_operate_mode = PROC_UPGRADE;
 
 #ifdef ASUS_TOUCH_PROXIMITY_NODE
 struct proc_dir_entry *tp_proximity_proc = NULL; //<ASUS_Proximity+>
+#endif
+#ifdef ASUS_KEYPAD_MODE
+struct proc_dir_entry *tp_keypad_mode_proc = NULL;
 #endif
 
 //ASUS_FACTORY+
@@ -393,6 +400,26 @@ static const struct file_operations tp_proximity_proc_fops = {
 #endif
 #endif
 //<ASUS_Proximity->
+
+#ifdef ASUS_KEYPAD_MODE
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
+static ssize_t tp_keypad_mode_proc_read(struct file *file, char __user *buf, size_t count, loff_t *ppos);
+static ssize_t tp_keypad_mode_proc_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos);
+#else
+static int tp_keypad_mode_proc_read(char *buf, char **start, off_t offset, int request, int *eof, void *data);
+static int tp_keypad_mode_proc_write(struct file *file, const char *buffer, unsigned long count, void *data);
+#endif
+
+static unsigned int keypad_mode = 1;
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
+static const struct file_operations tp_keypad_mode_proc_fops = {
+	.owner = THIS_MODULE,
+	.read = tp_keypad_mode_proc_read,
+	.write = tp_keypad_mode_proc_write,
+};
+#endif
+#endif
 
 struct synaptics_rmi4_data *gb_rmi4_data;
 		
@@ -2163,6 +2190,87 @@ static int tp_proximity_proc_write(struct file *file, const char *buffer,
 #endif
 //<ASUS_Proximity->
 
+#ifdef ASUS_KEYPAD_MODE
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
+static ssize_t tp_keypad_mode_proc_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+	{
+	char *str;
+	int len, retval;
+
+	if (keypad_mode == 1) {
+		printk("[Synaptics] Virtual key is enable now\n");
+		str = "Touch is enabled now\n";
+	} else if (keypad_mode == 0) {
+		printk("[Synaptics] Virtual key is disable now\n");
+		str = "Touch is disabled now\n";
+	}
+
+	len = strlen(str);
+	if(copy_to_user(buf, str, len))
+		retval = -EFAULT;
+	else if (*ppos == 0)
+ 		*ppos += len;
+	else
+		len = 0;
+	return len;
+}
+static ssize_t tp_keypad_mode_proc_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+{
+	char str[128];
+	if (count > PAGE_SIZE) //procfs write and read has PAGE_SIZE limit
+		count = 128;
+
+    if (copy_from_user(str, buf, count))
+	{
+		printk("copy_from_user failed!\n");
+		return -EFAULT;
+        }
+
+	if (count > 1)
+	{
+		str[count-1] = '\0';
+	}
+
+	if ((int)(str[0]) == (1+48)) {
+		keypad_mode = 1;
+		printk("[Synaptics] Enable Virtual Key\n");
+	} else {
+		keypad_mode = 0;
+		printk("[Synaptics] Disable Virtual Key\n");
+	}
+
+	return count;
+}
+#else
+static int tp_keypad_mode_proc_read(char *buf, char **start, off_t offset, int request,
+				     int *eof, void *data)
+{
+	if (keypad_mode == 1) {
+		printk("[Synaptics] Virtual key is enabled now\n");
+		return sprintf(buf, "Virtual key is enabled now\n");
+	} else if (keypad_mode == 0) {
+		printk("[Synaptics] Virtual key is disabled now\n");
+		return sprintf(buf, "Virtual key is disabled now\n");
+	}
+
+	return 0;
+}
+static int tp_keypad_mode_proc_write(struct file *file, const char *buffer,
+				      unsigned long count, void *data)
+{
+	if ((int)(*buffer) == (1+48)) {
+		keypad_mode = 1;
+		printk("[Synaptics] Enable Touch\n");
+	} else {
+		keypad_mode = 0;
+		printk("[Synaptics] Disable Touch\n");
+	}
+
+	return count;
+}
+#endif
+#endif
+
 static int synaptics_rmi4_debug_suspend_set(void *_data, u64 val)
 {
 	struct synaptics_rmi4_data *rmi4_data = _data;
@@ -3352,6 +3460,11 @@ static void cap_sensor_report(struct synaptics_rmi4_data *rmi4_data)
 	onesec = msecs_to_jiffies(2000);
 	#endif
 	//<ASUS_led->
+
+#ifdef ASUS_KEYPAD_MODE
+        if (!keypad_mode)
+                return;
+#endif
 	
 	cap_i2c_Read(rmi4_data, &cap_read_addr, 1, &buf_val, 1);
 	printk("[cap] %s : buf_val=%d\n", __func__, buf_val);
@@ -3638,6 +3751,11 @@ static void fts_report_value(struct synaptics_rmi4_data *rmi4_data)
 			return;*/
 	}
     
+#ifdef ASUS_KEYPAD_MODE
+        if (!keypad_mode)
+                return;
+#endif
+
     //printk("%s [FTS] x=%d, y=%d\n", __func__, au16_x[0], au16_y[0]);
     //key down
     for (i = 0; i < FTS_MAX_POINTS; i++)
@@ -7155,6 +7273,26 @@ err_cap_sensor:
 #endif
 //<ASUS_Proximity->
 
+#ifdef ASUS_KEYPAD_MODE
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
+	tp_keypad_mode_proc = proc_create(KEYPAD_MODE_NAME, 0664, NULL, &tp_keypad_mode_proc_fops);
+#else
+	tp_keypad_mode_proc = create_proc_entry(KEYPAD_MODE_NAME, 0664, NULL);
+#endif
+	if (!tp_keypad_mode_proc) {
+		dev_err(&pdev->dev,
+				"%s: Failed to create proc keypad_mode node\n",
+				__func__);
+		goto err_sysfs;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
+	} else {
+		tp_keypad_mode_proc->write_proc = tp_keypad_mode_proc_write;
+		tp_keypad_mode_proc->read_proc = tp_keypad_mode_proc_read;
+		tp_keypad_mode_proc->data = NULL;
+#endif
+	}
+#endif
+
 	//<ASUS_SDev+>
 	rmi4_data->touch_sdev.name = "touch";
 	rmi4_data->touch_sdev.print_name = touch_switch_name;
@@ -7394,6 +7532,13 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
 #endif
 //<ASUS_Proximity->
 
+#ifdef ASUS_KEYPAD_MODE
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
+	proc_remove(tp_keypad_mode_proc);
+#else
+	remove_proc_entry(KEYPAD_MODE_NAME, NULL);
+#endif
+#endif
 	kfree(rmi4_data);
 
 	return 0;
