@@ -295,6 +295,12 @@ module_param(disable_random_mac_softap, uint, 0644);
 #endif /* CUSTOMER_HW_ZEN */
 static u32 vendor_oui = CONFIG_DHD_SET_RANDOM_MAC_VAL;
 #endif /* SET_RANDOM_MAC_SOFTAP */
+#if defined(DHD_RX_DUMP) && defined(CUSTOMER_HW_ZEN)
+uint enable_rx_dump = 1;
+module_param(enable_rx_dump, uint, 0);
+int dhd_rx_dump_flag = 0;
+int dhd_event_dump = 0;
+#endif /* defined(DHD_RX_DUMP) && defined(CUSTOMER_HW_ZEN) */
 #ifdef ENABLE_ADAPTIVE_SCHED
 #define DEFAULT_CPUFREQ_THRESH		1000000	/* threshold frequency : 1000000 = 1GHz */
 #ifndef CUSTOM_CPUFREQ_THRESH
@@ -4605,6 +4611,9 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 		}
 #endif /* DHD_DHCP_DUMP */
 #if defined(DHD_RX_DUMP)
+#ifdef CUSTOMER_HW_ZEN
+	if (dhd_rx_dump_flag && enable_rx_dump) {
+#endif /* CUSTOMER_HW_ZEN */
 		DHD_ERROR(("RX DUMP[%s] - %s\n", ifname, _get_packet_type_str(protocol)));
 		if (protocol != ETHER_TYPE_BRCM) {
 			if (dump_data[0] == 0xFF) {
@@ -4618,7 +4627,54 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 			} else if (dump_data[0] & 1) {
 				DHD_ERROR(("%s: MULTICAST: " MACDBG "\n",
 					__FUNCTION__, MAC2STRDBG(dump_data)));
+			} else {
+				DHD_ERROR(("%s: UNICAST: SRC " MACDBG "\n",
+					__FUNCTION__, MAC2STRDBG(&dump_data[6])));
 			}
+#ifdef CUSTOMER_HW_ZEN
+			if (protocol == ETHER_TYPE_IP) {
+				struct iphdr *h = (struct iphdr *)&dump_data[ETHER_HDR_LEN];
+				if (h->version != 4) {
+					DHD_INFO(("%s: invalid IP header\n", __FUNCTION__));
+				} else {
+					DHD_ERROR(("%s: SRC IP addr: " IPV4_ADDR_STR "\n",
+						__FUNCTION__, IPV4_ADDR_TO_STR(ntoh32(h->saddr))));
+					if (h->protocol == IPPROTO_TCP) {
+						struct tcphdr *tcp_header = (struct tcphdr *)((u8 *)h + sizeof(struct iphdr));
+						if (tcp_header->dest)
+							DHD_ERROR(("%s: SRC TCP PORT: %hu \n", __FUNCTION__, ntohs(tcp_header->source)));
+						} else if (h->protocol == IPPROTO_UDP) {
+							struct udphdr *udp_header = (struct udphdr *)((u8 *)h + sizeof(struct iphdr));
+							if (udp_header->source)
+								DHD_ERROR(("%s: SRC UDP PORT: %hu \n", __FUNCTION__, ntohs(udp_header->source)));
+						} else if (h->protocol == IPPROTO_IGMP) {
+							DHD_ERROR(("%s: Protocol: IGMP \n", __FUNCTION__));
+						} else if (h->protocol == IPPROTO_ICMP) {
+							DHD_ERROR(("%s: Protocol: ICMP \n", __FUNCTION__));
+					}
+				}
+			} else if (protocol == ETHER_TYPE_IPV6) {
+				struct ipv6hdr *h = (struct ipv6hdr *)&dump_data[ETHER_HDR_LEN];
+				if (h->version != 6) {
+					DHD_INFO(("%s: invalid IP header\n", __FUNCTION__));
+				} else {
+					DHD_ERROR(("%s: SRC IP addr: %pI6c \n", __FUNCTION__, &(h->saddr)));
+					if (h->nexthdr == IPPROTO_TCP) {
+						struct tcphdr *tcp_header = (struct tcphdr *)((u8 *)h + sizeof(struct ipv6hdr));
+						if (tcp_header->dest)
+							DHD_ERROR(("%s: SRC TCP PORT: %hu \n", __FUNCTION__, ntohs(tcp_header->source)));
+					} else if (h->nexthdr == IPPROTO_UDP) {
+						struct udphdr *udp_header = (struct udphdr *)((u8 *)h + sizeof(struct ipv6hdr));
+						if (udp_header->source)
+							DHD_ERROR(("%s: SRC UDP PORT: %hu \n", __FUNCTION__, ntohs(udp_header->source)));
+					} else if (h->nexthdr == IPPROTO_IGMP) {
+						DHD_ERROR(("%s: Protocol: IGMP \n", __FUNCTION__));
+					} else if (h->nexthdr == IPPROTO_ICMPV6) {
+						DHD_ERROR(("%s: Protocol: ICMPv6 \n", __FUNCTION__));
+					}
+				}
+			}
+#endif /* CUSTOMER_HW_ZEN */
 #ifdef DHD_RX_FULL_DUMP
 			{
 				int k;
@@ -4631,6 +4687,14 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 			}
 #endif /* DHD_RX_FULL_DUMP */
 		}
+#ifdef CUSTOMER_HW_ZEN
+		else {
+			/* Add debug log for rx interrupt */
+			dhd_event_dump = 1;
+		}
+		dhd_rx_dump_flag = 0;
+	}
+#endif /* CUSTOMER_HW_ZEN */
 #endif /* DHD_RX_DUMP */
 
 		skb->protocol = eth_type_trans(skb, skb->dev);
@@ -4661,6 +4725,14 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 			len, &event, &data);
 
 			wl_event_to_host_order(&event);
+#if defined(DHD_RX_DUMP) && defined(CUSTOMER_HW_ZEN)
+			/* Add debug log for rx interrupt */
+			if (dhd_event_dump) {
+				DHD_ERROR(("%s: the first event type after resume=%d\n",
+					__FUNCTION__, event.event_type));
+				dhd_event_dump = 0;
+			}
+#endif /* DHD_RX_DUMP && CUSTOMER_HW_ZEN */
 			if (!tout_ctrl)
 				tout_ctrl = DHD_PACKET_TIMEOUT_MS;
 

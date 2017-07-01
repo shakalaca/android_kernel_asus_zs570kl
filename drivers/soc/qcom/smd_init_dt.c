@@ -48,6 +48,14 @@
 static DEFINE_MUTEX(smd_probe_lock);
 static int first_probe_done;
 
+static int modem_smd_irq = 0 ;
+
+int get_modem_smd_irq_number(void)
+{
+    return modem_smd_irq;
+}
+EXPORT_SYMBOL(get_modem_smd_irq_number);
+
 static int msm_smsm_probe(struct platform_device *pdev)
 {
 	uint32_t edge;
@@ -272,7 +280,12 @@ static int msm_smd_probe(struct platform_device *pdev)
 		if (ret < 0)
 			pr_err("%s: enable_irq_wake() failed on %d\n", __func__,
 					irq_line);
-	}
+
+                if (!strncmp(node->name,"qcom,smd-modem",14))
+                {
+                        modem_smd_irq = irq_line;
+                }
+        }
 
 	smd_set_edge_subsys_name(edge, subsys_name);
 	smd_proc_set_skip_pil(smd_edge_to_remote_pid(edge), skip_pil);

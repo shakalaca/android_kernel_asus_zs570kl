@@ -42,6 +42,23 @@ int msm_gpio_chip_irq = 240;
 bool gpio_wakeup_device = false;
 //[Power] --- Add for wakeup debug
 
+int ipc_router_log_flag = 0;
+
+int set_ipc_router_log_flag(int enable)
+{
+        ipc_router_log_flag = enable;
+        return 0;
+}
+EXPORT_SYMBOL(set_ipc_router_log_flag);
+
+int check_ipc_router_log_flag(void)
+{
+        return ipc_router_log_flag;
+}
+EXPORT_SYMBOL(check_ipc_router_log_flag);
+
+extern int get_modem_smd_irq_number(void);
+
 struct redist_region {
 	void __iomem		*redist_base;
 	phys_addr_t		phys_base;
@@ -409,7 +426,14 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 			gic_irq_cnt++;
 		}
 		//[Power] --- Add for wakeup debug
-	}
+	        if(get_modem_smd_irq_number() != 0)
+                {
+                        if (irq == get_modem_smd_irq_number())
+                        {
+                                set_ipc_router_log_flag(true);
+                        }
+                }
+        }
 }
 
 static void gic_resume_one(struct gic_chip_data *gic)

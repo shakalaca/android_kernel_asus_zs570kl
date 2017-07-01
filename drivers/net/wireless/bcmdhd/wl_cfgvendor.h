@@ -67,6 +67,7 @@
 #define GSCAN_ATTR_SET10            100
 #define GSCAN_ATTR_SET11            110
 #define GSCAN_ATTR_SET12            120
+#define GSCAN_ATTR_SET13			130
 // test gscan hugh 2016-06-24 ----
 typedef enum {
 	/* don't use 0 as a valid subcommand */

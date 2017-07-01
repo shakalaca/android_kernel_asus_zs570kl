@@ -358,6 +358,14 @@ out:
 	return err;
 }
 
+#ifdef CUSTOMER_HW_ZEN
+/* Add debug log for rx interrupt */
+#ifdef DHD_RX_DUMP
+extern int dhd_rx_dump_flag;
+#endif /* DHD_RX_DUMP */
+#endif /* CUSTOMER_HW_ZEN */
+
+
 static int dhdpcie_resume_host_dev(dhd_bus_t *bus)
 {
 	int bcmerror = 0;
@@ -1311,6 +1319,11 @@ static irqreturn_t wlan_oob_irq(int irq, void *data)
 	if (bus->dhd->up && bus->suspended) {
 		DHD_OS_OOB_IRQ_WAKE_LOCK_TIMEOUT(bus->dhd, OOB_WAKE_LOCK_TIMEOUT);
 	}
+#ifdef CUSTOMER_HW_ZEN
+#ifdef DHD_RX_DUMP
+	dhd_rx_dump_flag = 1;
+#endif /* DHD_RX_DUMP */
+#endif /* CUSTOMER_HW_ONE */
 	return IRQ_HANDLED;
 }
 

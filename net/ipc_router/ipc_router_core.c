@@ -170,6 +170,8 @@ struct ipc_rtr_log_ctx {
 	char log_ctx_name[LOG_CTX_NAME_LEN];
 	void *log_ctx;
 };
+extern int set_ipc_router_log_flag(int enable);
+extern int check_ipc_router_log_flag(void);
 
 static struct list_head routing_table[RT_HASH_SIZE];
 static DECLARE_RWSEM(routing_table_lock_lha3);
@@ -376,6 +378,28 @@ static void ipc_router_log_msg(void *log_ctx, uint32_t xchng_type,
 			svcId, svcIns, hdr->src_node_id, hdr->src_port_id,
 			hdr->dst_node_id, hdr->dst_port_id,
 			(unsigned int)pl_buf, (unsigned int)(pl_buf>>32));
+
+                if(check_ipc_router_log_flag() == true ){
+                        printk("[mdm_wakeup_reason] : "
+                                "%s %s %s Len:0x%x T:0x%x CF:0x%x SVC:<0x%x:0x%x> SRC:<0x%x:0x%x> DST:<0x%x:0x%x> DATA: %08x %08x",
+                                (xchng_type == IPC_ROUTER_LOG_EVENT_RX ? "" :
+			        (xchng_type == IPC_ROUTER_LOG_EVENT_TX ?
+                                current->comm : "")),
+		                (port_type == CLIENT_PORT ? "CLI" : "SRV"),
+		                (xchng_type == IPC_ROUTER_LOG_EVENT_RX ? "RX" :
+	                        (xchng_type == IPC_ROUTER_LOG_EVENT_TX ? "TX" :
+	                        (xchng_type == IPC_ROUTER_LOG_EVENT_TX_ERR ? "TX_ERR" :
+	                        (xchng_type == IPC_ROUTER_LOG_EVENT_RX_ERR ? "RX_ERR" :
+	                        "UNKNOWN")))),
+	                        hdr->size, hdr->type, hdr->control_flag,
+	                        svcId, svcIns, hdr->src_node_id, hdr->src_port_id,
+	                        hdr->dst_node_id, hdr->dst_port_id,
+	                        (unsigned int)pl_buf, (unsigned int)(pl_buf>>32));
+                                set_ipc_router_log_flag(false);
+                }
+
+
+
 
 	} else {
 		msg = (union rr_control_msg *)data;
