@@ -3868,23 +3868,26 @@ static void fts_glove_delay_work_func(struct work_struct *work)
     unsigned char cap_buf[2] = {0};
     struct delayed_work *delayed_work = container_of(work, struct delayed_work, work);
     struct synaptics_rmi4_data *rmi4_data =	container_of(delayed_work, struct synaptics_rmi4_data, fts_glove_delay_work);
-    
-    if(cap_sel_status == 1) {
-        if(glove_mode == 1) {
-            cap_buf[0] = 0xc0;
-            cap_buf[1] = 0x01;
-            retval = cap_i2c_write(rmi4_data, cap_buf, 2);
-            if(retval < 0)
-                printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
-        }else {
-            cap_buf[0] = 0xc0;
-            cap_buf[1] = 0x00;
-            retval = cap_i2c_write(rmi4_data, cap_buf, 2);
-            if(retval < 0)
-                printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
-        }
-    }
-    printk("%s set glove parameter done\n", __func__);
+    if(rmi4_data->suspend == true)
+		printk("%s suspend = %d skip this function\n",__func__,rmi4_data->suspend);
+	else{
+		if(cap_sel_status == 1) {
+			if(glove_mode == 1) {
+				cap_buf[0] = 0xc0;
+				cap_buf[1] = 0x01;
+				retval = cap_i2c_write(rmi4_data, cap_buf, 2);
+				if(retval < 0)
+					printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
+			}else {
+				cap_buf[0] = 0xc0;
+				cap_buf[1] = 0x00;
+				retval = cap_i2c_write(rmi4_data, cap_buf, 2);
+				if(retval < 0)
+					printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
+			}
+		}
+		printk("%s set glove parameter done\n", __func__);
+	}
 }
 //<ASUS_focal->
 

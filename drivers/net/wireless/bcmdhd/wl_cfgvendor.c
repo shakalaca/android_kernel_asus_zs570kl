@@ -1475,7 +1475,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	RETURN_EIO_IF_NOT_UP(cfg);
 
 	bzero(buf, WLC_IOCTL_MAXLEN);
-	bzero(iovar_buf, WLC_IOCTL_MAXLEN);
 
 	output = buf;
 
@@ -1520,7 +1519,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	iface->ac[WIFI_AC_BK].tx_mpdu = wl_wme_cnt->tx[AC_BK].packets;
 	iface->ac[WIFI_AC_BK].rx_mpdu = wl_wme_cnt->rx[AC_BK].packets;
 	iface->ac[WIFI_AC_BK].mpdu_lost = wl_wme_cnt->tx_failed[WIFI_AC_BK].packets;
-	bzero(iovar_buf, WLC_IOCTL_MAXLEN);
 
 	err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "counters", NULL, 0,
 		iovar_buf, WLC_IOCTL_MAXLEN, NULL);
@@ -1570,7 +1568,6 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 	iface->num_peers = NUM_PEER;
 	iface->peer_info->num_rate = NUM_RATE;
 
-	bzero(iovar_buf, WLC_IOCTL_MAXLEN);
 	output = (char *)iface + sizeof(wifi_iface_stat) + NUM_PEER*sizeof(wifi_peer_info);
 
 	err = wldev_iovar_getbuf(bcmcfg_to_prmry_ndev(cfg), "ratestat", NULL, 0,

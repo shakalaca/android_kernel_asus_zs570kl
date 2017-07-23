@@ -2779,10 +2779,8 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 #ifdef SUPPORT_SENSORHUB
 			shub_msreq = 1;
 			if (dhd->info->shub_enable == 1) {
-				bcm_mkiovar("shub_msreq", (char *)&shub_msreq, 4,
-					iovbuf, sizeof(iovbuf));
-				if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-					iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+				ret = dhd_iovar(dhd, 0, "shub_msreq", (char *)&shub_msreq, sizeof(shub_msreq), NULL, 0, TRUE);
+				if (ret < 0) {
 					DHD_ERROR(("%s Sensor Hub move/stop start: failed %d\n",
 						__FUNCTION__, ret));
 				}
@@ -2803,12 +2801,11 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 
 #ifdef PASS_ALL_MCAST_PKTS
 				allmulti = 0;
-				bcm_mkiovar("allmulti", (char *)&allmulti, 4,
-					iovbuf, sizeof(iovbuf));
 				for (i = 0; i < DHD_MAX_IFS; i++) {
-					if (dhdinfo->iflist[i] && dhdinfo->iflist[i]->net)
-						dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-							sizeof(iovbuf), TRUE, i);
+					if (dhdinfo->iflist[i] && dhdinfo->iflist[i]->net) {
+						dhd_iovar(dhd, i, "allmulti", (char *)&allmulti, sizeof(allmulti),
+						NULL, 0, TRUE);
+					}
 				}
 #endif /* PASS_ALL_MCAST_PKTS */
 
@@ -2823,53 +2820,42 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 				} else
 #endif /* WLTDLS */
 				bcn_li_dtim = dhd_get_suspend_bcn_li_dtim(dhd);
-				bcm_mkiovar("bcn_li_dtim", (char *)&bcn_li_dtim,
-					4, iovbuf, sizeof(iovbuf));
-				if (dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf),
-					TRUE, 0) < 0)
+				if (dhd_iovar(dhd, 0, "bcn_li_dtim", (char *)&bcn_li_dtim,
+						sizeof(bcn_li_dtim), NULL, 0, TRUE) < 0)
 					DHD_ERROR(("%s: set dtim failed\n", __FUNCTION__));
 
 #ifdef DHD_USE_EARLYSUSPEND
 #ifdef CUSTOM_BCN_TIMEOUT_IN_SUSPEND
 				bcn_timeout = CUSTOM_BCN_TIMEOUT_IN_SUSPEND;
-				bcm_mkiovar("bcn_timeout", (char *)&bcn_timeout,
-					4, iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "bcn_timeout", (char *)&bcn_timeout, sizeof(bcn_timeout), NULL, 0, TRUE);
 #endif /* CUSTOM_BCN_TIMEOUT_IN_SUSPEND */
 #ifdef CUSTOM_ROAM_TIME_THRESH_IN_SUSPEND
 				roam_time_thresh = CUSTOM_ROAM_TIME_THRESH_IN_SUSPEND;
-				bcm_mkiovar("roam_time_thresh", (char *)&roam_time_thresh,
-					4, iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "roam_time_thresh", (char *)&roam_time_thresh, sizeof(roam_time_thresh), NULL, 0, TRUE);
 #endif /* CUSTOM_ROAM_TIME_THRESH_IN_SUSPEND */
 #ifndef ENABLE_FW_ROAM_SUSPEND
 				/* Disable firmware roaming during suspend */
-				bcm_mkiovar("roam_off", (char *)&roamvar, 4,
-					iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "roam_off", (char *)&roamvar, sizeof(roamvar), NULL, 0, TRUE);
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
 				bcn_li_bcn = 0;
-				bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn,
-					4, iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn, sizeof(bcn_li_bcn), NULL, 0, TRUE);
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 				if (FW_SUPPORTED(dhd, ndoe)) {
 					/* enable IPv6 RA filter in  firmware during suspend */
 					nd_ra_filter = 1;
-					bcm_mkiovar("nd_ra_filter_enable", (char *)&nd_ra_filter, 4,
-						iovbuf, sizeof(iovbuf));
-					if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-						sizeof(iovbuf), TRUE, 0)) < 0)
+					ret = dhd_iovar(dhd, 0, "nd_ra_filter_enable",
+							(char *)&nd_ra_filter, sizeof(nd_ra_filter),
+							NULL, 0, TRUE);
+					if (ret < 0)
 						DHD_ERROR(("failed to set nd_ra_filter (%d)\n",
 							ret));
 				}
 #ifdef DYNAMIC_SWOOB_DURATION
 				intr_width = CUSTOM_INTR_WIDTH;
-				bcm_mkiovar("bus:intr_width", (char *)&intr_width, 4,
-					iovbuf, sizeof(iovbuf));
-				if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-						sizeof(iovbuf), TRUE, 0)) < 0) {
+				ret = dhd_iovar(dhd, 0, "bus:intr_width", (char *)&intr_width,
+						sizeof(intr_width), NULL, 0, TRUE);
+				if (ret < 0) {
 					DHD_ERROR(("failed to set intr_width (%d)\n", ret));
 				}
 #endif /* DYNAMIC_SWOOB_DURATION */
@@ -2884,29 +2870,27 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 #ifdef SUPPORT_SENSORHUB
 				shub_msreq = 0;
 				if (dhd->info->shub_enable == 1) {
-					bcm_mkiovar("shub_msreq", (char *)&shub_msreq,
-						4, iovbuf, sizeof(iovbuf));
-					if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-						iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
-							DHD_ERROR(("%s Sensor Hub move/stop stop:"
-								"failed %d\n", __FUNCTION__, ret));
-		}
-	}
+					ret = dhd_iovar(dhd, 0, "shub_msreq", (char *)&shub_msreq,
+						sizeof(shub_msreq), NULL, 0, TRUE);
+					if (ret < 0) {
+						DHD_ERROR(("%s Sensor Hub move/stop stop: failed %d\n",
+							__FUNCTION__, ret));
+					}
+				}
 #endif /* SUPPORT_SENSORHUB */
 
 
 #ifdef DYNAMIC_SWOOB_DURATION
 				intr_width = 0;
-				bcm_mkiovar("bus:intr_width", (char *)&intr_width, 4,
-					iovbuf, sizeof(iovbuf));
-				if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-						sizeof(iovbuf), TRUE, 0)) < 0) {
+				ret = dhd_iovar(dhd, 0, "bus:intr_width", (char *)&intr_width,
+						sizeof(intr_width), NULL, 0, TRUE);
+				if (ret < 0) {
 					DHD_ERROR(("failed to set intr_width (%d)\n", ret));
 				}
 #endif /* DYNAMIC_SWOOB_DURATION */
 #ifndef SUPPORT_PM2_ONLY
 				power_mode = PM_FAST;
-                DHD_ERROR(("%s: set PM=%d\n", __FUNCTION__, power_mode));
+				DHD_ERROR(("%s: set PM=%d\n", __FUNCTION__, power_mode));
 				dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)&power_mode,
 				                 sizeof(power_mode), TRUE, 0);
 #endif /* SUPPORT_PM2_ONLY */
@@ -2916,54 +2900,46 @@ static int dhd_set_suspend(int value, dhd_pub_t *dhd)
 #endif /* PKT_FILTER_SUPPORT */
 #ifdef PASS_ALL_MCAST_PKTS
 				allmulti = 1;
-				bcm_mkiovar("allmulti", (char *)&allmulti, 4,
-					iovbuf, sizeof(iovbuf));
 				for (i = 0; i < DHD_MAX_IFS; i++) {
-					if (dhdinfo->iflist[i] && dhdinfo->iflist[i]->net)
-						dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-							sizeof(iovbuf), TRUE, i);
+					if (dhdinfo->iflist[i] && dhdinfo->iflist[i]->net) {
+						dhd_iovar(dhd, i, "allmulti", (char *)&allmulti, sizeof(allmulti),
+						NULL, 0, TRUE);
+					}
 				}
 #endif /* PASS_ALL_MCAST_PKTS */
 
 				/* restore pre-suspend setting for dtim_skip */
-				bcm_mkiovar("bcn_li_dtim", (char *)&bcn_li_dtim,
-					4, iovbuf, sizeof(iovbuf));
-
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "bcn_li_dtim", (char *)&bcn_li_dtim,
+						sizeof(bcn_li_dtim), NULL, 0, TRUE);
 #ifdef DHD_USE_EARLYSUSPEND
 #ifdef CUSTOM_BCN_TIMEOUT_IN_SUSPEND
 				bcn_timeout = CUSTOM_BCN_TIMEOUT;
-				bcm_mkiovar("bcn_timeout", (char *)&bcn_timeout,
-					4, iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "bcn_timeout", (char *)&bcn_timeout,
+						sizeof(bcn_timeout), NULL, 0, TRUE);
 #endif /* CUSTOM_BCN_TIMEOUT_IN_SUSPEND */
 #ifdef CUSTOM_ROAM_TIME_THRESH_IN_SUSPEND
 				roam_time_thresh = 2000;
-				bcm_mkiovar("roam_time_thresh", (char *)&roam_time_thresh,
-					4, iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "roam_time_thresh", (char *)&roam_time_thresh,
+						sizeof(roam_time_thresh), NULL, 0, TRUE);
 #endif /* CUSTOM_ROAM_TIME_THRESH_IN_SUSPEND */
 #ifndef ENABLE_FW_ROAM_SUSPEND
 				roamvar = dhd_roam_disable;
-				bcm_mkiovar("roam_off", (char *)&roamvar, 4, iovbuf,
-					sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "roam_off", (char *)&roamvar, sizeof(roamvar),
+						NULL, 0, TRUE);
 #endif /* ENABLE_FW_ROAM_SUSPEND */
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
 				bcn_li_bcn = 1;
-				bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn,
-					4, iovbuf, sizeof(iovbuf));
-				dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+				dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn, sizeof(bcn_li_bcn),
+						NULL, 0, TRUE);
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 				if (FW_SUPPORTED(dhd, ndoe)) {
 					/* disable IPv6 RA filter in  firmware during suspend */
 					nd_ra_filter = 0;
-					bcm_mkiovar("nd_ra_filter_enable", (char *)&nd_ra_filter, 4,
-						iovbuf, sizeof(iovbuf));
-					if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-						sizeof(iovbuf), TRUE, 0)) < 0)
-						DHD_ERROR(("failed to set nd_ra_filter (%d)\n",
-							ret));
+					ret = dhd_iovar(dhd, 0, "nd_ra_filter_enable",
+							(char *)&nd_ra_filter, sizeof(nd_ra_filter),
+							NULL, 0, TRUE);
+					if (ret < 0)
+						DHD_ERROR(("nd_ra_filter: %d\n", ret));
 				}
 #endif /* DHD_USE_EARLYSUSPEND */
 			}
@@ -3263,34 +3239,17 @@ _dhd_set_multicast_list(dhd_info_t *dhd, int ifidx)
 	 * were trying to set some addresses and dongle rejected it...
 	 */
 
-	buflen = sizeof("allmulti") + sizeof(allmulti);
-	if (!(buf = MALLOC(dhd->pub.osh, buflen))) {
-		DHD_ERROR(("%s: out of memory for allmulti\n", dhd_ifname(&dhd->pub, ifidx)));
-		return;
-	}
 	allmulti = htol32(allmulti);
 
-	if (!bcm_mkiovar("allmulti", (void*)&allmulti, sizeof(allmulti), buf, buflen)) {
-		DHD_ERROR(("%s: mkiovar failed for allmulti, datalen %d buflen %u\n",
-		           dhd_ifname(&dhd->pub, ifidx), (int)sizeof(allmulti), buflen));
-		MFREE(dhd->pub.osh, buf, buflen);
-		return;
-	}
+	ret = dhd_iovar(&dhd->pub, ifidx, "allmulti", (char *)&allmulti,
+			sizeof(allmulti), NULL, 0, TRUE);
 
 
-	memset(&ioc, 0, sizeof(ioc));
-	ioc.cmd = WLC_SET_VAR;
-	ioc.buf = buf;
-	ioc.len = buflen;
-	ioc.set = TRUE;
-
-	ret = dhd_wl_ioctl(&dhd->pub, ifidx, &ioc, ioc.buf, ioc.len);
 	if (ret < 0) {
 		DHD_ERROR(("%s: set allmulti %d failed\n",
 		           dhd_ifname(&dhd->pub, ifidx), ltoh32(allmulti)));
 	}
 
-	MFREE(dhd->pub.osh, buf, buflen);
 
 	/* Finally, pick up the PROMISC flag as well, like the NIC driver does */
 
@@ -3314,21 +3273,10 @@ _dhd_set_multicast_list(dhd_info_t *dhd, int ifidx)
 int
 _dhd_set_mac_address(dhd_info_t *dhd, int ifidx, uint8 *addr)
 {
-	char buf[32];
-	wl_ioctl_t ioc;
-	int ret;
+	int ret = -1;
 
-	if (!bcm_mkiovar("cur_etheraddr", (char*)addr, ETHER_ADDR_LEN, buf, 32)) {
-		DHD_ERROR(("%s: mkiovar failed for cur_etheraddr\n", dhd_ifname(&dhd->pub, ifidx)));
-		return -1;
-	}
-	memset(&ioc, 0, sizeof(ioc));
-	ioc.cmd = WLC_SET_VAR;
-	ioc.buf = buf;
-	ioc.len = 32;
-	ioc.set = TRUE;
-
-	ret = dhd_wl_ioctl(&dhd->pub, ifidx, &ioc, ioc.buf, ioc.len);
+	ret = dhd_iovar(&dhd->pub, ifidx, "cur_etheraddr", (char *)addr,
+			ETHER_ADDR_LEN, NULL, 0, TRUE);
 	if (ret < 0) {
 		DHD_ERROR(("%s: set cur_etheraddr failed\n", dhd_ifname(&dhd->pub, ifidx)));
 	} else {
@@ -3434,12 +3382,10 @@ dhd_ifadd_event_handler(void *handle, void *event_info, u8 event)
 #ifdef PCIE_FULL_DONGLE
 	/* Turn on AP isolation in the firmware for interfaces operating in AP mode */
 	if (FW_SUPPORTED((&dhd->pub), ap) && (if_event->event.role != WLC_E_IF_ROLE_STA)) {
-		char iovbuf[WLC_IOCTL_SMLEN];
 		uint32 var_int =  1;
 
-		memset(iovbuf, 0, sizeof(iovbuf));
-		bcm_mkiovar("ap_isolate", (char *)&var_int, 4, iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(&dhd->pub, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, ifidx);
+		ret = dhd_iovar(&dhd->pub, ifidx, "ap_isolate", (char *)&var_int, sizeof(var_int),
+				NULL, 0, TRUE);
 
 		if (ret != BCME_OK) {
 			DHD_ERROR(("%s: Failed to set ap_isolate to dongle\n", __FUNCTION__));
@@ -5392,27 +5338,17 @@ dhd_sched_rxf(dhd_pub_t *dhdp, void *skb)
 static int
 dhd_toe_get(dhd_info_t *dhd, int ifidx, uint32 *toe_ol)
 {
-	wl_ioctl_t ioc;
 	char buf[32];
 	int ret;
 
-	memset(&ioc, 0, sizeof(ioc));
+	ret = dhd_iovar(&dhd->pub, ifidx, "toe_ol", NULL, 0, (char *)&buf, sizeof(buf), FALSE);
 
-	ioc.cmd = WLC_GET_VAR;
-	ioc.buf = buf;
-	ioc.len = (uint)sizeof(buf);
-	ioc.set = FALSE;
-
-	strncpy(buf, "toe_ol", sizeof(buf) - 1);
-	buf[sizeof(buf) - 1] = '\0';
-	if ((ret = dhd_wl_ioctl(&dhd->pub, ifidx, &ioc, ioc.buf, ioc.len)) < 0) {
-		/* Check for older dongle image that doesn't support toe_ol */
+	if (ret < 0) {
 		if (ret == -EIO) {
-			DHD_ERROR(("%s: toe not supported by device\n",
-				dhd_ifname(&dhd->pub, ifidx)));
+			DHD_ERROR(("%s: toe not supported by device\n", dhd_ifname(&dhd->pub,
+							ifidx)));
 			return -EOPNOTSUPP;
 		}
-
 		DHD_INFO(("%s: could not get toe_ol: ret=%d\n", dhd_ifname(&dhd->pub, ifidx), ret));
 		return ret;
 	}
@@ -5425,24 +5361,12 @@ dhd_toe_get(dhd_info_t *dhd, int ifidx, uint32 *toe_ol)
 static int
 dhd_toe_set(dhd_info_t *dhd, int ifidx, uint32 toe_ol)
 {
-	wl_ioctl_t ioc;
-	char buf[32];
 	int toe, ret;
-
-	memset(&ioc, 0, sizeof(ioc));
-
-	ioc.cmd = WLC_SET_VAR;
-	ioc.buf = buf;
-	ioc.len = (uint)sizeof(buf);
-	ioc.set = TRUE;
 
 	/* Set toe_ol as requested */
 
-	strncpy(buf, "toe_ol", sizeof(buf) - 1);
-	buf[sizeof(buf) - 1] = '\0';
-	memcpy(&buf[sizeof("toe_ol")], &toe_ol, sizeof(uint32));
-
-	if ((ret = dhd_wl_ioctl(&dhd->pub, ifidx, &ioc, ioc.buf, ioc.len)) < 0) {
+	ret = dhd_iovar(&dhd->pub, ifidx, "toe_ol", (char *)&toe_ol, sizeof(toe_ol), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s: could not set toe_ol: ret=%d\n",
 			dhd_ifname(&dhd->pub, ifidx), ret));
 		return ret;
@@ -5452,10 +5376,8 @@ dhd_toe_set(dhd_info_t *dhd, int ifidx, uint32 toe_ol)
 
 	toe = (toe_ol != 0);
 
-	strcpy(buf, "toe");
-	memcpy(&buf[sizeof("toe")], &toe, sizeof(uint32));
-
-	if ((ret = dhd_wl_ioctl(&dhd->pub, ifidx, &ioc, ioc.buf, ioc.len)) < 0) {
+	ret = dhd_iovar(&dhd->pub, ifidx, "toe", (char *)&toe, sizeof(toe), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s: could not set toe: ret=%d\n", dhd_ifname(&dhd->pub, ifidx), ret));
 		return ret;
 	}
@@ -5471,15 +5393,13 @@ void dhd_set_scb_probe(dhd_pub_t *dhd)
 	wl_scb_probe_t scb_probe;
 	char iovbuf[WL_EVENTING_MASK_LEN + sizeof(wl_scb_probe_t)];
 
-	memset(&scb_probe, 0, sizeof(wl_scb_probe_t));
 
 	if (dhd->op_mode & DHD_FLAG_HOSTAP_MODE) {
 		return;
 	}
 
-	bcm_mkiovar("scb_probe", NULL, 0, iovbuf, sizeof(iovbuf));
-
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, sizeof(iovbuf), FALSE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "scb_probe", NULL, 0, iovbuf, sizeof(iovbuf), FALSE);
+	if (ret < 0) {
 		DHD_ERROR(("%s: GET max_scb_probe failed\n", __FUNCTION__));
 	}
 
@@ -5487,9 +5407,9 @@ void dhd_set_scb_probe(dhd_pub_t *dhd)
 
 	scb_probe.scb_max_probe = NUM_SCB_MAX_PROBE;
 
-	bcm_mkiovar("scb_probe", (char *)&scb_probe,
-		sizeof(wl_scb_probe_t), iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "scb_probe", (char *)&scb_probe, sizeof(wl_scb_probe_t), NULL, 0,
+			TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s: max_scb_probe setting failed\n", __FUNCTION__));
 		return;
 	}
@@ -6163,12 +6083,10 @@ extern bool g_first_broadcast_scan;
 #ifdef WL11U
 static int dhd_interworking_enable(dhd_pub_t *dhd)
 {
-	char iovbuf[WLC_IOCTL_SMLEN];
 	uint32 enable = true;
 	int ret = BCME_OK;
 
-	bcm_mkiovar("interworking", (char *)&enable, sizeof(enable), iovbuf, sizeof(iovbuf));
-	ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	ret = dhd_iovar(dhd, 0, "interworking", (char *)&enable, sizeof(enable), NULL, 0, TRUE);
 	if (ret < 0) {
 		DHD_ERROR(("%s: enableing interworking failed, ret=%d\n", __FUNCTION__, ret));
 	}
@@ -6176,8 +6094,7 @@ static int dhd_interworking_enable(dhd_pub_t *dhd)
 	if (ret == BCME_OK) {
 		/* basic capabilities for HS20 REL2 */
 		uint32 cap = WL_WNM_BSSTRANS | WL_WNM_NOTIF;
-		bcm_mkiovar("wnm", (char *)&cap, sizeof(cap), iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+                ret = dhd_iovar(dhd, 0, "wnm", (char *)&cap, sizeof(cap), NULL, 0, TRUE);
 		if (ret < 0) {
 			DHD_ERROR(("%s: set wnm returned (%d)\n", __FUNCTION__, ret));
 		}
@@ -7780,7 +7697,6 @@ dhd_bus_start(dhd_pub_t *dhdp)
 #ifdef WLTDLS
 int _dhd_tdls_enable(dhd_pub_t *dhd, bool tdls_on, bool auto_on, struct ether_addr *mac)
 {
-	char iovbuf[WLC_IOCTL_SMLEN];
 	uint32 tdls = tdls_on;
 	int ret = 0;
 	uint32 tdls_auto_op = 0;
@@ -7793,8 +7709,9 @@ int _dhd_tdls_enable(dhd_pub_t *dhd, bool tdls_on, bool auto_on, struct ether_ad
 
 	if (dhd->tdls_enable == tdls_on)
 		goto auto_mode;
-	bcm_mkiovar("tdls_enable", (char *)&tdls, sizeof(tdls), iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+
+	ret = dhd_iovar(dhd, 0, "tdls_enable", (char *)&tdls, sizeof(tdls), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s: tdls %d failed %d\n", __FUNCTION__, tdls, ret));
 		goto exit;
 	}
@@ -7802,31 +7719,29 @@ int _dhd_tdls_enable(dhd_pub_t *dhd, bool tdls_on, bool auto_on, struct ether_ad
 auto_mode:
 
 	tdls_auto_op = auto_on;
-	bcm_mkiovar("tdls_auto_op", (char *)&tdls_auto_op, sizeof(tdls_auto_op),
-		iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-		sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "tdls_auto_op", (char *)&tdls_auto_op, sizeof(tdls_auto_op), NULL,
+			0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s: tdls_auto_op failed %d\n", __FUNCTION__, ret));
 		goto exit;
 	}
 
 	if (tdls_auto_op) {
-		bcm_mkiovar("tdls_idle_time", (char *)&tdls_idle_time,
-			sizeof(tdls_idle_time),	iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "tdls_idle_time", (char *)&tdls_idle_time,
+				sizeof(tdls_idle_time), NULL, 0, TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: tdls_idle_time failed %d\n", __FUNCTION__, ret));
 			goto exit;
 		}
-		bcm_mkiovar("tdls_rssi_high", (char *)&tdls_rssi_high, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "tdls_rssi_high", (char *)&tdls_rssi_high,
+				sizeof(tdls_rssi_high), NULL, 0, TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: tdls_rssi_high failed %d\n", __FUNCTION__, ret));
 			goto exit;
 		}
-		bcm_mkiovar("tdls_rssi_low", (char *)&tdls_rssi_low, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "tdls_rssi_low", (char *)&tdls_rssi_low,
+				sizeof(tdls_rssi_low), NULL, 0, TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: tdls_rssi_low failed %d\n", __FUNCTION__, ret));
 			goto exit;
 		}
@@ -7848,7 +7763,6 @@ int dhd_tdls_enable(struct net_device *dev, bool tdls_on, bool auto_on, struct e
 int
 dhd_tdls_set_mode(dhd_pub_t *dhd, bool wfd_mode)
 {
-	char iovbuf[WLC_IOCTL_SMLEN];
 	int ret = 0;
 	bool auto_on = false;
 	uint32 mode =  wfd_mode;
@@ -7868,12 +7782,8 @@ dhd_tdls_set_mode(dhd_pub_t *dhd, bool wfd_mode)
 		return ret;
 	}
 
-
-	bcm_mkiovar("tdls_wfd_mode", (char *)&mode, sizeof(mode),
-			iovbuf, sizeof(iovbuf));
-	if (((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) &&
-			(ret != BCME_UNSUPPORTED)) {
+	ret = dhd_iovar(dhd, 0, "tdls_wfd_mode", (char *)&mode, sizeof(mode), NULL, 0, TRUE);
+	if ((ret < 0) && (ret != BCME_UNSUPPORTED)) {
 		DHD_ERROR(("%s: tdls_wfd_mode faile_wfd_mode %d\n", __FUNCTION__, ret));
 		return ret;
 	}
@@ -7984,9 +7894,9 @@ dhd_get_concurrent_capabilites(dhd_pub_t *dhd)
 	} else {
 		/* Chip supports p2p but ensure that p2p is really implemented in firmware or not */
 		memset(buf, 0, sizeof(buf));
-		bcm_mkiovar("p2p", 0, 0, buf, sizeof(buf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf),
-			FALSE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "p2p", NULL, 0, (char *)&buf,
+				sizeof(buf), FALSE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: Get P2P failed (error=%d)\n", __FUNCTION__, ret));
 			return 0;
 		} else {
@@ -8021,38 +7931,36 @@ dhd_get_concurrent_capabilites(dhd_pub_t *dhd)
 #define RXCHAIN_PWRSAVE_STAS_ASSOC_CHECK	0
 int dhd_set_ap_powersave(dhd_pub_t *dhdp, int ifidx, int enable)
 {
-	char iovbuf[128];
 	int32 pps = RXCHAIN_PWRSAVE_PPS;
 	int32 quiet_time = RXCHAIN_PWRSAVE_QUIET_TIME;
 	int32 stas_assoc_check = RXCHAIN_PWRSAVE_STAS_ASSOC_CHECK;
+	int ret;
 
 	if (enable) {
-		bcm_mkiovar("rxchain_pwrsave_enable", (char *)&enable, 4, iovbuf, sizeof(iovbuf));
-		if (dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR,
-		    iovbuf, sizeof(iovbuf), TRUE, 0) != BCME_OK) {
+		ret = dhd_iovar(dhdp, 0, "rxchain_pwrsave_enable", (char *)&enable, sizeof(enable),
+				NULL, 0, TRUE);
+		if (ret != BCME_OK) {
 			DHD_ERROR(("Failed to enable AP power save"));
 		}
-		bcm_mkiovar("rxchain_pwrsave_pps", (char *)&pps, 4, iovbuf, sizeof(iovbuf));
-		if (dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR,
-		    iovbuf, sizeof(iovbuf), TRUE, 0) != BCME_OK) {
+		ret = dhd_iovar(dhdp, 0, "rxchain_pwrsave_pps", (char *)&pps, sizeof(pps), NULL, 0,
+				TRUE);
+		if (ret != BCME_OK) {
 			DHD_ERROR(("Failed to set pps"));
 		}
-		bcm_mkiovar("rxchain_pwrsave_quiet_time", (char *)&quiet_time,
-		4, iovbuf, sizeof(iovbuf));
-		if (dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR,
-		    iovbuf, sizeof(iovbuf), TRUE, 0) != BCME_OK) {
+		ret = dhd_iovar(dhdp, 0, "rxchain_pwrsave_quiet_time", (char *)&quiet_time,
+				sizeof(quiet_time), NULL, 0, TRUE);
+		if (ret != BCME_OK) {
 			DHD_ERROR(("Failed to set quiet time"));
 		}
-		bcm_mkiovar("rxchain_pwrsave_stas_assoc_check", (char *)&stas_assoc_check,
-		4, iovbuf, sizeof(iovbuf));
-		if (dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR,
-		    iovbuf, sizeof(iovbuf), TRUE, 0) != BCME_OK) {
+		ret = dhd_iovar(dhdp, 0, "rxchain_pwrsave_stas_assoc_check",
+				(char *)&stas_assoc_check, sizeof(stas_assoc_check), NULL, 0, TRUE);
+		if (ret != BCME_OK) {
 			DHD_ERROR(("Failed to set stas assoc check"));
 		}
 	} else {
-		bcm_mkiovar("rxchain_pwrsave_enable", (char *)&enable, 4, iovbuf, sizeof(iovbuf));
-		if (dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR,
-		    iovbuf, sizeof(iovbuf), TRUE, 0) != BCME_OK) {
+		ret = dhd_iovar(dhdp, 0, "rxchain_pwrsave_enable", (char *)&enable, sizeof(enable),
+				NULL, 0, TRUE);
+		if (ret != BCME_OK) {
 			DHD_ERROR(("Failed to disable AP power save"));
 		}
 	}
@@ -8060,7 +7968,6 @@ int dhd_set_ap_powersave(dhd_pub_t *dhdp, int ifidx, int enable)
 	return 0;
 }
 #endif /* SUPPORT_AP_POWERSAVE */
-
 
 int
 dhd_preinit_ioctls(dhd_pub_t *dhd)
@@ -8260,9 +8167,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef GET_CUSTOM_MAC_ENABLE
 	ret = dhd_custom_get_mac_address(dhd->info->adapter, ea_addr.octet);
 	if (!ret) {
-		memset(buf, 0, sizeof(buf));
-		bcm_mkiovar("cur_etheraddr", (void *)&ea_addr, ETHER_ADDR_LEN, buf, sizeof(buf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, buf, sizeof(buf), TRUE, 0);
+		ret = dhd_iovar(dhd, 0, "cur_etheraddr", (char *)&ea_addr, ETHER_ADDR_LEN, NULL, 0,
+				TRUE);
 		if (ret < 0) {
 			DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
 			ret = BCME_NOTUP;
@@ -8272,16 +8178,15 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	} else {
 #endif /* GET_CUSTOM_MAC_ENABLE */
 		/* Get the default device MAC address directly from firmware */
-		memset(buf, 0, sizeof(buf));
-		bcm_mkiovar("cur_etheraddr", 0, 0, buf, sizeof(buf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf),
-			FALSE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "cur_etheraddr", NULL, 0, (char *)&ea_addr, ETHER_ADDR_LEN, 
+				FALSE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: can't get MAC address , error=%d\n", __FUNCTION__, ret));
 			ret = BCME_NOTUP;
 			goto done;
 		}
 		/* Update public MAC address after reading from Firmware */
-		memcpy(dhd->mac.octet, buf, ETHER_ADDR_LEN);
+		memcpy(dhd->mac.octet, ea_addr.octet, ETHER_ADDR_LEN);
 
 #ifdef GET_CUSTOM_MAC_ENABLE
 	}
@@ -8291,10 +8196,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	{
 		uint32 cap_buf_size = sizeof(dhd->fw_capabilities);
 		memset(dhd->fw_capabilities, 0, cap_buf_size);
-		bcm_mkiovar("cap", 0, 0, dhd->fw_capabilities, cap_buf_size - 1);
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, dhd->fw_capabilities,
-			(cap_buf_size - 1), FALSE, 0)) < 0)
-		{
+		ret = dhd_iovar(dhd, 0, "cap", NULL, 0, dhd->fw_capabilities, (cap_buf_size - 1),
+				FALSE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: Get Capability failed (error=%d)\n",
 				__FUNCTION__, ret));
 			return 0;
@@ -8331,8 +8235,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		iovbuf[4] = (unsigned char)(rand_mac >> 8);
 		iovbuf[5] = (unsigned char)(rand_mac >> 16);
 
-		bcm_mkiovar("cur_etheraddr", (void *)iovbuf, ETHER_ADDR_LEN, buf, sizeof(buf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, buf, sizeof(buf), TRUE, 0);
+		ret = dhd_iovar(dhd, 0, "cur_etheraddr", (char *)&iovbuf, ETHER_ADDR_LEN, NULL, 0,
+			TRUE);
 		if (ret < 0) {
 			DHD_ERROR(("%s: can't set MAC address , error=%d\n", __FUNCTION__, ret));
 		} else
@@ -8343,9 +8247,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* SET_RANDOM_MAC_SOFTAP */
 #if !defined(AP) && defined(WL_CFG80211)
 		/* Turn off MPC in AP mode */
-		bcm_mkiovar("mpc", (char *)&mpc, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "mpc", (char *)&mpc, sizeof(mpc), NULL, 0,
+				TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s mpc for HostAPD failed  %d\n", __FUNCTION__, ret));
 		}
 #endif
@@ -8356,9 +8260,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		dhd_set_ap_powersave(dhd, 0, TRUE);
 #endif /* SUPPORT_AP_POWERSAVE */
 #ifdef SOFTAP_UAPSD_OFF
-		bcm_mkiovar("wme_apsd", (char *)&wme_apsd, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "wme_apsd", (char *)&wme_apsd, sizeof(wme_apsd), NULL, 0,
+				TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s: set wme_apsd 0 fail (error=%d)\n",
 				__FUNCTION__, ret));
 		}
@@ -8411,9 +8315,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 
 		/* Check if we are enabling p2p */
 		if (dhd->op_mode & DHD_FLAG_P2P_MODE) {
-			bcm_mkiovar("apsta", (char *)&apsta, 4, iovbuf, sizeof(iovbuf));
-			if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-				iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+			ret = dhd_iovar(dhd, 0, "apsta", (char *)&apsta, sizeof(apsta), NULL, 0,
+					TRUE);
+			if (ret < 0) {
 				DHD_ERROR(("%s APSTA for P2P failed ret= %d\n", __FUNCTION__, ret));
 			}
 
@@ -8425,10 +8329,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif
 			memcpy(&p2p_ea, &dhd->mac, ETHER_ADDR_LEN);
 			ETHER_SET_LOCALADDR(&p2p_ea);
-			bcm_mkiovar("p2p_da_override", (char *)&p2p_ea,
-				ETHER_ADDR_LEN, iovbuf, sizeof(iovbuf));
-			if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-				iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+			ret = dhd_iovar(dhd, 0, "p2p_da_override", (char *)&p2p_ea, sizeof(p2p_ea),
+					NULL, 0, TRUE);
+			if (ret < 0) {
 				DHD_ERROR(("%s p2p_da_override ret= %d\n", __FUNCTION__, ret));
 			} else {
 				DHD_INFO(("dhd_preinit_ioctls: p2p_da_override succeeded\n"));
@@ -8454,20 +8357,17 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef DISABLE_PRUNED_SCAN
 	if (FW_SUPPORTED(dhd, rsdb)) {
 		memset(iovbuf, 0, sizeof(iovbuf));
-		bcm_mkiovar("scan_features", (char *)&scan_features,
-			4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR,
-			iovbuf, sizeof(iovbuf), FALSE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "scan_features", (char *)&scan_features, sizeof(scan_features),
+				(char *)&iovbuf, sizeof(iovbuf), FALSE);
+		if (ret < 0) {
 			DHD_ERROR(("%s get scan_features is failed ret=%d\n",
 				__FUNCTION__, ret));
 		} else {
 			memcpy(&scan_features, iovbuf, 4);
 			scan_features &= ~RSDB_SCAN_DOWNGRADED_CH_PRUNE_ROAM;
-			memset(iovbuf, 0, sizeof(iovbuf));
-			bcm_mkiovar("scan_features", (char *)&scan_features,
-				4, iovbuf, sizeof(iovbuf));
-			if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-				iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+			ret = dhd_iovar(dhd, 0, "scan_features", (char *)&scan_features,
+				sizeof(scan_features), NULL, 0, TRUE);
+			if (ret < 0) {
 				DHD_ERROR(("%s set scan_features is failed ret=%d\n",
 					__FUNCTION__, ret));
 			}
@@ -8477,8 +8377,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef DISABLE_SCAN_PARALLEL
 	/* set scan_parallel default off */
 	scan_parallel = 0;
-	bcm_mkiovar("scan_parallel", (char *)&scan_parallel, 4, iovbuf, sizeof(iovbuf));
-	ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	ret = dhd_iovar(dhd, 0, "scan_parallel", (char *)&scan_parallel, sizeof(scan_parallel),
+			NULL, 0, TRUE);
 	if (ret < 0) {
 		DHD_ERROR(("%s: set scan_parallel fail, error=%d\n", __FUNCTION__, ret));
 	}
@@ -8494,17 +8394,17 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	#endif
 	/* Set Country code  */
 	if (dhd->dhd_cspec.ccode[0] != 0) {
-		bcm_mkiovar("country", (char *)&dhd->dhd_cspec,
-			sizeof(wl_country_t), iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+		ret = dhd_iovar(dhd, 0, "country", (char *)&dhd->dhd_cspec, sizeof(wl_country_t),
+				NULL, 0, TRUE);
+		if (ret < 0)
 			DHD_ERROR(("%s: country code setting failed\n", __FUNCTION__));
 	}
 
 #if defined(DISABLE_11AC) || defined(CUSTOMER_HW_ZEN)
 #ifdef CUSTOMER_HW_ZEN
 	if (dhd->op_mode == DHD_FLAG_HOSTAP_MODE) {
-		bcm_mkiovar("vhtmode", (char *)&vhtmode, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+		ret = dhd_iovar(dhd, 0, "vhtmode", (char *)&vhtmode, sizeof(vhtmode), NULL, 0, TRUE);
+		if (ret < 0)
 		{
 			DHD_ERROR(("%s vhtmode set failed %d\n", __FUNCTION__, ret));
 			if (ret == BCME_NOTDOWN) {
@@ -8514,30 +8414,29 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 				DHD_ERROR(("%s vhtmode fail WL_DOWN : %d, vhtmode = %d\n",
 					__FUNCTION__, ret, vhtmode));
 
-				bcm_mkiovar("vhtmode", (char *)&vhtmode, 4,
-					iovbuf, sizeof(iovbuf));
-				ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf),
-					TRUE, 0);
+				ret = dhd_iovar(dhd, 0, "vhtmode", (char *)&vhtmode,
+					sizeof(vhtmode), NULL, 0, TRUE);
 				DHD_ERROR(("%s vhtmode set. ret --> %d\n", __FUNCTION__, ret));
 			}
 		}
 
         maxassoc = MAX_ASSOC_NUMBER;
-        bcm_mkiovar("maxassoc", (char *)&maxassoc, 4, iovbuf, sizeof(iovbuf));
-        if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "maxassoc", (char *)&maxassoc, sizeof(maxassoc), NULL, 0, TRUE);
+		if (ret < 0) {
             DHD_ERROR(("%s set maxassoc failed %d\n", __FUNCTION__, ret));
         }
 	}
 #else
-	bcm_mkiovar("vhtmode", (char *)&vhtmode, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+	ret = dhd_iovar(dhd, 0, "vhtmode", (char *)&vhtmode, sizeof(vhtmode), NULL, 0, TRUE);
+	if (ret < 0)
 		DHD_ERROR(("%s wl vhtmode 0 failed %d\n", __FUNCTION__, ret));
 #endif /* CUSTOMER_HW_ZEN */
 #endif /* DISABLE_11AC || CUSTOMER_HW_ZEN */
 
 	/* Set Listen Interval */
-	bcm_mkiovar("assoc_listen", (char *)&listen_interval, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+	ret = dhd_iovar(dhd, 0, "assoc_listen", (char *)&listen_interval, sizeof(listen_interval),
+			NULL, 0, TRUE);
+	if (ret < 0)
 		DHD_ERROR(("%s assoc_listen failed %d\n", __FUNCTION__, ret));
 
 #if defined(ROAM_ENABLE) || defined(DISABLE_BUILTIN_ROAM)
@@ -8547,8 +8446,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	}
 #endif /* USE_WFA_CERT_CONF */
 	/* Disable built-in roaming to allowed ext supplicant to take care of roaming */
-	bcm_mkiovar("roam_off", (char *)&roamvar, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "roam_off", (char *)&roamvar, sizeof(roamvar),
+			NULL, 0, TRUE);
 #endif /* ROAM_ENABLE || DISABLE_BUILTIN_ROAM */
 #if defined(ROAM_ENABLE)
 	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_ROAM_TRIGGER, roam_trigger,
@@ -8560,8 +8459,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	if ((dhd_wl_ioctl_cmd(dhd, WLC_SET_ROAM_DELTA, roam_delta,
 		sizeof(roam_delta), TRUE, 0)) < 0)
 		DHD_ERROR(("%s: roam delta set failed %d\n", __FUNCTION__, ret));
-	bcm_mkiovar("fullroamperiod", (char *)&roam_fullscan_period, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+	ret = dhd_iovar(dhd, 0, "fullroamperiod", (char *)&roam_fullscan_period,
+			sizeof(roam_fullscan_period), NULL, 0, TRUE);
+	if (ret < 0)
 		DHD_ERROR(("%s: roam fullscan period set failed %d\n", __FUNCTION__, ret));
 #ifdef DHD_ASSOC_PREFER
 	DHD_ERROR(("%s: set assoc prefer %d\n", __FUNCTION__, dhd->assoc_prefer));
@@ -8572,14 +8472,14 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* ROAM_ENABLE */
 
 #ifdef CUSTOM_EVENT_PM_WAKE
-	bcm_mkiovar("const_awake_thresh", (char *)&pm_awake_thresh, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "const_awake_thresh", (char *)&pm_awake_thresh,
+			sizeof(pm_awake_thresh), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s set const_awake_thresh failed %d\n", __FUNCTION__, ret));
 	}
 #endif /* CUSTOM_EVENT_PM_WAKE */
 #ifdef BCMCCX
-	bcm_mkiovar("ccx_enable", (char *)&ccx, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "ccx_enable", (char *)&ccx, sizeof(ccx), NULL, 0, TRUE);
 #endif /* BCMCCX */
 #ifdef WLTDLS
 #ifdef ENABLE_TDLS_AUTO_MODE
@@ -8593,9 +8493,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 
 #ifdef DHD_ENABLE_LPC
 	/* Set lpc 1 */
-	bcm_mkiovar("lpc", (char *)&lpc, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-		sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "lpc", (char *)&lpc, sizeof(lpc), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s Set lpc failed  %d\n", __FUNCTION__, ret));
 
 		if (ret == BCME_NOTDOWN) {
@@ -8604,8 +8503,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 				(char *)&wl_down, sizeof(wl_down), TRUE, 0);
 			DHD_ERROR(("%s lpc fail WL_DOWN : %d, lpc = %d\n", __FUNCTION__, ret, lpc));
 
-			bcm_mkiovar("lpc", (char *)&lpc, 4, iovbuf, sizeof(iovbuf));
-			ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+			ret = dhd_iovar(dhd, 0, "lpc", (char *)&lpc, sizeof(lpc), NULL, 0, TRUE);
 			DHD_ERROR(("%s Set lpc ret --> %d\n", __FUNCTION__, ret));
 		}
 	}
@@ -8616,13 +8514,11 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 
 #if defined(BCMSDIO)
 	/* Match Host and Dongle rx alignment */
-	bcm_mkiovar("bus:txglomalign", (char *)&dongle_align, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-
+	dhd_iovar(dhd, 0, "bus:txglomalign", (char *)&dongle_align, sizeof(dongle_align),
+			NULL, 0, TRUE);
 #if defined(CUSTOMER_HW2) && defined(USE_WL_CREDALL)
 	/* enable credall to reduce the chance of no bus credit happened. */
-	bcm_mkiovar("bus:credall", (char *)&credall, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "bus:credall", (char *)&credall, sizeof(credall), NULL, 0, TRUE);
 #endif
 
 #ifdef USE_WFA_CERT_CONF
@@ -8632,27 +8528,25 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* USE_WFA_CERT_CONF */
 	if (glom != DEFAULT_GLOM_VALUE) {
 		DHD_INFO(("%s set glom=0x%X\n", __FUNCTION__, glom));
-		bcm_mkiovar("bus:txglom", (char *)&glom, 4, iovbuf, sizeof(iovbuf));
-		dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+		dhd_iovar(dhd, 0, "bus:txglom", (char *)&glom, sizeof(glom), NULL, 0, TRUE);
 	}
 #endif /* defined(BCMSDIO) */
 
 	/* Setup timeout if Beacons are lost and roam is off to report link down */
-	bcm_mkiovar("bcn_timeout", (char *)&bcn_timeout, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "bcn_timeout", (char *)&bcn_timeout, sizeof(bcn_timeout), NULL, 0, TRUE);
+
 	/* Setup assoc_retry_max count to reconnect target AP in dongle */
-	bcm_mkiovar("assoc_retry_max", (char *)&retry_max, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-    bcm_mkiovar("srl", (char *)&srl_max, 4, iovbuf, sizeof(iovbuf));
-    dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-    bcm_mkiovar("lrl", (char *)&lrl_max, 4, iovbuf, sizeof(iovbuf));
-    dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "assoc_retry_max", (char *)&retry_max, sizeof(retry_max), NULL, 0, TRUE);
+	/* Setup srl value */
+	dhd_iovar(dhd, 0, "srl", (char *)&srl_max, sizeof(srl_max), NULL, 0, TRUE);
+
+	/* Setup lrl value */
+	dhd_iovar(dhd, 0, "lrl", (char *)&lrl_max, sizeof(lrl_max), NULL, 0, TRUE);
 #if defined(AP) && !defined(WLP2P)
 	/* Turn off MPC in AP mode */
-	bcm_mkiovar("mpc", (char *)&mpc, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-	bcm_mkiovar("apsta", (char *)&apsta, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "mpc", (char *)&mpc, sizeof(mpc), NULL, 0, TRUE);
+
+	dhd_iovar(dhd, 0, "apsta", (char *)&apsta, sizeof(apsta), NULL, 0, TRUE);
 #endif /* defined(AP) && !defined(WLP2P) */
 
 #ifdef MIMO_ANT_SETTING
@@ -8717,9 +8611,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	ampdu_ba_wsize = CUSTOM_AMPDU_BA_WSIZE;
 #endif
 	if (ampdu_ba_wsize != 0) {
-		bcm_mkiovar("ampdu_ba_wsize", (char *)&ampdu_ba_wsize, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "ampdu_ba_wsize", (char *)&ampdu_ba_wsize, sizeof(ampdu_ba_wsize), NULL, 0, TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s Set ampdu_ba_wsize to %d failed  %d\n",
 				__FUNCTION__, ampdu_ba_wsize, ret));
 		}
@@ -8737,9 +8630,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		memset(&temp_control, 0, sizeof(temp_control));
 		temp_control.enable = 1;
 		temp_control.control_bit = TEMP_THROTTLE_CONTROL_BIT;
-		bcm_mkiovar("temp_throttle_control", (char *)&temp_control,
-				sizeof(wl_temp_control_t), iov_buf, WLC_IOCTL_SMLEN);
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iov_buf, WLC_IOCTL_SMLEN, TRUE, 0);
+		ret = dhd_iovar(dhd, 0, "temp_throttle_control", (char *)&temp_control,
+			sizeof(temp_control), NULL, 0, TRUE);
 		if (ret < 0) {
 			DHD_ERROR(("%s Set temp_throttle_control to %d failed \n",
 				__FUNCTION__, ret));
@@ -8749,9 +8641,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #if defined(CUSTOM_AMPDU_MPDU)
 	ampdu_mpdu = CUSTOM_AMPDU_MPDU;
 	if (ampdu_mpdu != 0 && (ampdu_mpdu <= ampdu_ba_wsize)) {
-		bcm_mkiovar("ampdu_mpdu", (char *)&ampdu_mpdu, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "ampdu_mpdu", (char *)&ampdu_mpdu,
+				sizeof(ampdu_mpdu), NULL, 0, TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s Set ampdu_mpdu to %d failed  %d\n",
 				__FUNCTION__, CUSTOM_AMPDU_MPDU, ret));
 		}
@@ -8761,9 +8653,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #if defined(CUSTOM_AMPDU_RELEASE)
 	ampdu_release = CUSTOM_AMPDU_RELEASE;
 	if (ampdu_release != 0 && (ampdu_release <= ampdu_ba_wsize)) {
-		bcm_mkiovar("ampdu_release", (char *)&ampdu_release, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-			sizeof(iovbuf), TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "ampdu_release", (char *)&ampdu_release,
+			sizeof(ampdu_release), NULL, 0, TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s Set ampdu_release to %d failed  %d\n",
 				__FUNCTION__, CUSTOM_AMPDU_RELEASE, ret));
 		}
@@ -8773,8 +8665,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #if defined(CUSTOM_AMSDU_AGGSF)
 	amsdu_aggsf = CUSTOM_AMSDU_AGGSF;
 	if (amsdu_aggsf != 0) {
-		bcm_mkiovar("amsdu_aggsf", (char *)&amsdu_aggsf, 4, iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+		ret = dhd_iovar(dhd, 0, "amsdu_aggsf", (char *)&amsdu_aggsf,
+				sizeof(amsdu_aggsf), NULL, 0, TRUE);
 		if (ret < 0) {
 			DHD_ERROR(("%s Set amsdu_aggsf to %d failed %d\n",
 				__FUNCTION__, CUSTOM_AMSDU_AGGSF, ret));
@@ -8785,8 +8677,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #if defined(BCMSUP_4WAY_HANDSHAKE) && defined(WLAN_AKM_SUITE_FT_8021X)
 	/* Read 4-way handshake requirements */
 	if (dhd_use_idsup == 1) {
-		bcm_mkiovar("sup_wpa", (char *)&sup_wpa, 4, iovbuf, sizeof(iovbuf));
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, sizeof(iovbuf), FALSE, 0);
+		ret = dhd_iovar(dhd, 0, "sup_wpa", (char *)&sup_wpa, sizeof(sup_wpa),
+				(char *)&iovbuf, sizeof(iovbuf), FALSE);
 		/* sup_wpa iovar returns NOTREADY status on some platforms using modularized
 		 * in-dongle supplicant.
 		 */
@@ -8799,8 +8691,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #ifdef CUSTOMER_HW_ZEN
 	if (dhd->op_mode != DHD_FLAG_HOSTAP_MODE) {
 #endif /* CUSTOMER_HW_ZEN */
-	bcm_mkiovar("vht_features", (char *)&vht_features, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "vht_features", (char *)&vht_features, sizeof(vht_features),
+			NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s vht_features set failed %d\n", __FUNCTION__, ret));
 
 		if (ret == BCME_NOTDOWN) {
@@ -8810,9 +8703,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 			DHD_ERROR(("%s vht_features fail WL_DOWN : %d, vht_features = 0x%x\n",
 				__FUNCTION__, ret, vht_features));
 
-			bcm_mkiovar("vht_features", (char *)&vht_features, 4,
-				iovbuf, sizeof(iovbuf));
-			ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+			ret = dhd_iovar(dhd, 0, "vht_features", (char *)&vht_features, sizeof(vht_features),
+					NULL, 0, TRUE);
 			DHD_ERROR(("%s vht_features set. ret --> %d\n", __FUNCTION__, ret));
 		}
 	}
@@ -8822,24 +8714,22 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* SUPPORT_2G_VHT */
 #ifdef CUSTOM_PSPRETEND_THR
 	/* Turn off MPC in AP mode */
-	bcm_mkiovar("pspretend_threshold", (char *)&pspretend_thr, 4,
-		iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-		sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "pspretend_threshold", (char *)&pspretend_thr, sizeof(pspretend_thr), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s pspretend_threshold for HostAPD failed  %d\n",
 			__FUNCTION__, ret));
 	}
 #endif
 
-	bcm_mkiovar("buf_key_b4_m4", (char *)&buf_key_b4_m4, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
-		sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "buf_key_b4_m4", (char *)&buf_key_b4_m4, sizeof(buf_key_b4_m4), NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s buf_key_b4_m4 set failed %d\n", __FUNCTION__, ret));
 	}
 
 	/* Read event_msgs mask */
-	bcm_mkiovar("event_msgs", eventmask, WL_EVENTING_MASK_LEN, iovbuf, sizeof(iovbuf));
-	if ((ret  = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, sizeof(iovbuf), FALSE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "event_msgs", eventmask, WL_EVENTING_MASK_LEN, iovbuf,
+			sizeof(iovbuf), FALSE);
+	if (ret < 0) {
 		DHD_ERROR(("%s read Event mask failed %d\n", __FUNCTION__, ret));
 		goto done;
 	}
@@ -8927,8 +8817,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* defined(PCIE_FULL_DONGLE) && defined(DHD_LOSSLESS_ROAMING) */
 
 	/* Write updated Event mask */
-	bcm_mkiovar("event_msgs", eventmask, WL_EVENTING_MASK_LEN, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "event_msgs", eventmask, WL_EVENTING_MASK_LEN, NULL, 0, TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s Set Event mask failed %d\n", __FUNCTION__, ret));
 		goto done;
 	}
@@ -8946,8 +8836,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	eventmask_msg->len = ROUNDUP(WLC_E_LAST, NBBY)/NBBY;
 
 	/* Read event_msgs_ext mask */
-	bcm_mkiovar("event_msgs_ext", (char *)eventmask_msg, msglen, iov_buf, WLC_IOCTL_SMLEN);
-	ret2  = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iov_buf, WLC_IOCTL_SMLEN, FALSE, 0);
+	ret2 = dhd_iovar(dhd, 0, "event_msgs_ext", (char *)eventmask_msg, msglen, iov_buf,
+			WLC_IOCTL_SMLEN, FALSE);
 	if (ret2 == 0) { /* event_msgs_ext must be supported */
 		bcopy(iov_buf, eventmask_msg, msglen);
 #ifdef GSCAN_SUPPORT
@@ -8964,10 +8854,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		eventmask_msg->ver = EVENTMSGS_VER;
 		eventmask_msg->command = EVENTMSGS_SET_MASK;
 		eventmask_msg->len = ROUNDUP(WLC_E_LAST, NBBY)/NBBY;
-		bcm_mkiovar("event_msgs_ext", (char *)eventmask_msg,
-			msglen, iov_buf, WLC_IOCTL_SMLEN);
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR,
-			iov_buf, WLC_IOCTL_SMLEN, TRUE, 0)) < 0) {
+		ret = dhd_iovar(dhd, 0, "event_msgs_ext", (char *)eventmask_msg, msglen, NULL, 0,
+				TRUE);
+		if (ret < 0) {
 			DHD_ERROR(("%s write event mask ext failed %d\n", __FUNCTION__, ret));
 			goto done;
 		}
@@ -9046,20 +8935,19 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	dhd_set_packet_filter(dhd);
 #endif /* PKT_FILTER_SUPPORT */
 #ifdef DISABLE_11N
-	bcm_mkiovar("nmode", (char *)&nmode, 4, iovbuf, sizeof(iovbuf));
-	if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+	ret = dhd_iovar(dhd, 0, "nmode", (char *)&nmode, sizeof(nmode), NULL, 0, TRUE);
+	if (ret < 0)
 		DHD_ERROR(("%s wl nmode 0 failed %d\n", __FUNCTION__, ret));
 #endif /* DISABLE_11N */
 
 #ifdef ENABLE_BCN_LI_BCN_WAKEUP
-	bcm_mkiovar("bcn_li_bcn", (char *)&bcn_li_bcn, 4, iovbuf, sizeof(iovbuf));
-	dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+	dhd_iovar(dhd, 0, "bcn_li_bcn", (char *)&bcn_li_bcn, sizeof(bcn_li_bcn), NULL, 0, TRUE);
 #endif /* ENABLE_BCN_LI_BCN_WAKEUP */
 	/* query for 'ver' to get version info from firmware */
 	memset(buf, 0, sizeof(buf));
 	ptr = buf;
-	bcm_mkiovar("ver", (char *)&buf, 4, buf, sizeof(buf));
-	if ((ret  = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), FALSE, 0)) < 0)
+	ret = dhd_iovar(dhd, 0, "ver", NULL, 0, buf, sizeof(buf), FALSE);
+	if (ret < 0)
 		DHD_ERROR(("%s failed %d\n", __FUNCTION__, ret));
 	else {
 		bcmstrtok(&ptr, "\n", 0);
@@ -9099,8 +8987,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* USE_WFA_CERT_CONF */
 
 #ifndef DISABLE_11N
-	bcm_mkiovar("ampdu_hostreorder", (char *)&hostreorder, 4, iovbuf, sizeof(iovbuf));
-	if ((ret2 = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0) {
+	ret2 = dhd_iovar(dhd, 0, "ampdu_hostreorder", (char *)&hostreorder, sizeof(hostreorder),
+			NULL, 0, TRUE);
+	if (ret2 < 0) {
 		DHD_ERROR(("%s wl ampdu_hostreorder failed %d\n", __FUNCTION__, ret2));
 		if (ret2 != BCME_UNSUPPORTED)
 			ret = ret2;
@@ -9112,9 +9001,8 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 			DHD_ERROR(("%s ampdu_hostreorder fail WL_DOWN : %d, hostreorder :%d\n",
 				__FUNCTION__, ret2, hostreorder));
 
-			bcm_mkiovar("ampdu_hostreorder", (char *)&hostreorder, 4,
-				iovbuf, sizeof(iovbuf));
-			ret2 = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+			ret2 = dhd_iovar(dhd, 0, "ampdu_hostreorder", (char *)&hostreorder,
+					sizeof(hostreorder), NULL, 0, TRUE);
 			DHD_ERROR(("%s wl ampdu_hostreorder. ret --> %d\n", __FUNCTION__, ret2));
 			if (ret2 != BCME_UNSUPPORTED)
 					ret = ret2;
@@ -9138,8 +9026,9 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	/* For FD we need all the packets at DHD to handle intra-BSS forwarding */
 	if (FW_SUPPORTED(dhd, ap)) {
 		wl_ap_isolate = AP_ISOLATE_SENDUP_ALL;
-		bcm_mkiovar("ap_isolate", (char *)&wl_ap_isolate, 4, iovbuf, sizeof(iovbuf));
-		if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0)) < 0)
+		ret = dhd_iovar(dhd, 0, "ap_isolate", (char *)&wl_ap_isolate, sizeof(wl_ap_isolate),
+				NULL, 0, TRUE);
+		if (ret < 0)
 			DHD_ERROR(("%s failed %d\n", __FUNCTION__, ret));
 	}
 #endif /* PCIE_FULL_DONGLE */
@@ -9153,14 +9042,13 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* WL11U */
 
 #ifdef SUPPORT_SENSORHUB
-	bcm_mkiovar("shub", (char *)&shub_enable, 4, iovbuf, sizeof(iovbuf));
-	if ((dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, iovbuf, sizeof(iovbuf),
-		FALSE, 0)) < 0) {
+	ret = dhd_iovar(dhd, 0, "shub", NULL, 0,
+			(char *)&shub_enable, sizeof(shub_enable), TRUE);
+	if (ret < 0) {
 		DHD_ERROR(("%s failed to get shub hub enable information %d\n",
 			__FUNCTION__, ret));
 		dhd->info->shub_enable = 0;
 	} else {
-		memcpy(&shub_enable, iovbuf, sizeof(uint32));
 		dhd->info->shub_enable = shub_enable;
 		DHD_ERROR(("%s: checking sensorhub enable %d\n",
 			__FUNCTION__, dhd->info->shub_enable));
@@ -9176,28 +9064,95 @@ done:
 	return ret;
 }
 
-
 int
-dhd_iovar(dhd_pub_t *pub, int ifidx, char *name, char *cmd_buf, uint cmd_len, int set)
+dhd_iovar(dhd_pub_t *pub, int ifidx, char *name, char *param_buf, uint param_len, char *res_buf, uint res_len, int set)
 {
-	char buf[strlen(name) + 1 + cmd_len];
-	int len = sizeof(buf);
+	char *buf = NULL;
+	int input_len;
 	wl_ioctl_t ioc;
 	int ret;
 
-	len = bcm_mkiovar(name, cmd_buf, cmd_len, buf, len);
+	if (res_len > WLC_IOCTL_MAXLEN || param_len > WLC_IOCTL_MAXLEN)
+		return BCME_BADARG;
 
-	memset(&ioc, 0, sizeof(ioc));
+	input_len = strlen(name) + 1 + param_len;
+	if (input_len > WLC_IOCTL_MAXLEN)
+		return BCME_BADARG;
 
-	ioc.cmd = set? WLC_SET_VAR : WLC_GET_VAR;
-	ioc.buf = buf;
-	ioc.len = len;
-	ioc.set = set;
+	buf = NULL;
+	if (set) {
+		if (res_buf || res_len != 0) {
+			DHD_ERROR(("%s: SET wrong arguemnet\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			goto exit;
+		}
+		buf = kzalloc(input_len, GFP_KERNEL);
+		if (!buf) {
+			DHD_ERROR(("%s: mem alloc failed\n", __FUNCTION__));
+			ret = BCME_NOMEM;
+			goto exit;
+		}
+		ret = bcm_mkiovar(name, param_buf, param_len, buf, input_len);
+		if (!ret) {
+			ret = BCME_NOMEM;
+			goto exit;
+		}
 
-	ret = dhd_wl_ioctl(pub, ifidx, &ioc, ioc.buf, ioc.len);
-	if (!set && ret >= 0)
-		memcpy(cmd_buf, buf, cmd_len);
+		ioc.cmd = WLC_SET_VAR;
+		ioc.buf = buf;
+		ioc.len = input_len;
+		ioc.set = set;
+		ret = dhd_wl_ioctl(pub, ifidx, &ioc, ioc.buf, ioc.len);
+	} else {
+		if (!res_buf || !res_len) {
+			DHD_ERROR(("%s: GET failed. resp_buf NULL or length 0.\n", __FUNCTION__));
+			ret = BCME_BADARG;
+			goto exit;
+		}
 
+		if (res_len < input_len) {
+			DHD_INFO(("%s: res_len(%d) < input_len(%d)\n", __FUNCTION__,
+						res_len, input_len));
+			buf = kzalloc(input_len, GFP_KERNEL);
+			if (!buf) {
+				DHD_ERROR(("%s: mem alloc failed\n", __FUNCTION__));
+				ret = BCME_NOMEM;
+				goto exit;
+			}
+			ret = bcm_mkiovar(name, param_buf, param_len, buf, input_len);
+			if (!ret) {
+				ret = BCME_NOMEM;
+				goto exit;
+			}
+
+			ioc.cmd = WLC_GET_VAR;
+			ioc.buf = buf;
+			ioc.len = input_len;
+			ioc.set = set;
+
+			ret = dhd_wl_ioctl(pub, ifidx, &ioc, ioc.buf, ioc.len);
+
+			if (ret == BCME_OK) {
+				memcpy(res_buf, buf, res_len);
+			}
+		} else {
+			memset(res_buf, 0, res_len);
+			ret = bcm_mkiovar(name, param_buf, param_len, res_buf, res_len);
+			if (!ret) {
+				ret = BCME_NOMEM;
+				goto exit;
+			}
+
+			ioc.cmd = WLC_GET_VAR;
+			ioc.buf = res_buf;
+			ioc.len = res_len;
+			ioc.set = set;
+
+			ret = dhd_wl_ioctl(pub, ifidx, &ioc, ioc.buf, ioc.len);
+		}
+	}
+exit:
+	kfree(buf);
 	return ret;
 }
 
@@ -9505,10 +9460,10 @@ dhd_register_if(dhd_pub_t *dhdp, int ifidx, bool need_rtnl_lock)
 	struct net_device *net = NULL;
 	int err = 0;
 #ifdef CUSTOMER_HW_ZEN
-    char buf[32];
-    wl_ioctl_t ioc;
-    int ret;
-    int maxassoc = MAX_ASSOC_NUMBER;
+//	char buf[32];
+//	wl_ioctl_t ioc;
+	int ret;
+	int maxassoc = MAX_ASSOC_NUMBER;
 #endif /* CUSTOMER_HW_ZEN */
 	uint8 temp_addr[ETHER_ADDR_LEN] = { 0x00, 0x90, 0x4c, 0x11, 0x22, 0x33 };
 
@@ -9558,17 +9513,12 @@ dhd_register_if(dhd_pub_t *dhdp, int ifidx, bool need_rtnl_lock)
 			else
 				DHD_ERROR(("%s: _dhd_set_mac_address() failed\n", __FUNCTION__));
 		}
-        bcm_mkiovar("maxassoc", (char *)&maxassoc, 4, buf, sizeof(buf));
-        memset(&ioc, 0, sizeof(ioc));
-        ioc.cmd = WLC_SET_VAR;
-        ioc.buf = buf;
-        ioc.len = 32;
-        ioc.set = TRUE;
 
-        ret = dhd_wl_ioctl(&dhd->pub, ifidx, &ioc, ioc.buf, ioc.len);
-        if (ret < 0) {
-            DHD_ERROR(("%s: set maxassoc failed\n", dhd_ifname(&dhd->pub, ifidx)));
-        }
+		ret = dhd_iovar(&dhd->pub, 0, "maxassoc", (char *)&maxassoc, sizeof(maxassoc),
+				NULL, 0, TRUE);
+		if (ret < 0) {
+			DHD_ERROR(("%s: set maxassoc failed\n", dhd_ifname(&dhd->pub, ifidx)));
+		}
 #endif /*  defined(WL_VIRTUAL_APSTA) && defined(CUSTOMER_HW_ZEN) */
 		/*
 		 * Android sets the locally administered bit to indicate that this is a
