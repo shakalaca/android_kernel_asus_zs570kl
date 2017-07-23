@@ -1643,7 +1643,6 @@ void handle_failed_inode(struct inode *);
  * namei.c
  */
 struct dentry *f2fs_get_parent(struct dentry *child);
-void f2fs_set_nocase_dop(struct inode *inode);
 
 /*
  * dir.c
