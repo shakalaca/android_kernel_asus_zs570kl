@@ -19,6 +19,11 @@
 #include <linux/asusdebug.h>
 #include "power.h"
 
+int count_activated_power = 0;
+int count_activated_activity = 0;
+int count_deactivated_power = 0;
+int count_deactivated_activity = 0;
+
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
  * if wakeup events are registered during or immediately before the transition.
@@ -436,6 +441,21 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 	/* Increment the counter of events in progress. */
 	cec = atomic_inc_return(&combined_event_count);
 
+        if (ws->name && (strstr(ws->name, "PowerManagerSer"))){
+                count_activated_power ++;
+                if((count_activated_power % 3500) == 0){
+                        pr_err("Wakeup source (%s) activated\n", ws->name);
+                        count_activated_power = 0;
+                }
+        }
+        if (ws->name && (strstr(ws->name, "ActivityManager"))){
+                count_activated_activity ++;
+                if((count_activated_activity % 3500) == 0){
+                        pr_err("Wakeup source (%s) activated\n", ws->name);
+                        count_activated_activity = 0;
+                }
+        }
+
 	trace_wakeup_source_activate(ws->name, cec);
 }
 
@@ -561,7 +581,23 @@ static void wakeup_source_deactivate(struct wakeup_source *ws)
 	 * couter of wakeup events in progress simultaneously.
 	 */
 	cec = atomic_add_return(MAX_IN_PROGRESS, &combined_event_count);
-	trace_wakeup_source_deactivate(ws->name, cec);
+
+        if (ws->name && (strstr(ws->name, "PowerManagerSer"))){
+                count_deactivated_power ++;
+                if((count_deactivated_power % 3500) == 0){
+                        pr_err("Wakeup source (%s) deactivated\n", ws->name);
+                        count_deactivated_power = 0;
+                }
+        }
+        if (ws->name && (strstr(ws->name, "ActivityManager"))){
+                count_deactivated_activity ++;
+                if((count_deactivated_activity % 3500) == 0){
+                        pr_err("Wakeup source (%s) deactivated\n", ws->name);
+                        count_deactivated_activity = 0;
+                }
+        }
+
+        trace_wakeup_source_deactivate(ws->name, cec);
 
 	split_counters(&cnt, &inpr);
 	if (!inpr && waitqueue_active(&wakeup_count_wait_queue))

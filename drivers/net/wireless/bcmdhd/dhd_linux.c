@@ -9015,7 +9015,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
     /* discard all IPv6 multicast packets */
     dhd->pktfilter[DHD_MULTICAST6_FILTER_NUM] = "103 0 0 0 0xFFFF 0x3333";
 
-    dhd->pktfilter[DHD_MDNS_FILTER_NUM] = NULL;
+    dhd->pktfilter[DHD_MDNS_FILTER_NUM] = "104 0 0 0 0xFFFFFFFFFFFF 0x01005E0000FB";
     dhd->pktfilter[DHD_ARP_FILTER_NUM] = NULL;
 /* discard IPv4 broadcast address XXX.XXX.XXX.255 */
     dhd->pktfilter[DHD_IPV4_BC_255_FILTER_NUM] = "106 0 0 12 0xFFFF00000000000000000000000000000000000000FF 0x080000000000000000000000000000000000000000FF";
@@ -9024,7 +9024,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
     /* discard IPv6 multicast address FF00::/8 */
     dhd->pktfilter[DHD_IPV6_MC_FF00_FILTER_NUM] = "108 0 0 12 0xFFFF000000000000000000000000000000000000000000000000FF 0x86DD000000000000000000000000000000000000000000000000FF";
     /* discard NETBIOS name query*/
-    dhd->pktfilter[DHD_NETBIOS_FILTER_NUM] = "109 0 0 23 0xff00000000000000000000ffffffff00000000000078 0x11b6e5c0a80105c0a8016400890089003a09db329a00";
+    dhd->pktfilter[DHD_NETBIOS_FILTER_NUM] = "109 0 0 23 0xff000000000000000000000000ffff00000000000078 0x11b6e5c0a80105c0a8016400890089003a09db329a00";
 
 #ifdef GAN_LITE_NAT_KEEPALIVE_FILTER
 	dhd->pktfilter_count = 4;
@@ -10647,6 +10647,9 @@ dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata, size_t pktlen,
 
 	if (bcmerror != BCME_OK)
 		return (bcmerror);
+	
+	if ((dhd->iflist[*ifidx] == NULL) || (dhd->iflist[*ifidx]->net == NULL))
+		return BCME_ERROR;
 
 #ifdef WL_CFG80211
 	ASSERT(dhd->iflist[*ifidx] != NULL);
@@ -10916,41 +10919,23 @@ int net_os_rxfilter_add_remove(struct net_device *dev, int add_remove, int num)
 			filter_id = 104;
 			break;
         case DHD_NETBIOS_FILTER_NUM:
-            num = DHD_NETBIOS_FILTER_NUM;
             filterp = "109 0 0 23 0xff00000000000000000000ffffffff00000000000078 0x11b6e5c0a80105c0a8016400890089003a09db329a00";
             filter_id = 109;
             break;
+		case DHD_IPV4_BC_255_FILTER_NUM:
+			filterp = "106 0 0 12 0xFFFF00000000000000000000000000000000000000FF 0x080000000000000000000000000000000000000000FF";
+			filter_id = 106;
+    	    break;
+		case DHD_IPV4_MC_224_FILTER_NUM:
+			filterp = "107 0 0 12 0xFFFF00000000000000000000000000000000F0 0x080000000000000000000000000000000000E0";
+			filter_id = 107;
+    	    break;
+		case DHD_IPV6_MC_FF00_FILTER_NUM:
+			filterp = "108 0 0 12 0xFFFF000000000000000000000000000000000000000000000000FF 0x86DD000000000000000000000000000000000000000000000000FF";
+			filter_id = 108;
+			break;
 		default:
 			return -EINVAL;
-	}
-
-	/* Add filter */
-	if (add_remove) {
-		dhd->pub.pktfilter[num] = filterp;
-		dhd_pktfilter_offload_set(&dhd->pub, dhd->pub.pktfilter[num]);
-	} else { /* Delete filter */
-		dhd_pktfilter_offload_delete(&dhd->pub, filter_id);
-	}
- 
-	switch (num) {
-	case DHD_BROADCAST_FILTER_NUM:
-		num = DHD_IPV4_BC_255_FILTER_NUM;
-		filterp = "106 0 0 12 0xFFFF00000000000000000000000000000000000000FF 0x080000000000000000000000000000000000000000FF";
-		filter_id = 106;
-        break;
-	case DHD_MULTICAST4_FILTER_NUM:
-		num = DHD_IPV4_MC_224_FILTER_NUM;
-		filterp = "107 0 0 12 0xFFFF00000000000000000000000000000000F0 0x080000000000000000000000000000000000E0";
-		filter_id = 107;
-        break;
-	case DHD_MULTICAST6_FILTER_NUM:
-		num = DHD_IPV6_MC_FF00_FILTER_NUM;
-		filterp = "108 0 0 12 0xFFFF000000000000000000000000000000000000000000000000FF 0x86DD000000000000000000000000000000000000000000000000FF";
-		filter_id = 108;
-		break;
-	default:
-		num = 0;
-		break;
 	}
 
 	/* Add filter */

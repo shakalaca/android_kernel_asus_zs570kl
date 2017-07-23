@@ -173,3 +173,6 @@ obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 
 # <t-base drivers
 obj-$(CONFIG_MOBICORE_DRIVER)	+= gud/
+
+# Broadcom V4L2 soulution
+obj-$(CONFIG_BRCM_V4L2)		+= brcm_v4l2/

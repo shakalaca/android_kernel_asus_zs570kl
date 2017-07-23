@@ -16,6 +16,7 @@
  * Copyright (C) 2006-2007 - Motorola
  * Copyright (c) 2008-2010, The Linux Foundation. All rights reserved.
  * Copyright (c) 2013, LGE Inc.
+ * Copyright (C) 2009-2016 Broadcom Corporation
 
  * Date         Author           Comment
  * -----------  --------------   --------------------------------
@@ -74,6 +75,12 @@
 #define BT_ENABLE_IRQ_WAKE 1
 
 #define BT_BLUEDROID_SUPPORT 1
+/*
+When Line discipline driver is interfacing with bluesleep,
+LPM  enabling is not through bluesleep_write_proc_lpm().
+uport setting need to be done in bluesleep_start().
+*********TO DO****** change macro to conf entry*/
+#define BT_BLUEDROID_V4L2_SUPPORT 1
 
 enum {
     DEBUG_USER_STATE = 1U << 0,
@@ -133,8 +140,8 @@ static atomic_t open_count = ATOMIC_INIT(1);
 static int bluesleep_hci_event(struct notifier_block *this,
             unsigned long event, void *data);
 #endif
-static int bluesleep_start(void);
-static void bluesleep_stop(void);
+/*static*/ int bluesleep_start(void);
+/*static*/ void bluesleep_stop(void);
 
 
 static unsigned long flags;
@@ -335,7 +342,7 @@ static void bluesleep_hostwake_task(unsigned long data)
     spin_unlock(&rw_lock);
 }
 
-static void bluesleep_outgoing_data(void)
+/*static*/ void bluesleep_outgoing_data(void)
 {
     unsigned long irq_flags;
 
@@ -353,6 +360,7 @@ static void bluesleep_outgoing_data(void)
     } else
         spin_unlock_irqrestore(&rw_lock, irq_flags);
 }
+EXPORT_SYMBOL(bluesleep_outgoing_data);
 
 #if BT_BLUEDROID_SUPPORT
 static int bluesleep_lpm_enable (int en)
@@ -539,10 +547,17 @@ static irqreturn_t bluesleep_hostwake_isr(int irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
-static int bluesleep_start(void)
+/*static*/ int bluesleep_start(void)
 {
     int retval;
     unsigned long irq_flags;
+
+#if BT_BLUEDROID_V4L2_SUPPORT
+    if (!has_lpm_enabled) {
+        has_lpm_enabled = true;
+        bsi->uport = msm_hs_get_uart_port_brcmbt(BT_UART_PORT_ID);
+    }
+#endif
 
     spin_lock_irqsave(&rw_lock, irq_flags);
 
@@ -582,10 +597,16 @@ fail:
 
     return retval;
 }
+EXPORT_SYMBOL(bluesleep_start);
 
-static void bluesleep_stop(void)
+/*static*/ void bluesleep_stop(void)
 {
     unsigned long irq_flags;
+
+#if BT_BLUEDROID_V4L2_SUPPORT
+    has_lpm_enabled = false;
+    bsi->uport = NULL;
+#endif
 
     spin_lock_irqsave(&rw_lock, irq_flags);
 

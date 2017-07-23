@@ -147,7 +147,17 @@ char fw_version[FW_VER_STR_LEN] = "\0";
 
 void dhd_set_timer(void *bus, uint wdtick);
 
-
+#define CSCAN_COMMAND                "CSCAN "
+#define CSCAN_TLV_PREFIX             'S'
+#define CSCAN_TLV_VERSION             1
+#define CSCAN_TLV_SUBVERSION          0
+#define CSCAN_TLV_TYPE_SSID_IE       'S'
+#define CSCAN_TLV_TYPE_CHANNEL_IE    'C'
+#define CSCAN_TLV_TYPE_NPROBE_IE     'N'
+#define CSCAN_TLV_TYPE_ACTIVE_IE     'A'
+#define CSCAN_TLV_TYPE_PASSIVE_IE    'P'
+#define CSCAN_TLV_TYPE_HOME_IE       'H'
+#define CSCAN_TLV_TYPE_STYPE_IE      'T'
 
 /* IOVar table */
 enum {

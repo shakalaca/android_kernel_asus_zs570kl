@@ -291,6 +291,14 @@ static const char * const qpnp_poff_reason[] = {
 	[39] = "Triggered from S3_RESET_KPDPWR_ANDOR_RESIN (power key and/or reset line)",
 };
 
+void asus_evtlog_pon_off_work_print_func(struct work_struct *work);
+static char power_on_log[150];
+static char power_off_log[150];
+static DECLARE_DELAYED_WORK(asus_evtlog_pon_off_work_print, asus_evtlog_pon_off_work_print_func);
+void asus_evtlog_pon_off_work_print_func(struct work_struct *work) {
+	ASUSEvtlog(power_on_log);
+	ASUSEvtlog(power_off_log);
+}
 /*
  * On the kernel command line specify
  * qpnp-power-on.warm_boot=1 to indicate a warm
@@ -2185,10 +2193,15 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 		dev_info(&pon->spmi->dev,
 			"PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
 			pon->spmi->sid, cold_boot ? "cold" : "warm");
+		sprintf(power_on_log, "[PMIC]:PMIC@SID%d Power-on reason: Unknown and '%s' boot\n",
+			pon->spmi->sid, cold_boot ? "cold" : "warm");
 	} else {
 		pon->pon_trigger_reason = index;
 		dev_info(&pon->spmi->dev,
 			"PMIC@SID%d Power-on reason: %s and '%s' boot\n",
+			pon->spmi->sid, qpnp_pon_reason[index],
+			cold_boot ? "cold" : "warm");
+		sprintf(power_on_log, "[PMIC]:PMIC@SID%d Power-on reason: %s and '%s' boot\n",
 			pon->spmi->sid, qpnp_pon_reason[index],
 			cold_boot ? "cold" : "warm");
 	}
@@ -2215,10 +2228,15 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 		dev_info(&pon->spmi->dev,
 				"PMIC@SID%d: Unknown power-off reason\n",
 				pon->spmi->sid);
+		sprintf(power_off_log, "[PMIC]:PMIC@SID%d: Unknown power-off reason\n",
+				pon->spmi->sid);
 	} else {
 		pon->pon_power_off_reason = index;
 		dev_info(&pon->spmi->dev,
 				"PMIC@SID%d: Power-off reason: %s\n",
+				pon->spmi->sid,
+				qpnp_poff_reason[index]);
+	    sprintf(power_off_log, "[PMIC]:PMIC@SID%d: Power-off reason: %s\n",
 				pon->spmi->sid,
 				qpnp_poff_reason[index]);
 	}
@@ -2229,7 +2247,7 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 						"qcom,uvlo-panic"))
 			panic("An UVLO was occurred.");
 	}
-
+    schedule_delayed_work(&asus_evtlog_pon_off_work_print, msecs_to_jiffies(30000));
 	/* program s3 debounce */
 	rc = of_property_read_u32(pon->spmi->dev.of_node,
 				"qcom,s3-debounce", &s3_debounce);

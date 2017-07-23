@@ -382,6 +382,7 @@ DEFINE_TIMER(monitorWS_timer, monitorWS_timer_expired, 0, 0);
 void monitorWS_timer_expired(unsigned long data)
 {
     pr_info("[PM]monitorWS_timer_expired\n");
+    ASUSEvtlog("[PM]unattended_timer_expired\n");
     pm_print_active_wakeup_sources();
 	mod_timer(&monitorWS_timer, jiffies + msecs_to_jiffies(PM_MONITOR_TIMEOUT));
 }
@@ -544,8 +545,7 @@ int pm_suspend(suspend_state_t state)
 	if (state <= PM_SUSPEND_ON || state >= PM_SUSPEND_MAX)
 		return -EINVAL;
 	pm_suspend_marker("entry");
-	if (state == 3)
-		ASUSEvtlog("[PM]request_suspend_state: (0->3)\n");
+
 	error = enter_state(state);
 	if (error) {
 		suspend_stats.fail++;
@@ -554,8 +554,7 @@ int pm_suspend(suspend_state_t state)
 		suspend_stats.success++;
 	}
 	pm_suspend_marker("exit");
-	if (state == 3)
-		ASUSEvtlog("[PM]request_suspend_state: (3->0)\n");
+
 	return error;
 }
 EXPORT_SYMBOL(pm_suspend);

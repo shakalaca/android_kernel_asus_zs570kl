@@ -58,6 +58,7 @@
 #include <linux/poll.h>
 
 #include <linux/wakelock.h>
+#include <linux/workqueue.h>
 
 #include <linux/completion.h>
 
@@ -75,6 +76,7 @@ static LIST_HEAD(device_list);
 static DEFINE_MUTEX(device_list_mutex);
 static struct class *vfsspi_device_class;
 static int gpio_irq;
+static int global_counter=0;
 
 struct vfsspi_device_data {
 	dev_t devt;
@@ -106,9 +108,11 @@ struct vfsspi_device_data {
 	struct wake_lock wake_lock;
 	struct wake_lock wake_lock_irq;
 	bool irq_wakeup_flag;
+	struct delayed_work fp_sensor_work;
 };
 struct vfsspi_device_data *fp_device;
 struct vfsspi_device_data *vfsSpiDevTmp = NULL;
+static struct workqueue_struct 	*fp_sensor_wq;
 #ifdef VFSSPI_32BIT
 /*
  * Used by IOCTL compat command:
@@ -320,6 +324,14 @@ void vfsspi_screen_on(void)
 }
 #endif
 
+
+static void fp_sensor_report_function(struct work_struct *dat)
+{
+	vfsspi_screen_notify();
+	global_counter--;
+}
+
+
 // add for fb detection start
 static int SYNA_fb_state_notify_callback(struct notifier_block *nb, unsigned long val, void *fbdata)
 {
@@ -339,12 +351,14 @@ static int SYNA_fb_state_notify_callback(struct notifier_block *nb, unsigned lon
 		case FB_BLANK_POWERDOWN:
 			screen_status = 0; //set the screen status to off
 			printk("SYNA_fb_state_notify_callback FB_BLANK_POWERDOWN - vfsspi_screen_off\n");
-			vfsspi_screen_notify();
+			global_counter++;
+			queue_delayed_work(fp_sensor_wq, &fp_device->fp_sensor_work, 0);
 			break;
 		case FB_BLANK_UNBLANK:
 			screen_status = 1; //set the screen status to on
-			printk("SYNA_fb_state_notify_callback FB_BLANK_UNBLANK - vfsspi_screen_on\n");	
-			vfsspi_screen_notify();
+			printk("SYNA_fb_state_notify_callback FB_BLANK_UNBLANK - vfsspi_screen_on\n");
+			global_counter++;
+			queue_delayed_work(fp_sensor_wq, &fp_device->fp_sensor_work, 0);
 			break;
 		default:
 			printk("SYNA_fb_state_notify_callback: defalut\n");
@@ -402,7 +416,7 @@ static irqreturn_t vfsspi_irq(int irq, void *context)
 	printk("vfsspi_irq\n");
 	if (vfsspi_device != NULL && gpio_get_value(vfsspi_device->drdy_pin) == DRDY_ACTIVE_STATUS) {
 		printk("vfsspi_wake_lock\n");
-		wake_lock_timeout(&vfsspi_device->wake_lock, 150);
+		wake_lock_timeout(&vfsspi_device->wake_lock, 150); //1.5s
 		wake_lock_timeout(&vfsspi_device->wake_lock_irq, 150);
 		vfsspi_sendDrdyNotify(vfsspi_device);
 	}
@@ -738,15 +752,27 @@ static const struct file_operations vfsspi_fops = {
 static int fp_sensor_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct vfsspi_device_data *fp = dev_get_drvdata(&pdev->dev);
+	struct timeval time_s, time_e;
 
 		printk("[FP] sensor suspend +++\n");
-
+		if(global_counter > 0){
+			do_gettimeofday(&time_s);
+			flush_workqueue(fp_sensor_wq);//flush all works
+			do_gettimeofday(&time_e);
+			if(global_counter > 0){ //still have work be scheduled after flush_workqueue.
+	 			printk(KERN_ERR "\n[FP] global_counter INCORRECT %d\n",global_counter);
+				printk(KERN_ERR "[FP] delay %lu\n", time_e.tv_usec - time_s.tv_usec);
+				wake_lock_timeout(&fp->wake_lock_irq, 3);//30ms
+				return -EBUSY;
+			}else{
+				printk(KERN_ERR "\n[FP] delay %lu\n", time_e.tv_usec - time_s.tv_usec);
+			}
+		}
 		if (fp->is_drdy_irq_enabled & !fp->irq_wakeup_flag) {
 			printk("[FP] enable irq wake up  \n");
 			enable_irq_wake(fp->isr_pin);
 			fp->irq_wakeup_flag = true;
 		}
-
 		printk("[FP] sensor suspend ---\n");
 
 	return 0;
@@ -762,7 +788,7 @@ static int fp_sensor_resume(struct platform_device *pdev)
 			disable_irq_wake(fp->isr_pin);
 			fp->irq_wakeup_flag = false;
 		}
-
+		flush_workqueue(fp_sensor_wq);//flush all works
 		printk("[FP] sensor resume ---\n");
 
 	return 0;
@@ -921,6 +947,9 @@ static int fp_sensor_probe(struct platform_device *pdev)
         device_create_file(dev, &dev_attr_screenState);
 
 	mutex_unlock(&device_list_mutex);
+
+	fp_sensor_wq = create_singlethread_workqueue("fp_sensor_wq");
+	INIT_DEFERRABLE_WORK(&fp_device->fp_sensor_work, fp_sensor_report_function);
 
 	if (status != 0)
 		goto vfsspi_probe_failed;

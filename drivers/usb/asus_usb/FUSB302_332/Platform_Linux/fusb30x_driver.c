@@ -72,7 +72,48 @@ union power_supply_propval refresh_timer = {0,};
 #include "fusb30x_driver.h"
 
 /******************************************************************************
-*                        Create Proc  : For Factory --- I2C report                                                                             *
+ *                       Create Proc  : For Factory --- Moisture              *
+ ******************************************************************************/
+ssize_t fusb302_moisture_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
+{
+        int len= 0;
+        ssize_t ret=0;
+        char *buff;
+        bool result=false;
+
+        USB_FUSB302_331_INFO("%s +++\n", __func__);
+        buff = kmalloc(300,GFP_KERNEL);
+        if(!buff)
+                return -ENOMEM;
+
+        result = platform_check_for_connector_fault();
+        if(result)
+                len += sprintf(buff + len, "Moisture = True(Moisture fault is found)\n");//Moisture fault condition is found
+        else
+                len += sprintf(buff + len, "Moisture = False(No Moisture fault)\n");//No Moisture fault condition
+
+        ret = simple_read_from_buffer(buffer,count,ppos,buff,len);
+        kfree(buff);
+        return ret;
+}
+
+int init_asus_moisture_fusb302(void)
+{
+        struct proc_dir_entry *entry=NULL;
+        static struct file_operations fusb302_moisture_fop = {
+                .read  = fusb302_moisture_read,
+        };
+        USB_FUSB302_331_INFO("init_asus_moisture_fusb302\n");
+        entry = proc_create("fusb_moisture", 0666,NULL, &fusb302_moisture_fop);
+        if(!entry){
+                USB_FUSB302_331_INFO("create /proc/fusb_moisture fail\n");
+        }
+
+        return 0;
+}
+
+/******************************************************************************
+*                        Create Proc  : For Factory --- I2C report            *
 ******************************************************************************/
 ssize_t fusb302_i2c_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -123,7 +164,7 @@ int init_asus_for_i2c_fusb302(void)
 
 
 /******************************************************************************
-*                        Create Proc  : For Factory --- PD                                                                             *
+*                        Create Proc  : For Factory --- PD                    *
 ******************************************************************************/
 ssize_t fusb302_PD_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -164,7 +205,7 @@ int init_asus_for_PD_fusb302(void)
 	return 0;
 }
 /******************************************************************************
-*                        Create Proc  : For Factory --- CC pin orientation                                                                              *
+*                        Create Proc  : For Factory --- CC pin orientation    *
 ******************************************************************************/
 ssize_t fusb302_factory_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -210,7 +251,7 @@ int init_asus_for_factory_fusb302(void)
 }
 
 /******************************************************************************
-*                        Create Proc  : For Engineer                                                                              *
+*                        Create Proc  : For Engineer                          *
 ******************************************************************************/
 ssize_t fusb302_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -433,7 +474,7 @@ int init_asus_for_fusb302(void)
 }
 
 /******************************************************************************
-*                        Create Proc  : For USB Switch Speed Test(EE)                                                                              *
+*                        Create Proc  : For USB Switch Speed Test(EE)         *
 ******************************************************************************/
 ssize_t fusb302_speed_2_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -566,7 +607,7 @@ int init_asus_for_usb_3_speed(void)
 }
 
 /******************************************************************************
-*                        Create Proc  : For Type-C Driver Version                                                                              *
+*                        Create Proc  : For Type-C Driver Version             *
 ******************************************************************************/
 ssize_t fusb302_version_read(struct file *filp, char __user *buffer, size_t count, loff_t *ppos)
 {
@@ -602,7 +643,7 @@ int init_asus_typec_version(void)
 	return 0;
 }
 /******************************************************************************
-* Driver functions
+*                    Driver functions                                         *
 ******************************************************************************/
 static int __init fusb30x_init(void)
 {
@@ -864,7 +905,7 @@ static int fusb302_dual_role_set_prop(struct dual_role_phy_instance *dual_role,
 		 * Implement PR_swap and DR_swap here. */
 		return -EINVAL;
 }
- 
+
 static enum dual_role_property fusb302_drp_properties[] = {
 	DUAL_ROLE_PROP_MODE,
 	DUAL_ROLE_PROP_PR,
@@ -1219,6 +1260,12 @@ static int fusb30x_probe (struct i2c_client* client,
         proc_ret = init_asus_typec_version();
         if(proc_ret){
                 USB_FUSB302_331_INFO("Unable to create proc init_asus_typec_version\n");
+        }
+
+        proc_ret = 0;
+        proc_ret = init_asus_moisture_fusb302();
+        if(proc_ret){
+                USB_FUSB302_331_INFO("Unable to create proc init_asus_moisture_fusb302\n");
         }
 
 	return ret;

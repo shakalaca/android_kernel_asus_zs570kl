@@ -385,6 +385,99 @@ unsigned int * platform_fusb302_report_attached_capabilities(void)
 }
 EXPORT_SYMBOL(platform_fusb302_report_attached_capabilities);
 
+FSC_BOOL platform_check_for_connector_fault()
+{
+	FSC_BOOL fault_detected = FALSE;
+	regMeasure_t saved_measure;
+	regSwitches_t saved_switches;
+
+	USB_FUSB302_331_INFO("[%s] Taurus is %s; testing Type-C connector for fault on %s\n", __func__, (sourceOrSink == SOURCE) ? "SOURCE" : "SINK", blnCCPinIsCC1 ? "CC2" : "CC1");
+
+	saved_measure = Registers.Measure;
+	saved_switches = Registers.Switches;
+
+	Registers.Measure.MEAS_VBUS = 0;
+	Registers.Measure.MDAC = MDAC_0P042V;
+	DeviceWrite(regMeasure, 1, &Registers.Measure.byte);
+
+        // set MDAC, measure "other CC", if CC voltage > 0V return fault detected
+	if (blnCCPinIsCC1)
+	{
+		Registers.Switches.VCONN_CC2 = 0;                            // Disable VCONN to CC2
+		Registers.Switches.PU_EN2 = 0;                               // Disable CC2 pull-up
+		Registers.Switches.PDWN2 = 1;                                // Enable CC2 pull-down
+		Registers.Switches.MEAS_CC1 = 0;                             // Disable CC1 measure
+		Registers.Switches.MEAS_CC2 = 1;                             // Enable CC2 measure
+	}
+	else
+	{
+		Registers.Switches.VCONN_CC1 = 0;                            // Disable VCONN to CC1
+		Registers.Switches.PU_EN1 = 0;                               // Disable CC1 pull-up
+		Registers.Switches.PDWN1 = 1;                                // Enable CC1 pull-down
+		Registers.Switches.MEAS_CC2 = 0;                             // Disable CC2 measure
+		Registers.Switches.MEAS_CC1 = 1;                             // Enable CC1 measure
+	}
+	DeviceWrite(regSwitches0, 1, &(Registers.Switches.byte[0]));
+
+	platform_delay_10us(150);                                            // Delay to allow measurement to settle
+	DeviceRead(regStatus0, 1, &Registers.Status.byte[4]);
+	if (Registers.Status.COMP == 1)
+	{
+		fault_detected = TRUE;
+		USB_FUSB302_331_INFO("[%s] 1st test failed: the voltage on %s is greater than 42mV with the pull-down enabled\n", __func__, blnCCPinIsCC1 ? "CC2" : "CC1");
+	}
+	else
+        // enable pull up current source on "other CC", if CC voltage < 2.4V return fault detected
+	{
+		USB_FUSB302_331_INFO("[%s] 1st test passed: the voltage on %s is less than 42mV with the pull-down enabled\n", __func__, blnCCPinIsCC1 ? "CC2" : "CC1");
+
+		Registers.Measure.MDAC = MDAC_2P436V;
+		DeviceWrite(regMeasure, 1, &Registers.Measure.byte);
+
+		Registers.Switches = saved_switches;                                 // restore register
+		if (blnCCPinIsCC1)
+		{
+			Registers.Switches.VCONN_CC2 = 0;                            // Disable VCONN to CC2
+			Registers.Switches.PDWN2 = 0;                                // Disable CC2 pull-down
+			Registers.Switches.PU_EN2 = 1;                               // Enable CC2 pull-up
+			Registers.Switches.MEAS_CC1 = 0;                             // Disable CC1 measure
+			Registers.Switches.MEAS_CC2 = 1;                             // Enable CC2 measure
+		}
+		else
+		{
+			Registers.Switches.VCONN_CC1 = 0;                            // Disable VCONN to CC1
+			Registers.Switches.PDWN1 = 0;                                // Disable CC1 pull-down
+			Registers.Switches.PU_EN1 = 1;                               // Enable CC1 pull-up
+			Registers.Switches.MEAS_CC2 = 0;                             // Disable CC2 measure
+			Registers.Switches.MEAS_CC1 = 1;                             // Enable CC1 measure
+		}
+		DeviceWrite(regSwitches0, 1, &(Registers.Switches.byte[0]));
+
+		platform_delay_10us(150);                                            // Delay to allow measurement to settle
+		DeviceRead(regStatus0, 1, &Registers.Status.byte[4]);
+		if (Registers.Status.COMP == 0)
+		{
+			fault_detected = TRUE;
+			USB_FUSB302_331_INFO("[%s] 2nd test failed: the voltage on %s is less than 2.4V with the pull-up enabled\n", __func__, blnCCPinIsCC1 ? "CC2" : "CC1");
+		}
+		else
+		{
+			USB_FUSB302_331_INFO("[%s] 2nd test passed: the voltage on %s is greater than 2.4V with the pull-up enabled\n", __func__, blnCCPinIsCC1 ? "CC2" : "CC1");
+		}
+	}
+
+	Registers.Measure = saved_measure;
+	DeviceWrite(regMeasure, 1, &Registers.Measure.byte);
+	Registers.Switches = saved_switches;
+	DeviceWrite(regSwitches0, 1, &(Registers.Switches.byte[0]));
+
+	USB_FUSB302_331_INFO("[%s] %sfault detected on %s\n", __func__, fault_detected ? "FAIL: " : "PASS: no ", blnCCPinIsCC1 ? "CC2" : "CC1");
+
+//	platform_start_timer(&FaultTestTimer, 15000);                          // Start 5 second timer for Fault Test
+	return fault_detected;
+}
+EXPORT_SYMBOL(platform_check_for_connector_fault);
+
 ///*******************************************************************************
 // * Function:        platform_fusb302_update_sink_capabilities
 // * Input:           Pointer to an array of new Sink PD capabilities

@@ -472,6 +472,7 @@ pmi8994_led: qcom,leds@a100 {
 			qcom,channel-id = <3>;
 			qcom,supported-sizes = <6>, <9>;
 			qcom,ramp-index = <3>;
+                        qcom,force-pwm-size = <9>;
 			#pwm-cells = <2>;
 		};
 

@@ -38,7 +38,7 @@
 
 #define I2C_RETRY_COUNT 10
 
-#define LS_POLLING_DELAY 600
+#define LS_POLLING_DELAY 50
 
 #define REL_RED		REL_X
 #define REL_GREEN	REL_Y
@@ -53,6 +53,7 @@
 #define ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE           _IOW(ASUS_RGB_SENSOR_IOC_MAGIC, 3, int)	///< RGB sensor ioctl command - Get debug mode
 #define ASUS_RGB_SENSOR_IOCTL_MODULE_NAME           _IOR(ASUS_RGB_SENSOR_IOC_MAGIC, 4, char[ASUS_RGB_SENSOR_NAME_SIZE])	///< RGB sensor ioctl command - Get module name
 
+#define READ_RGB_TEMP_DATA          //ASUS_BSP +++, Leong, Create Thread to read RGB Data
 
 static void report_do_work(struct work_struct *w);
 static DECLARE_DELAYED_WORK(report_work, report_do_work);
@@ -72,11 +73,25 @@ struct cm3323e_info {
 	int als_enable;
 	uint16_t it_setting;
 	int (*power)(int, uint8_t); /* power to the chip */
-
+	int it_time;
 	int lightsensor_opened;
 	int polling_delay;
 };
+
+struct cm3323e_status {
+	bool need_wait;
+	long long int start_time_ms;
+	long long int end_time_ms;
+	u32 start_time_jiffies;
+	u32 end_time_jiffies;
+	u16 delay_time_ms;
+	u16 delay_time_jiffies;
+};
+
+
 struct cm3323e_info *lp_info;
+struct cm3323e_status g_rgb_status = {false, 0, 0};
+
 int enable_log = 0;
 static struct mutex als_enable_mutex, als_disable_mutex, als_get_adc_mutex;
 static int lightsensor_enable(struct cm3323e_info *lpi);
@@ -196,6 +211,26 @@ static int _cm3323e_I2C_Write_Word(uint16_t SlaveAddress, uint8_t cmd, uint16_t 
 	return ret;
 }
 
+static int _cm3323e_I2C_Mask_Write_Word(uint16_t SlaveAddress, uint8_t cmd, uint16_t mask, uint16_t data)
+{
+	s32 rc;
+	uint16_t adc_data;
+
+	rc = _cm3323e_I2C_Read_Word(SlaveAddress, cmd, &adc_data);
+	if (rc) {
+		pr_err("[ERR][CM3323E error]%s: Failed to read reg 0x%02x, rc=%d\n", __func__, cmd, rc);
+		goto out;
+	}
+	adc_data &= ~mask;
+	adc_data |= data & mask;
+	rc = _cm3323e_I2C_Write_Word(SlaveAddress, cmd, adc_data);
+	if (rc) {
+		pr_err("[ERR][CM3323E error]%s: Failed to write reg 0x%02x, rc=%d\n", __func__, cmd, rc);
+	}
+out:
+	return rc;
+}
+
 static void report_lsensor_input_event(struct cm3323e_info *lpi, bool resume)
 {/*when resume need report a data, so the paramerter need to quick reponse*/
 	//uint32_t r_val, g_val, b_val, w_val;
@@ -265,6 +300,88 @@ static void dev_deinit(struct cm3323e_info *lpi)
 	}
 }
 
+void lightsensor_doDelay(u32 delay_time_ms)
+{
+	//RGB_DBG("%s: delay time = %u(ms)\n", __func__, delay_time_ms);
+	if (delay_time_ms < 0 || delay_time_ms > g_rgb_status.delay_time_ms) {
+		printk("[LS][CM3323E] %s: param wrong, delay default time = %u(ms)\n", __func__, g_rgb_status.delay_time_ms);
+		if( g_rgb_status.delay_time_ms > 0 && g_rgb_status.delay_time_ms <= 1600 ) 
+			msleep(g_rgb_status.delay_time_ms);
+	} else{
+		printk("[LS][CM3323E] %s: delay time = %u(ms)\n", __func__, delay_time_ms);
+		if( delay_time_ms > 0 && delay_time_ms <= 1600 )  
+			msleep(delay_time_ms);
+	}
+}
+
+void lightsensor_checkStatus(void)
+{
+	struct timeval current_time; 
+	long long int current_time_ms = 0;
+	do_gettimeofday(&current_time);
+	current_time_ms = current_time.tv_sec * 1000LL + current_time.tv_usec / 1000LL;
+
+	if (g_rgb_status.need_wait) {
+		/*handling jiffies overflow*/
+		printk("[LS][CM3323E] %s: start at %lld, end at %lld, current at %lld, delay = %u(ms)\n", __func__,
+			g_rgb_status.start_time_ms, g_rgb_status.end_time_ms, current_time_ms, g_rgb_status.delay_time_ms);
+		/*normal case*/
+		if (g_rgb_status.end_time_ms > g_rgb_status.start_time_ms) {
+			/*between start and end - need delay*/
+			if (current_time_ms >= g_rgb_status.start_time_ms && current_time_ms < g_rgb_status.end_time_ms)
+				lightsensor_doDelay(g_rgb_status.end_time_ms - current_time_ms);
+			else  // overflow or don't neet to delay
+				lightsensor_doDelay(0);
+		} 
+		g_rgb_status.need_wait = false;
+	}
+}
+
+static void lightsensor_setDelay(void)
+{
+	struct cm3323e_info *lpi = lp_info;
+	struct timeval start_time; 
+	g_rgb_status.need_wait = true;
+	do_gettimeofday(&start_time);
+	if (lpi->it_time >= 0 && lpi->it_time <= 5) {
+		g_rgb_status.delay_time_ms = (40 << lpi->it_time) * 5 / 4;
+		printk("[LS][CM3323E]%s: set delay time to %d ms\n", __func__, g_rgb_status.delay_time_ms);
+	} else{
+		g_rgb_status.delay_time_ms = 200;
+		printk("[LS][CM3323E]%s: wrong IT time - %d, set delay time to 200ms \n", __func__, lpi->it_time);
+	}
+	g_rgb_status.start_time_ms = start_time.tv_sec * 1000LL + start_time.tv_usec / 1000LL;
+	
+	g_rgb_status.end_time_ms = g_rgb_status.start_time_ms + g_rgb_status.delay_time_ms;
+}
+
+static void lightsensor_itSet_ms(int input_ms)
+{
+	struct cm3323e_info *lpi = lp_info;
+	int it_time;
+	if (input_ms < 80) {
+		it_time = CM3323E_CONF_IT_40MS;
+	} else if (input_ms < 160) {
+		it_time = CM3323E_CONF_IT_80MS;
+	} else if (input_ms < 320) {
+		it_time = CM3323E_CONF_IT_160MS;
+	} else if (input_ms < 640) {
+		it_time = CM3323E_CONF_IT_320MS;
+	} else if (input_ms < 1280) {
+		it_time = CM3323E_CONF_IT_640MS;
+	} else{
+		it_time = CM3323E_CONF_IT_1280MS;
+	}
+	lpi->it_time = it_time;
+	lpi->polling_delay = msecs_to_jiffies( (40 << lpi->it_time) * 5 / 4 );
+	printk("[LS][CM3323E] %s: write config - it time = %d, it set = %d, polling_delay = %d(%dms)\n", __func__, input_ms, lpi->it_time , lpi->polling_delay, (40 << lpi->it_time) * 5 / 4);
+	if (lpi->als_enable == 1) {
+		_cm3323e_I2C_Mask_Write_Word(CM3323E_ADDR, CM3323E_CONF, CM3323E_CONF_IT_MASK, lpi->it_time << 4);
+	} else{
+		printk("[LS][CM3323E] %s: write config - it time = %d, it set = %d\n", __func__, input_ms, lpi->it_time);
+	}
+}
+
 static int lightsensor_enable(struct cm3323e_info *lpi)
 {
 	int ret = 0;
@@ -273,19 +390,24 @@ static int lightsensor_enable(struct cm3323e_info *lpi)
 	D("[LS][CM3323E] %s\n", __func__);
   
 	dev_init(lpi);
+	msleep(5);
 
-
+	lpi->it_setting = lpi->it_time << 4;
+	printk("[LS][CM3323E] %s setting %x \n", __func__, lpi->it_setting); 
 	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting);
+	lightsensor_setDelay();
 	if (ret < 0) {
 		pr_err(
 		"[LS][CM3323E error]%s: set auto light sensor fail\n",
 		__func__);
-	} else {
-		msleep(200);/*wait for 200 ms for the first report*/	
-		report_lsensor_input_event(lpi, 1);/*resume, IOCTL and DEVICE_ATTR*/	
-	}
-	
-//	queue_delayed_work(lpi->lp_wq, &report_work, lpi->polling_delay);
+	} 
+	/*else {
+		msleep(200); // wait for 200 ms for the first report
+		report_lsensor_input_event(lpi, 1);// resume, IOCTL and DEVICE_ATTR
+	}*/
+#ifdef READ_RGB_TEMP_DATA			  //ASUS_BSP +++, Leong, Create Thread to read RGB Data
+	queue_delayed_work(lpi->lp_wq, &report_work, lpi->polling_delay);
+#endif
 	lpi->als_enable = 1;
 	mutex_unlock(&als_enable_mutex);
 	
@@ -301,14 +423,16 @@ static int lightsensor_disable(struct cm3323e_info *lpi)
 	D("[LS][CM3323E] %s\n", __func__);
 
     // reset to 40ms, to speed up next detecting cycle.
-    lpi->it_setting = CM3323E_CONF_DEFAULT | CM3323E_CONF_IT_40MS;
+    lpi->it_time = CM3323E_CONF_IT_40MS;  // CM3323E_CONF_IT_160MS  CM3323E_CONF_IT_40MS  CM3323E_CONF_IT_640MS
+    lpi->it_setting = CM3323E_CONF_DEFAULT | lpi->it_time << 4;
 	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting | CM3323E_CONF_SD );
 	if (ret < 0){
 		pr_err("[LS][CM3323E error]%s: disable auto light sensor fail\n",
 			__func__);
 	}
-
-//	cancel_delayed_work_sync(&report_work); 	
+#ifdef READ_RGB_TEMP_DATA		  //ASUS_BSP +++, Leong, Create Thread to read RGB Data
+	cancel_delayed_work_sync(&report_work); 	
+#endif
 	lpi->als_enable = 0;
 
 	dev_deinit(lpi);
@@ -316,28 +440,6 @@ static int lightsensor_disable(struct cm3323e_info *lpi)
 	mutex_unlock(&als_disable_mutex);
 	
 	return ret;
-}
-
-static u8 cm3323e_it_mapping( int it_time_ms )
-{
-	switch( it_time_ms )
-	{
-		case 40:
-			return CM3323E_CONF_IT_40MS;
-		case 80:
-			return CM3323E_CONF_IT_80MS;
-		case 160:
-			return CM3323E_CONF_IT_160MS;
-		case 320:
-			return CM3323E_CONF_IT_320MS;
-		case 640:
-			return CM3323E_CONF_IT_640MS;
-		case 1280:
-			return CM3323E_CONF_IT_1280MS;
-		default:
-			return CM3323E_CONF_IT_160MS;
-	}
-	return CM3323E_CONF_IT_160MS;
 }
 
 static int lightsensor_open(struct inode *inode, struct file *file)
@@ -379,13 +481,20 @@ static long lightsensor_ioctl(struct file *file, unsigned int cmd,
 	switch (cmd) {
 #if 1		  // for dit interface
 		case ASUS_RGB_SENSOR_IOCTL_DATA_READ:
+
+			lightsensor_checkStatus();
+
+#ifndef READ_RGB_TEMP_DATA			  //ASUS_BSP +++, Leong, Create Thread to read RGB Data
 			report_lsensor_input_event(lpi, 1);
+#endif
+
 			m_ioctlData[0] = cm3323e_adc_red;
 			m_ioctlData[1] = cm3323e_adc_green;
 			m_ioctlData[2] = cm3323e_adc_blue;
 			m_ioctlData[3] = cm3323e_adc_white;
 			m_ioctlData[4] = 0;
-            //printk("%s@\t ASUS_RGB_SENSOR_IOCTL_DATA_READ \n",__func__);
+          //  printk("%s@\t ASUS_RGB_SENSOR_IOCTL_DATA_READ R = %d , G = %d , B = %d , W = %d  \n"
+          //  	,__func__, m_ioctlData[0], m_ioctlData[1], m_ioctlData[2], m_ioctlData[3]);
             if( copy_to_user((int *)arg, &m_ioctlData, sizeof(int) * ASUS_RGB_SENSOR_DATA_SIZE) ) {
 				printk("%s@\t commond fail !!\n", __func__);
 				return -EFAULT;
@@ -397,11 +506,13 @@ static long lightsensor_ioctl(struct file *file, unsigned int cmd,
 				printk("%s@\t commond fail !!\n", __func__);
 				return -EFAULT;
 			}
-            //printk("%s@\t %d  \n",__func__,val);
-            lpi->it_setting = CM3323E_CONF_DEFAULT | cm3323e_it_mapping(val);
-			if (lpi->als_enable) {
-				_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting);
-			}
+      //      printk("%s@\t ASUS_RGB_SENSOR_IOCTL_IT_SET - %d  \n",__func__,val);
+            lightsensor_itSet_ms(val);
+
+     //       lpi->it_setting = CM3323E_CONF_DEFAULT | cm3323e_it_mapping(val);
+		//	if (lpi->als_enable) {
+		//		_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting);
+		//	}
             return 0;
         case ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE:
             printk("%s@\t ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE \n",__func__);

@@ -25,6 +25,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <asm/uaccess.h>
+#include <linux/asusdebug.h>
 
 #include "mdss_fb.h"
 #include "mdss_dsi.h"
@@ -42,9 +43,9 @@ extern struct mdss_panel_data *g_mdss_pdata;
 extern struct msm_fb_data_type *g_mfd;
 static struct dsi_panel_cmds alpm_on_cmd;
 static struct dsi_panel_cmds alpm_off_cmd;
-static struct dsi_panel_cmds alpm_on10_cmd;
-static struct dsi_panel_cmds alpm_change60_cmd;
-static struct dsi_panel_cmds alpm_change10_cmd;
+static struct dsi_panel_cmds alpm_on5_cmd;
+static struct dsi_panel_cmds alpm_change40_cmd;
+static struct dsi_panel_cmds alpm_change5_cmd;
 static struct dsi_panel_cmds vr_on1_cmd;
 static struct dsi_panel_cmds vr_on2_cmd;
 static struct dsi_panel_cmds vr_on3_cmd;
@@ -323,11 +324,11 @@ int set_tcon_cabc(int panel_reg, char mode)
 		case ALPM:
 			mutex_lock(&g_mfd->update.lock);
 			if (mode == 4)
-				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_change10_cmd, CMD_REQ_COMMIT);
+				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_change5_cmd, CMD_REQ_COMMIT);
 			if (mode == 3)
-				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_change60_cmd, CMD_REQ_COMMIT);
+				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_change40_cmd, CMD_REQ_COMMIT);
 			if (mode == 2)
-				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_on10_cmd, CMD_REQ_COMMIT);
+				mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_on5_cmd, CMD_REQ_COMMIT);
 			if (mode == 1)
 			    mdss_dsi_panel_cmds_send(ctrl_pdata, &alpm_on_cmd, CMD_REQ_COMMIT);
 			if (mode == 0)
@@ -364,13 +365,17 @@ int set_tcon_cabc(int panel_reg, char mode)
 	                mutex_lock(&cmd_mutex);
 		        mutex_lock(&g_mfd->update.lock);
                         if (mode == 3)
-                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_on3_cmd, CMD_REQ_COMMIT);
+                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_on3_cmd,
+                                                CMD_REQ_COMMIT | CMD_REQ_HS_MODE);
                         if (mode == 2)
-                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_on2_cmd, CMD_REQ_COMMIT);
+                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_on2_cmd,
+                                                CMD_REQ_COMMIT | CMD_REQ_HS_MODE);
                         if (mode == 1)
-                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_on1_cmd, CMD_REQ_COMMIT);
+                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_on1_cmd,
+                                                CMD_REQ_COMMIT | CMD_REQ_HS_MODE);
                         if (mode == 0)
-                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_off_cmd, CMD_REQ_COMMIT);
+                                mdss_dsi_panel_cmds_send(ctrl_pdata, &vr_off_cmd,
+                                                CMD_REQ_COMMIT | CMD_REQ_HS_MODE);
 			mutex_unlock(&g_mfd->update.lock);
 			mutex_unlock(&cmd_mutex);
                         break;
@@ -617,8 +622,8 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 			return;
 	}
 
-	printk(KERN_DEBUG "[DISP]%s level=%d\n",__func__,level);
-
+	printk(KERN_DEBUG "[BKLT]%s level=%d\n",__func__,level);
+        ASUSEvtlog("[BKL] level:%d\n",level/64);
 	led_pwm1[1] = (unsigned char)level;
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
@@ -2920,12 +2925,12 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		"qcom,mdss-dsi-alpm-on-command", "qcom,mdss-dsi-on-command-state");
 	mdss_dsi_parse_dcs_cmds(np, &alpm_off_cmd,
 		"qcom,mdss-dsi-alpm-off-command", "qcom,mdss-dsi-on-command-state");
-	mdss_dsi_parse_dcs_cmds(np, &alpm_on10_cmd,
-		"qcom,mdss-dsi-alpm-on10-command", "qcom,mdss-dsi-on-command-state");
-	mdss_dsi_parse_dcs_cmds(np, &alpm_change60_cmd,
-	        "qcom,mdss-dsi-alpm-change60-command", "qcom,mdss-dsi-on-command-state");
-	mdss_dsi_parse_dcs_cmds(np, &alpm_change10_cmd,
-		"qcom,mdss-dsi-alpm-change10-command", "qcom,mdss-dsi-on-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &alpm_on5_cmd,
+		"qcom,mdss-dsi-alpm-on5-command", "qcom,mdss-dsi-on-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &alpm_change40_cmd,
+	        "qcom,mdss-dsi-alpm-change40-command", "qcom,mdss-dsi-on-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &alpm_change5_cmd,
+		"qcom,mdss-dsi-alpm-change5-command", "qcom,mdss-dsi-on-command-state");
         mdss_dsi_parse_dcs_cmds(np, &vr_on1_cmd,
                 "qcom,mdss-dsi-vr-on1-command", "qcom,mdss-dsi-on-command-state");
         mdss_dsi_parse_dcs_cmds(np, &vr_on2_cmd,

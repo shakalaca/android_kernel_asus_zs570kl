@@ -916,6 +916,9 @@ static int wcd_check_cross_conn(struct wcd_mbhc *mbhc)
 	s16 reg1;
 	bool hphl_sch_res, hphr_sch_res;
 
+	/* remove OMTP/CTIA detection */
+	return false;
+
 	if (wcd_swch_level_remove(mbhc)) {
 		pr_debug("%s: Switch level is low\n", __func__);
 		return -EINVAL;

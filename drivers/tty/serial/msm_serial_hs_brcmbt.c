@@ -244,6 +244,12 @@ static struct of_device_id msm_hs_match_table[] = {
     {}
 };
 
+static struct platform_device bcm_ldisc_device = {
+    .name = "bcm_ldisc",
+    .id = -1,
+    .dev = {
+    },
+};
 
 #define MSM_UARTDM_BURST_SIZE 16
 #define UARTDM_TX_BUF_SIZE UART_XMIT_SIZE
@@ -3167,6 +3173,9 @@ static int __init msm_serial_hs_init(void)
     }
 
     pr_info("[BT] msm_serial_hs module loaded\n");
+
+    platform_device_register(&bcm_ldisc_device);
+
     return ret;
 }
 

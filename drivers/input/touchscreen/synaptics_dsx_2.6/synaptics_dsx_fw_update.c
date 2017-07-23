@@ -66,7 +66,7 @@
 #if DO_FOCAL_FW_UPDATE
 
 static unsigned char CTPM_FW[] = {
-	#include "ASUS_TAURUS_3267_0xBF_NON16CH_20170125_app.i"
+	#include "ASUS_TAURUS_3267_0xC0_NON16CH_20170208_app.i"
 };
 
 extern unsigned int cap_sel_status;

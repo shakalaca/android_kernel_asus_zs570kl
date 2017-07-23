@@ -372,15 +372,15 @@ static int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 {
 	int ret;
 	struct mdss_panel_info *pinfo;
-
+        extern char *power_state_name[4];
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
 		return -EINVAL;
 	}
 
 	pinfo = &pdata->panel_info;
-	printk(KERN_DEBUG"[DEBUG]%s: cur_power_state=%d req_power_state=%d\n", __func__,
-		pinfo->panel_power_state, power_state);
+	printk(KERN_DEBUG"[DISP]%s: cur_power_state=%s req_power_state=%s\n", __func__,
+		power_state_name[pinfo->panel_power_state], power_state_name[power_state]);
 
 	if (pinfo->panel_power_state == power_state) {
 		pr_debug("%s: no change needed\n", __func__);

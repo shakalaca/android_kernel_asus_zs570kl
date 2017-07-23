@@ -35,14 +35,16 @@
 #define CM3323E_CONF_SD			1
 #define CM3323E_CONF_AF			(1 << 1)
 #define CM3323E_CONF_TRIG		(1 << 2)
-#define CM3323E_CONF_IT_40MS		(0 << 4)
-#define CM3323E_CONF_IT_80MS		(1 << 4)
-#define CM3323E_CONF_IT_160MS	(2 << 4)
-#define CM3323E_CONF_IT_320MS	(3 << 4)
-#define CM3323E_CONF_IT_640MS	(4 << 4)
-#define CM3323E_CONF_IT_1280MS	(5 << 4)
+#define CM3323E_CONF_IT_40MS		0
+#define CM3323E_CONF_IT_80MS		1
+#define CM3323E_CONF_IT_160MS	2
+#define CM3323E_CONF_IT_320MS	3
+#define CM3323E_CONF_IT_640MS	4
+#define CM3323E_CONF_IT_1280MS	5
 #define CM3323E_CONF_DEFAULT		0
 
+#define CM3323E_CONF_IT_MASK            0x0070
+ 
 #define LS_PWR_ON					(1 << 0)
 
 struct cm3323e_platform_data {

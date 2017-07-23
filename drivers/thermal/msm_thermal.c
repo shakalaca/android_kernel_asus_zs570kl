@@ -1568,6 +1568,11 @@ static void do_cluster_freq_ctrl(long temp)
 	bool mitigate = false;
 	struct cluster_info *cluster_ptr = NULL;
 
+        if (!mitigation) {
+		pr_err("%s: Thermal Mitigations disabled.\n", __func__);
+                return;
+        }
+
 	if (temp >= msm_thermal_info.limit_temp_degC)
 		mitigate = true;
 	else if (temp < msm_thermal_info.limit_temp_degC -
@@ -3912,7 +3917,7 @@ int msm_thermal_set_cluster_freq(uint32_t cluster, uint32_t freq, bool is_max)
 	bool notify = false;
 
 	if (!mitigation) {
-		pr_err("Thermal Mitigations disabled.\n");
+		pr_err("%s: Thermal Mitigations disabled.\n", __func__);
 		return -ENODEV;
 	}
 

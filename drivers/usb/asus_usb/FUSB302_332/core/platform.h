@@ -213,6 +213,15 @@ void platform_set_data_role(FSC_BOOL PolicyIsDFP);
  * *******************************************************************************/
 unsigned int * platform_fusb302_report_attached_capabilities(void);
 
+/*******************************************************************************
+ * Function:        platform_check_for_connector_fault
+ * Input:           None
+ * Return:          TRUE if fault condition is found; FALSE otherwise
+ * Description:     The main application can call this to test the Type-C
+ *                  connector to see if a fault condition exists.
+ * *******************************************************************************/
+FSC_BOOL platform_check_for_connector_fault(void);
+
 ///*******************************************************************************
 // * Function:        platform_fusb302_update_sink_capabilities
 // * Input:           Pointer to an array of new Sink PD capabilities

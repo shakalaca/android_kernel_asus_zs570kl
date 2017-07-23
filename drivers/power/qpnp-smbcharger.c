@@ -179,6 +179,10 @@ static bool g_sdp_retry_flag = false; //WA for slow plug casues wrong charging t
 static int g_usb_connector_event = 0; //for usb connector thermal event
 static struct switch_dev charger_dev;
 static bool hvdcp3_5vto9v_flag = false; //WA for QC 3.0 rerun after android reset and re lunch daemon
+static int g_next_pon_mode = 0;         // next action    : sink   - the next    status of pon power(for CC logic VREG_5V)
+static int g_curr_pon_mode = 0;         // current action : sink   - the current status of pon power(for CC logic VREG_5V)
+static int g_next_otg_pon_mode = 0;     // next action    : source - the next    status of pon power(for CC logic VREG_5V)
+static int g_curr_otg_pon_mode = 0;     // current action : source - the current status of pon power(for CC logic VREG_5V)
 /* WA for CDP fail when device powered on with CDP port issue:
  * When powered on with CDP port, some HOST will disconnect VBUS when no data contact in 2s,
  * but if charger doesn't send online = 1, usb phy won't start data contact,
@@ -265,6 +269,15 @@ static int g_thermal_level = THERM_LEVEL_0;
 #if defined(CONFIG_FB)
 static int fb_notifier_callback(struct notifier_block *self,
 				unsigned long event, void *data);
+#endif
+
+/* DEMO charging limit */
+#define DEMO_CHARGING_LIMIT 1
+#if defined(DEMO_CHARGING_LIMIT) && DEMO_CHARGING_LIMIT
+#define ADF_BUFF_SIZE 4
+static bool demo_charging_limit = false;
+static int demo_charging_limit_soc = 60;
+static bool demo_disable_charging = false;
 #endif
 
 /* Config registers */
@@ -4251,6 +4264,18 @@ static int smbchg_external_otg_regulator_enable(struct regulator_dev *rdev)
 	int rc = 0;
 	struct smbchg_chip *chip = rdev_get_drvdata(rdev);
 
+        /* enable boost 5v when cable in */
+        g_next_otg_pon_mode = 1;
+        if(g_curr_otg_pon_mode!=g_next_otg_pon_mode){
+                rc = regulator_enable(chip->boost_5v_vreg);
+                g_curr_otg_pon_mode = g_next_otg_pon_mode;
+                if(rc) {
+                        pr_smb(PR_STATUS, "otg - unable to enable pmi8994 boost 5v regulator rc = %d\n", rc);
+                } else {
+                        pr_smb(PR_STATUS, "otg - enable pmi8994 boost 5v\n");
+                }
+        }
+
 	rc = vote(chip->usb_suspend_votable, OTG_EN_VOTER, true, 0);
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't suspend charger rc=%d\n", rc);
@@ -4291,6 +4316,18 @@ static int smbchg_external_otg_regulator_disable(struct regulator_dev *rdev)
 {
 	int rc = 0;
 	struct smbchg_chip *chip = rdev_get_drvdata(rdev);
+
+        /* disable boost 5v when cable out*/
+        g_next_otg_pon_mode = 0;
+        if(g_curr_otg_pon_mode!=g_next_otg_pon_mode){
+                rc = regulator_disable(chip->boost_5v_vreg);
+                g_curr_otg_pon_mode = g_next_otg_pon_mode;
+                if (rc) {
+                        pr_smb(PR_STATUS, "otg - couldn't disable pmi8994 boost 5v rc = %d\n", rc);
+                } else {
+                        pr_smb(PR_STATUS, "otg - disable pmi8994 boost 5v\n");
+                }
+        }
 
 	rc = vote(chip->usb_suspend_votable, OTG_EN_VOTER, false, 0);
 	if (rc < 0) {
@@ -5245,12 +5282,16 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	/* disable boost 5v when cable out*/
 	if ((strcmp(androidboot_mode,"main")==0)&&(chip->boost_5v_vreg)&&
 		(regulator_is_enabled(chip->boost_5v_vreg) > 0)) {
-		rc = regulator_disable(chip->boost_5v_vreg);
-		if (rc) {
-			pr_smb(PR_STATUS, "couldn't disable pmi8994 boost 5v rc = %d\n", rc);
-		} else {
-			pr_smb(PR_STATUS, "disable pmi8994 boost 5v\n");
-		}
+		g_next_pon_mode = 0;
+                if(g_curr_pon_mode!=g_next_pon_mode){
+                        rc = regulator_disable(chip->boost_5v_vreg);
+                        g_curr_pon_mode = g_next_pon_mode;
+		        if (rc) {
+			        pr_smb(PR_STATUS, "sink - couldn't disable pmi8994 boost 5v rc = %d\n", rc);
+		        } else {
+			        pr_smb(PR_STATUS, "sink - disable pmi8994 boost 5v\n");
+		        }
+                }
 	}
 
 	smbchg_relax(chip, PM_DETECT_CABLE);
@@ -5279,7 +5320,7 @@ static void smbchg_set_input_current(struct smbchg_chip *chip, u8 usbin_current,
 {
 	int rc = 0;
 
-	pr_smb(PR_STATUS, "USB in current = 0x%02x\n", usbin_current);
+	pr_smb(PR_STATUS, "USB in current = 0x%02x, aicl_enable = %s\n", usbin_current, aicl_enable?"true":"false");
 	rc = smbchg_sec_masked_write(chip,  chip->usb_chgpth_base + USB_CHPTH_USBIN_IL_CFG, 0xff, usbin_current);
 	if (rc < 0) {
 		pr_err("Set SMBCHGL_USB_USBIN_IL_CFG fail, rc=%d\n", rc);
@@ -5784,6 +5825,14 @@ static void smbchg_L1_thermal_policy(struct smbchg_chip *chip, int temp)
 		}
 	}
 
+	/* Normal adapter Thermal Policy */
+	if ((g_dual_charger_flag == DUALCHR_SINGLE)&&(g_hvdcp_flag == HVDCP_NONE)) {
+		if (temp >= therm_L1_temp) {
+			g_thermal_level = THERM_LEVEL_1;
+		} else {
+			g_thermal_level = THERM_LEVEL_0;
+		}
+	}
 }
 
 void smbchg_thermal_policy_work(struct work_struct *work)
@@ -5810,6 +5859,11 @@ void smbchg_thermal_policy_work(struct work_struct *work)
 		goto out;
 	}
 #endif
+	if (chip->very_weak_charger) {
+		pr_smb(PR_STATUS, "disable thermal policy due to weak charger\n");
+		goto out;
+	}
+
 	if (g_therm_unlock == 255) {
 		pr_smb(PR_STATUS, "disable thermal policy due to g_therm_unlock = 255\n");
 		goto out;
@@ -5909,7 +5963,10 @@ void smbchg_thermal_policy_work(struct work_struct *work)
 				} else {
 					pr_smb(PR_STATUS, "set input current limit to 700MA\n");
 					//CURRENT_LIMIT = USBIN_IL_700MA
-					smbchg_set_input_current(chip, USBIN_IL_700MA, false);
+					if ((reg&0x1F) < USBIN_IL_700MA)
+						smbchg_set_input_current(chip, USBIN_IL_700MA, true);
+					else
+						smbchg_set_input_current(chip, USBIN_IL_700MA, false);
 				}
 			} else {
 				/* check if previous usb in current is lower than we want to set */
@@ -5920,7 +5977,10 @@ void smbchg_thermal_policy_work(struct work_struct *work)
 				} else {
 					pr_smb(PR_STATUS, "set input current limit to 1000MA\n");
 					//CURRENT_LIMIT = USBIN_IL_1000MA
-					smbchg_set_input_current(chip, USBIN_IL_1000MA, false);
+					if ((reg&0x1F) < USBIN_IL_1000MA)
+						smbchg_set_input_current(chip, USBIN_IL_1000MA, true);
+					else
+						smbchg_set_input_current(chip, USBIN_IL_1000MA, false);
 				}
 			}
 			break;
@@ -6105,7 +6165,11 @@ static void smbchg_jeita_flow(struct smbchg_chip *chip)
 	u8 dual_charge_current_limit = 0x00; // set dual chare current limit reg value
 	bool charging_enable = false; // decide charging or not
 	bool recharge_enable = false; // decide re-charge or not
-
+#if defined(DEMO_CHARGING_LIMIT) && DEMO_CHARGING_LIMIT
+	struct file *pfile = NULL;
+	mm_segment_t old_fs;
+	unsigned char adf_buf[ADF_BUFF_SIZE] = {0};
+#endif
 	pr_smb(PR_STATUS, "+++\n");
 
 	/* get FG informations about battery */
@@ -6155,10 +6219,15 @@ static void smbchg_jeita_flow(struct smbchg_chip *chip)
 
 	/* check if any conditions that will skip jeita like weak charger, etc... */
 	if (chip->very_weak_charger) {
-		pr_smb(PR_STATUS, "set dual charger suspend due to weak charger\n");
+		pr_smb(PR_STATUS, "set HC mode 100 due to weak charger\n");
 		/* For ASUS Event log pattern */
 		ASUSEvtlog("[BAT] Charger Fault: [Weak Charger Detected!]");
-		smbchg_suspend_enable(true);
+		//smbchg_suspend_enable(true);
+		//USBIN_MODE_CHG = HC Mode Current Level 0x1340 = 0x04
+		rc = smbchg_sec_masked_write(chip,  chip->usb_chgpth_base + CMD_IL, 0xff, 0x04);
+		if (rc < 0) {
+			pr_err("Set SMBCHGL_USB_USBIN_IL_CFG fail, rc=%d\n", rc);
+		}
 		smb1351_set_suspend(true);
 		goto finish;
 	}
@@ -6170,6 +6239,39 @@ static void smbchg_jeita_flow(struct smbchg_chip *chip)
 		smb1351_set_suspend(true);
 		goto finish;
 	}
+
+#if defined(DEMO_CHARGING_LIMIT) && DEMO_CHARGING_LIMIT
+	/* check soc is not over demo_charging_limit_soc when DEMO */
+	if (demo_charging_limit) {
+		/* check /ADF/ADF */
+		if (NULL == pfile) {
+			set_fs(KERNEL_DS);
+			pr_smb(PR_STATUS, "opening file %s\n", "/ADF/ADF");
+			pfile = filp_open("/ADF/ADF", O_RDONLY, 0);
+		}
+		if (IS_ERR(pfile))  {
+			set_fs(old_fs);
+			pr_smb(PR_STATUS, "error occured while opening file %s\n", "/ADF/ADF");
+		} else {
+			kernel_read(pfile, pfile->f_pos, adf_buf, ADF_BUFF_SIZE);
+			filp_close(pfile, NULL);
+			set_fs(old_fs);
+			pr_smb(PR_STATUS, "check ADF: %d\n", adf_buf[3]);
+			if ((adf_buf[3] == 1)||(adf_buf[3] == 2)) {
+				if ((batt_soc >= demo_charging_limit_soc)||
+					((batt_soc >= demo_charging_limit_soc - 5)&&(demo_disable_charging))) {
+					pr_smb(PR_STATUS, "demo charging limit enable and soc >= limit soc %d, stop charging\n", demo_charging_limit_soc);
+					smbchg_charging_en(chip, false);
+					smb1351_dual_disable();
+					demo_disable_charging = true;
+					goto finish;
+				} else {
+					demo_disable_charging = false;
+				}
+			}
+		}
+	}
+#endif
 
 	/* pmi charger jeita initial */
 	//0x10FA[5] = "0"
@@ -7276,12 +7378,16 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 
 	/* enable boost 5v when cable in */
 	if ((strcmp(androidboot_mode,"main")==0)&&(chip->boost_5v_vreg)) {
-		rc = regulator_enable(chip->boost_5v_vreg);
-		if (rc) {
-			pr_smb(PR_STATUS, "unable to enable pmi8994 boost 5v regulator rc = %d\n", rc);
-		} else {
-			pr_smb(PR_STATUS, "enable pmi8994 boost 5v\n");
-		}
+                g_next_pon_mode = 1;
+                if(g_curr_pon_mode!=g_next_pon_mode){
+		        rc = regulator_enable(chip->boost_5v_vreg);
+		        g_curr_pon_mode = g_next_pon_mode;
+                        if (rc) {
+			        pr_smb(PR_STATUS, "sink - unable to enable pmi8994 boost 5v regulator rc = %d\n", rc);
+		        } else {
+			        pr_smb(PR_STATUS, "sink - enable pmi8994 boost 5v\n");
+		        }
+                }
 	}
 
 	/* handle charging flow */
@@ -7431,6 +7537,7 @@ static void increment_aicl_count(struct smbchg_chip *chip)
 				elapsed_seconds, chip->first_aicl_seconds,
 				now_seconds, chip->aicl_irq_count);
 			pr_smb(PR_INTERRUPT, "Disable AICL rerun\n");
+			pr_smb(PR_INTERRUPT, "Very weak charger detected due to AICL count\n");
 			chip->very_weak_charger = true;
 			bad_charger = true;
 
@@ -7465,6 +7572,7 @@ static void increment_aicl_count(struct smbchg_chip *chip)
 			 * flag so that the driver reports a bad charger
 			 * and does not reenable AICL reruns.
 			 */
+			pr_smb(PR_INTERRUPT, "Very weak charger detected due to AICL_SUSP_BIT\n");
 			chip->very_weak_charger = true;
 			bad_charger = true;
 		}
@@ -8971,11 +9079,20 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 		goto out;
 
 	if ((reg & USBIN_UV_BIT) && (reg & USBIN_SRC_DET_BIT)) {
-		pr_smb(PR_STATUS, "Very weak charger detected\n");
+		pr_smb(PR_STATUS, "Very weak charger detected due to UV\n");
 		chip->very_weak_charger = true;
+		ASUSEvtlog("[BAT] Charger Fault: [Weak Charger Detected!]");
 		/* set daul charger suspend */
-		smbchg_suspend_enable(true);
+		//smbchg_suspend_enable(true);
+		/* set HC mode current 100 */
+		//USBIN_MODE_CHG = HC Mode Current Level 0x1340 = 0x04
+		rc = smbchg_sec_masked_write(chip,  chip->usb_chgpth_base + CMD_IL, 0xff, 0x04);
+		if (rc < 0) {
+			pr_err("Set SMBCHGL_USB_USBIN_IL_CFG fail, rc=%d\n", rc);
+		}
 		smb1351_set_suspend(true);
+		/* release wake lock */
+		smbchg_relax(chip, PM_DETECT_CABLE);
 		rc = smbchg_read(chip, &reg,
 				chip->usb_chgpth_base + ICL_STS_2_REG, 1);
 		if (rc) {
@@ -10625,6 +10742,69 @@ static int smbchg_gpio_init(struct device_node *np)
 	return 0;
 }
 
+#if defined(DEMO_CHARGING_LIMIT) && DEMO_CHARGING_LIMIT
+/* DEMO charging limit */
+static int demo_charging_limit_enable_proc_read(struct seq_file *buf, void *v)
+{
+	if (demo_charging_limit) {
+		seq_printf(buf, "demo charging limit enable\n");
+	} else{
+		seq_printf(buf, "demo charging limit disable\n");
+	}
+	return 0;
+}
+
+static ssize_t demo_charging_limit_enable_proc_write(struct file *filp, const char __user *buff,
+		size_t len, loff_t *data)
+{
+	char messages[256];
+
+	if (len > 256) {
+		len = 256;
+	}
+
+	if (copy_from_user(messages, buff, len)) {
+		return -EFAULT;
+	}
+
+	if (buff[0] == '1') {
+		demo_charging_limit = true;
+		pr_smb(PR_STATUS, "demo_charging_limit_enable: true\n");
+	} else if (buff[0] == '0') {
+		demo_charging_limit = false;
+		pr_smb(PR_STATUS, "demo_charging_limit_enable: false\n");
+	}
+
+	return len;
+}
+
+static int demo_charging_limit_enable_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, demo_charging_limit_enable_proc_read, NULL);
+}
+
+static const struct file_operations demo_charging_limit_enable_fops = {
+	.owner = THIS_MODULE,
+	.open =  demo_charging_limit_enable_proc_open,
+	.write = demo_charging_limit_enable_proc_write,
+	.read = seq_read,
+	.release = single_release,
+};
+
+static void create_demo_charging_limit_enable_proc_file(void)
+{
+	struct proc_dir_entry *demo_charging_limit_enable_proc_file = proc_create("driver/smbchg_demo_charging_limit_enable",
+                        0664, NULL, &demo_charging_limit_enable_fops);
+
+	if (demo_charging_limit_enable_proc_file) {
+		pr_smb(PR_STATUS, "create successed\n");
+	} else{
+		pr_smb(PR_STATUS, "create failed!\n");
+	}
+	return;
+}
+#endif
+
 static int smbchg_probe(struct spmi_device *spmi)
 {
 	int rc;
@@ -10960,6 +11140,12 @@ static int smbchg_probe(struct spmi_device *spmi)
 		else
 			pr_smb(PR_STATUS, "request gpio 126 irq handler successed!!\n");
 	}
+
+	/* initial proc file nodes */
+#if defined(DEMO_CHARGING_LIMIT) && DEMO_CHARGING_LIMIT
+	create_demo_charging_limit_enable_proc_file();
+#endif
+
 	dev_info(chip->dev,
 		"SMBCHG successfully probe Charger version=%s Revision DIG:%d.%d ANA:%d.%d batt=%d dc=%d usb=%d\n",
 			version_str[chip->schg_version],

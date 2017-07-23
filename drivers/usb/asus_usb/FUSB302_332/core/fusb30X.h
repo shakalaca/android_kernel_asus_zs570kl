@@ -56,11 +56,13 @@ FSC_BOOL DeviceRead(FSC_U8 regAddr, FSC_U8 length, FSC_U8* data);
     #define VBUS_MDAC_0P84V     0x00
 #else
     #define SDAC_DEFAULT        0x1F
+    #define MDAC_0P042V         0x00
     #define MDAC_0P210V         0x04
     #define MDAC_0P420V         0x09
     #define MDAC_0P798V         0x12
     #define MDAC_1P596V         0x25
     #define MDAC_2P058V         0x30
+    #define MDAC_2P436V         0x39
     #define MDAC_2P604V         0x3D
     #define MDAC_2P646          0x3E
 

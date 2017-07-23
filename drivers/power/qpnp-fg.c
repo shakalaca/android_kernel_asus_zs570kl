@@ -656,14 +656,6 @@ struct fg_chip {
 
 static struct fg_chip *fg_dev;
 
-/* soc improvement for ASUS */
-#define SOC_IMP_ALGO 0
-#if defined(SOC_IMP_ALGO) && SOC_IMP_ALGO
-static bool full_soc_flag = false, charging_flag = false;
-static int real_msoc = -1, final_msoc = -1, start_msoc = -1;
-static int soc_diff = 0;
-#endif
-
 /* FG_MEMIF DEBUGFS structures */
 #define ADDR_LEN	4	/* 3 byte address + 1 space character */
 #define CHARS_PER_ITEM	3	/* Format is 'XX ' */
@@ -730,6 +722,82 @@ static char *fg_supplicants[] = {
 	"bcl",
 	"fg_adc"
 };
+
+/* remapping capacity for ASUS */
+#define SOC_IMPROVE_ALGO 1
+#if defined(SOC_IMPROVE_ALGO) && SOC_IMPROVE_ALGO
+static bool is_input_present(struct fg_chip *chip);
+int64_t adc_temp = 0;
+int pre_capacity;
+bool pre_usb_present;
+
+// 20160706 origin table
+int num_capacity_charge[101]=	{2,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,
+				3,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,
+				3,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,
+				3,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,
+				3,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,2};
+// 20160706 charge table
+int num_capacity_discharge[101]={2,2,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,3,2,3,
+				2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,3,2,
+				3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,
+				3,2,3,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,
+				2,3,2,3,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,2,5};
+/* 20160706 discharge table
+int num_capacity_discharge[101]={2,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,
+				3,2,3,2,3,2,3,2,3,2,3,2,2,3,3,2,3,2,3,2,
+				3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,3,2,3,2,3,
+				2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,
+				2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,3,2,2,7};
+*/
+int mapping_charge[256];
+int mapping_discharge[256];
+void mapping_init(void)
+{
+	int i, j;
+	int charge_temp=0, discharge_temp=0;
+
+	/* check # of capacity table */
+	for (i=0; i<101; i++){
+		charge_temp+=num_capacity_charge[i];
+		discharge_temp+=num_capacity_discharge[i];
+	}
+	if (charge_temp != 256 || discharge_temp != 256) {
+		pr_fg(FG_STATUS, "mapping error, # of charge_temp = %d, # of discharge_temp = %d\n",
+			charge_temp, discharge_temp);
+	}
+
+	/* generate mapping table*/
+	charge_temp = 0;
+	discharge_temp = 0;
+	for (i=0; i<101; i++) {
+		for (j=0;j<num_capacity_charge[i];j++) {
+			mapping_charge[charge_temp]=i;
+			charge_temp++;
+		}
+		for (j=0;j<num_capacity_discharge[i];j++) {
+			mapping_discharge[discharge_temp]=i;
+			discharge_temp++;
+		}
+	}
+
+	/* print mapping table */
+	if (fg_debug_mask & FG_MEM_DEBUG_READS) {
+			pr_fg(FG_STATUS, "########## ASUS charge mapping table ###########\n");
+			for (i=255; i>=0; i--) {
+				pr_fg(FG_STATUS, "ADC[%d] %d %%\n", i, mapping_charge[i]);
+			}
+			pr_fg(FG_STATUS, "#########################################\n");
+			pr_fg(FG_STATUS, "########## ASUS discharge mapping table ###########\n");
+			for (i=255; i>=0; i--) {
+				pr_fg(FG_STATUS, "ADC[%d] %d %%\n", i, mapping_discharge[i]);
+			}
+			printk(KERN_ERR "#########################################\n");
+	}
+	return;
+}
+
+#endif
 
 #define DEBUG_PRINT_BUFFER_SIZE 64
 static void fill_string(char *str, size_t str_len, u8 *buf, int buf_len)
@@ -2161,6 +2229,7 @@ static bool fg_is_batt_empty(struct fg_chip *chip)
 	return (fg_soc_sts & SOC_EMPTY) != 0;
 }
 
+static int get_sram_prop_now(struct fg_chip *chip, unsigned int type);
 static int get_monotonic_soc_raw(struct fg_chip *chip)
 {
 	u8 cap[2];
@@ -2188,112 +2257,8 @@ static int get_monotonic_soc_raw(struct fg_chip *chip)
 
 	if (fg_debug_mask & FG_POWER_SUPPLY)
 		pr_info_ratelimited("raw: 0x%02x\n", cap[0]);
-#if defined(SOC_IMP_ALGO) && SOC_IMP_ALGO
-	/* charging 100%: 252-255
-	*   not charging 100%: 249-255
-	*/
-	real_msoc = cap[0];
-	if (start_msoc == -1)
-		start_msoc = cap[0];
-	if (final_msoc == -1)
-		final_msoc = cap[0];
-	pr_fg(FG_STATUS, "real msoc before algo is %d, charging status is %d\n", real_msoc, chip->status);
-	if ((chip->status == POWER_SUPPLY_STATUS_QUICK_CHARGING)||
-		(chip->status == POWER_SUPPLY_STATUS_NOT_QUICK_CHARGING)||
-		(chip->status == POWER_SUPPLY_STATUS_CHARGING)||
-		(chip->status == POWER_SUPPLY_STATUS_FULL)) {
-		/* calculate difference between msoc now and 252, then increase 1 more every 1/3 gap */
-		if (!charging_flag) {
-			start_msoc = cap[0];
-			charging_flag = true;
-			pr_fg(FG_STATUS, "start charging algorithm from msoc %d\n", start_msoc);
-		}
-		if (real_msoc >= 252) {
-			pr_fg(FG_STATUS, "msoc >= 252, report 100%%!\n");
-			final_msoc = 255;
-			full_soc_flag = true;
-			return final_msoc;
-		}
-		soc_diff = 255 -start_msoc;
-		if (real_msoc >= (start_msoc + soc_diff)) {
-			if (final_msoc < real_msoc)
-				final_msoc = real_msoc;
-		} else if (real_msoc >= (start_msoc + soc_diff*3/4)) {
-			if (final_msoc < (real_msoc + 3))
-				final_msoc = real_msoc + 3;
-		} else if (real_msoc >= (start_msoc + soc_diff*2/4)) {
-			if (final_msoc < (real_msoc + 2))
-				final_msoc = real_msoc + 2;
-		} else if (real_msoc >= (start_msoc + soc_diff/4)) {
-			if (final_msoc < (real_msoc + 1))
-				final_msoc = real_msoc + 1;
-		} else if (real_msoc >= start_msoc) {
-			if (final_msoc < real_msoc)
-				final_msoc = real_msoc;
-		}
-		full_soc_flag = false;
-		if (final_msoc > 255)
-			final_msoc = 255;
-		pr_fg(FG_STATUS, "charging: final msoc after algo is %d, diff to 255 is %d(gap is %d), start msoc = %d\n",
-			final_msoc, soc_diff, soc_diff/4, start_msoc);
-		return final_msoc;
-	} else if ((chip->status == POWER_SUPPLY_STATUS_NOT_CHARGING)||
-		(chip->status == POWER_SUPPLY_STATUS_DISCHARGING)) {
-		/* calculate difference between msoc now and 249, then decrease 1 more every 1/6 gap */
-		if (charging_flag) {
-			start_msoc = cap[0];
-			charging_flag = false;
-			pr_fg(FG_STATUS, "start NOT charging algorithm from msoc %d\n", start_msoc);
-		}
-		if (full_soc_flag) {
-			if (real_msoc >= 249) {
-				pr_fg(FG_STATUS, "msoc >= 249, report 100%%!\n");
-				final_msoc = 255;
-				return final_msoc;
-			}
-			soc_diff = start_msoc;
-			if (real_msoc >= (start_msoc -soc_diff*1/7)) {
-				if (final_msoc > (real_msoc + 6))
-					final_msoc = real_msoc + 6;
-			} else if (real_msoc >= (start_msoc -soc_diff*2/7)) {
-				if (final_msoc > (real_msoc + 5))
-					final_msoc = real_msoc + 5;
-			} else if (real_msoc >= (start_msoc -soc_diff*3/7)) {
-				if (final_msoc > (real_msoc + 4))
-					final_msoc = real_msoc + 4;
-			} else if (real_msoc >= (start_msoc -soc_diff*4/7)) {
-				if (final_msoc > (real_msoc + 3))
-					final_msoc = real_msoc + 3;
-			} else if (real_msoc >= (start_msoc -soc_diff*5/7)) {
-				if (final_msoc > (real_msoc + 2))
-					final_msoc = real_msoc + 2;
-			} else if (real_msoc >= (start_msoc -soc_diff*6/7)) {
-				if (final_msoc > (real_msoc + 1))
-					final_msoc = real_msoc + 1;
-			} else if (real_msoc >= (start_msoc -soc_diff)) {
-				if (final_msoc > real_msoc)
-					final_msoc = real_msoc;
-			} else if (real_msoc <= start_msoc) {
-				if (final_msoc > real_msoc)
-					final_msoc = real_msoc;
-			}
-			if (final_msoc < 0)
-				final_msoc = 0;
-			pr_fg(FG_STATUS, "NOT charging: final msoc after algo is %d, diff to 0 is %d(gap is %d), start msoc = %d\n",
-				final_msoc, soc_diff, soc_diff/7, start_msoc);
-			return final_msoc;
-		} else {
-			pr_fg(FG_STATUS, "hasn't charged to 100%%, do nothing\n");
-			return cap[0];
-		}
-	}else {
-		pr_fg(FG_STATUS, "unknown charging status, do nothing\n");
-		return cap[0];
-	}
-#else
-	pr_fg(FG_STATUS, "msoc = %d\n", cap[0]);
+
 	return cap[0];
-#endif
 }
 
 int fg_get_monotonic_soc(void)
@@ -2361,6 +2326,64 @@ static int get_prop_capacity(struct fg_chip *chip)
 	return DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
 			FULL_SOC_RAW - 2) + 1;
 }
+
+#if defined(SOC_IMPROVE_ALGO) && SOC_IMPROVE_ALGO
+static int get_prop_capacity_asus(struct fg_chip *chip)
+{
+	int msoc, final_soc;
+	bool input_present = is_input_present(chip);
+
+	if (chip->battery_missing)
+		return MISSING_CAPACITY;
+	if (!chip->profile_loaded && !chip->use_otp_profile)
+		return DEFAULT_CAPACITY;
+	if (chip->charge_full)
+		return FULL_CAPACITY;
+	if (chip->soc_empty) {
+		if (fg_debug_mask & FG_POWER_SUPPLY)
+			pr_info_ratelimited("capacity: %d, EMPTY\n",
+					EMPTY_CAPACITY);
+		return EMPTY_CAPACITY;
+	}
+	msoc = get_monotonic_soc_raw(chip);
+	adc_temp = msoc;
+
+	if (msoc == 0)
+		return EMPTY_CAPACITY;
+	else if (msoc == FULL_SOC_RAW)
+		return FULL_CAPACITY;
+
+	if (input_present) {
+		if (pre_usb_present == input_present) {
+			pre_capacity = mapping_charge[adc_temp];
+			final_soc = pre_capacity;
+		} else {
+			if (mapping_charge[adc_temp] >= pre_capacity){
+				pre_usb_present = input_present;
+				final_soc = mapping_charge[adc_temp];
+			} else
+				final_soc = mapping_discharge[adc_temp];
+		}
+	} else {
+		if (pre_usb_present == input_present) {
+			pre_capacity = mapping_discharge[adc_temp];
+			final_soc = pre_capacity;
+		} else{
+			if (mapping_discharge[adc_temp] <= pre_capacity) {
+				pre_usb_present = input_present;
+				final_soc = mapping_discharge[adc_temp];
+			} else
+				final_soc = mapping_charge[adc_temp];
+		}
+	}
+	pr_fg(FG_STATUS, "raw soc is %d.%d%%, msoc is %d, final asus soc is %d, charging status is %s\n",
+		get_sram_prop_now(chip, FG_DATA_BATT_SOC)/100, get_sram_prop_now(chip, FG_DATA_BATT_SOC)%100,
+		msoc, final_soc, input_present? "cable in": "cable out");
+
+	return final_soc;
+}
+
+#endif
 
 #define HIGH_BIAS	3
 #define MED_BIAS	BIT(1)
@@ -2779,11 +2802,43 @@ static void batt_status_work(struct work_struct *work)
 	struct fg_chip *chip = container_of(work,
 				struct fg_chip,
 				batt_status_work.work);
-	int unused=0;
+	int unused = 0;
 
 	update_sram_data(chip, &unused);
 	if (fg_debug_mask & FG_STATUS)
 		pr_fg(FG_STATUS, "update battery logs to ASUS event log\n");
+#if defined(SOC_IMPROVE_ALGO) && SOC_IMPROVE_ALGO
+	pr_fg(FG_STATUS, "[BAT][Ser]report Capacity ==> [%d], FCC:[%d], RSOC:[%d], BMS:[%d], V:[%dmV], Cur:[%dmA], Temp:[%d.%d], ASUS CP:[%d%%], ASUS DP:[%d%%]\n",
+		get_prop_capacity_asus(chip),
+		3000,
+		get_prop_capacity(chip),
+		get_monotonic_soc_raw(chip)*100/255,
+		get_sram_prop_now(chip, FG_DATA_VOLTAGE)/1000,
+		get_sram_prop_now(chip, FG_DATA_CURRENT)*(-1)/1000,
+		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)/10,
+		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)%10,
+		mapping_charge[adc_temp],
+		mapping_discharge[adc_temp]);
+	ASUSEvtlog("[BAT][Ser]report Capacity ==> [%d], FCC:[%d], RSOC:[%d], BMS:[%d], V:[%dmV], Cur:[%dmA], Temp:[%d.%d], ASUS CP:[%d%%], ASUS DP:[%d%%]",
+		get_prop_capacity_asus(chip),
+		3000,
+		get_prop_capacity(chip),
+		get_monotonic_soc_raw(chip)*100/255,
+		get_sram_prop_now(chip, FG_DATA_VOLTAGE)/1000,
+		get_sram_prop_now(chip, FG_DATA_CURRENT)*(-1)/1000,
+		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)/10,
+		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)%10,
+		mapping_charge[adc_temp],
+		mapping_discharge[adc_temp]);
+#else
+	pr_fg(FG_STATUS, "[BAT][Ser]report Capacity ==> [%d], FCC:[%d], BMS:[%d], V:[%dmV], Cur:[%dmA], Temp:[%d.%d]\n",
+		get_prop_capacity(chip),
+		3000,
+		get_monotonic_soc_raw(chip)*100/255,
+		get_sram_prop_now(chip, FG_DATA_VOLTAGE)/1000,
+		get_sram_prop_now(chip, FG_DATA_CURRENT)*(-1)/1000,
+		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)/10,
+		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)%10);
 	ASUSEvtlog("[BAT][Ser]report Capacity ==> [%d], FCC:[%d], BMS:[%d], V:[%dmV], Cur:[%dmA], Temp:[%d.%d]",
 		get_prop_capacity(chip),
 		3000,
@@ -2792,6 +2847,9 @@ static void batt_status_work(struct work_struct *work)
 		get_sram_prop_now(chip, FG_DATA_CURRENT)*(-1)/1000,
 		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)/10,
 		get_sram_prop_now(chip, FG_DATA_BATT_TEMP)%10);
+#endif
+	if (chip->power_supply_registered)
+		power_supply_changed(&chip->bms_psy);
 	schedule_delayed_work(
 		&chip->batt_status_work,
 		msecs_to_jiffies(CHECK_BATT_STATUS_S * 1000));
@@ -4614,7 +4672,11 @@ static int fg_power_get_property(struct power_supply *psy,
 			val->strval = chip->batt_type;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
+#if defined(SOC_IMPROVE_ALGO) && SOC_IMPROVE_ALGO
+		val->intval = get_prop_capacity_asus(chip);
+#else
 		val->intval = get_prop_capacity(chip);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_SOC);
@@ -8700,7 +8762,7 @@ done:
 
 static ssize_t batt_switch_name(struct switch_dev *sdev, char *buf)
 {
-	return sprintf(buf, "C11P1603-G-02-0001-4.12.40.939\n");
+	return sprintf(buf, "C11P1603-G-02-0001-5.14.44.1847\n");
 }
 
 static int fg_probe(struct spmi_device *spmi)
@@ -8727,7 +8789,9 @@ static int fg_probe(struct spmi_device *spmi)
 		pr_err("Can't allocate fg_chip\n");
 		return -ENOMEM;
 	}
-
+#if defined(SOC_IMPROVE_ALGO) && SOC_IMPROVE_ALGO
+	mapping_init();
+#endif
 	chip->spmi = spmi;
 	chip->dev = &(spmi->dev);
 

@@ -419,6 +419,11 @@ static int alarmtimer_suspend(struct device *dev)
 
 		tm_val = rtc_ktime_to_tm(min);
 		rtc_tm_to_time(&tm_val, &secs);
+
+		printk("[alarm][lpm_suspend]secs = %lu, h:m:s == %d:%d:%d, d/m/y = %d/%d/%d\n",
+			secs, tm_val.tm_hour, tm_val.tm_min, tm_val.tm_sec,
+			tm_val.tm_mday, tm_val.tm_mon, tm_val.tm_year);
+
 		lpm_suspend_wake_time(secs);
 	} else {
 		/* Set alarm, if in the past reject suspend briefly to handle */

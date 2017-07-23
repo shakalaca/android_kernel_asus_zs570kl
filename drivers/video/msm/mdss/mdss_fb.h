@@ -308,6 +308,7 @@ struct msm_fb_data_type {
 	struct mutex bl_lock;
 	bool ipc_resume;
 	struct mutex resume_hold;
+	struct mutex resume_lock;
 	struct wake_lock wakelock;
 	struct platform_device *pdev;
 

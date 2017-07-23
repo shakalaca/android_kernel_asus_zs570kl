@@ -75,6 +75,21 @@
 #define BLANK_FLAG_ULP	FB_BLANK_NORMAL
 #endif
 
+static char *blank_name[5] = {
+        "UNBLANK_ON",
+        "BLANK_LP1",
+        "BLANK_ULP2",
+        "BLANK_HSYNC_SUSPEND",
+        "BLANK_POWERDOWN_OFF"
+};
+
+char *power_state_name[4] = {
+        "POWER_OFF",
+        "POWER_ON",
+        "POWER_LP1",
+        "POWER_LP2"
+};
+
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
 struct msm_fb_data_type *g_mfd;
@@ -530,9 +545,9 @@ static void pm_resume_func_delay_work(struct work_struct *work)
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
 	pm_runtime_enable(dev);
-	printk(KERN_EMERG"[DEBUG]%s +++, FB index=%d\n", __func__, g_mfd->index);
+	printk(KERN_EMERG"[DISP]%s +++, FB index=%d\n", __func__, g_mfd->index);
 	mdss_fb_resume_sub(g_mfd);
-	printk(KERN_EMERG"[DEBUG]%s ---, FB index=%d\n", __func__, g_mfd->index);
+	printk(KERN_EMERG"[DISP]%s ---, FB index=%d\n", __func__, g_mfd->index);
 	del_timer ( &fb_timer );
 	mutex_unlock(&g_mfd->resume_hold);
 	wake_unlock(&g_mfd->wakelock);
@@ -1192,6 +1207,7 @@ static int mdss_fb_probe(struct platform_device *pdev)
 	mutex_init(&mfd->bl_lock);
 	mutex_init(&mfd->switch_lock);
 	mutex_init(&mfd->resume_hold);
+	mutex_init(&mfd->resume_lock);
 	wake_lock_init(&mfd->wakelock, WAKE_LOCK_SUSPEND, "fb_wakelock");
 
 	fbi_list[fbi_list_index++] = fbi;
@@ -1546,12 +1562,12 @@ int mdss_fb_pm_suspend(struct device *dev)
 	} else {
 		while (fb_mutex_index != 1) {
 			counter++;
-			printk(KERN_EMERG"[DEBUG] fb_mutex_index= %d\n", fb_mutex_index);
+			printk(KERN_EMERG"[DISP] fb_mutex_index= %d\n", fb_mutex_index);
 			msleep(10);
 
 			if (counter == 1000) {
 				counter = 0;
-				printk(KERN_EMERG"[DEBUG] over 10 seconds !counter expired!!!\n");
+				printk(KERN_EMERG"[DISP] over 10 seconds !counter expired!!!\n");
 				break;
 			}
 		}
@@ -1815,8 +1831,8 @@ static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
 
 	cur_power_state = mfd->panel_power_state;
 
-	printk(KERN_EMERG "[DSIP] BLANK : Transitioning from %d --> %d\n", cur_power_state,
-		req_power_state);
+	printk(KERN_EMERG "[DISP] BLANK : Transitioning from %s --> %s\n", power_state_name[cur_power_state],
+		power_state_name[req_power_state]);
 
 	if (cur_power_state == req_power_state) {
 		pr_debug("No change in power state\n");
@@ -1877,8 +1893,8 @@ static int mdss_fb_blank_unblank(struct msm_fb_data_type *mfd)
 	}
 
 	cur_power_state = mfd->panel_power_state;
-	printk(KERN_EMERG "[DSIP] UNBLANK : Transitioning from %d --> %d\n", cur_power_state,
-		MDSS_PANEL_POWER_ON);
+	printk(KERN_EMERG "[DISP] UNBLANK : Transitioning from %s --> %s\n", power_state_name[cur_power_state],
+		power_state_name[MDSS_PANEL_POWER_ON]);
 
 	if (mdss_panel_is_power_on_interactive(cur_power_state)) {
 		pr_debug("No change in power state\n");
@@ -1960,8 +1976,9 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 	if (mfd->dcm_state == DCM_ENTER)
 		return -EPERM;
 
-	printk(KERN_DEBUG"[DEBUG]%pS mode:%d\n", __builtin_return_address(0),
-		blank_mode);
+        mutex_lock(&g_mfd->resume_lock);
+	printk(KERN_DEBUG"[DISP]%pS mode:%s\n", __builtin_return_address(0),
+		blank_name[blank_mode]);
 
 	snprintf(trace_buffer, sizeof(trace_buffer), "fb%d blank %d",
 		mfd->index, blank_mode);
@@ -1977,15 +1994,17 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 	if (mfd->panel_info->type != MIPI_CMD_PANEL) {
 		if (BLANK_FLAG_LP == blank_mode) {
 			pr_debug("lp mode only valid for cmd mode panels\n");
-			if (mdss_fb_is_power_on_interactive(mfd))
+			if (mdss_fb_is_power_on_interactive(mfd)) {
+                                mutex_unlock(&g_mfd->resume_lock);
 				return 0;
-			else
+                        }else
 				blank_mode = FB_BLANK_UNBLANK;
 		} else if (BLANK_FLAG_ULP == blank_mode) {
 			pr_debug("ulp mode valid for cmd mode panels\n");
-			if (mdss_fb_is_power_off(mfd))
+			if (mdss_fb_is_power_off(mfd)) {
+                                mutex_unlock(&g_mfd->resume_lock);
 				return 0;
-			else
+                        }else
 				blank_mode = FB_BLANK_POWERDOWN;
 		}
 	}
@@ -2000,6 +2019,7 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 		pr_debug("ultra low power mode requested\n");
 		if (mdss_fb_is_power_off(mfd)) {
 			pr_debug("Unsupp transition: off --> ulp\n");
+                        mutex_unlock(&g_mfd->resume_lock);
 			return 0;
 		}
 
@@ -2036,6 +2056,7 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 
 	ATRACE_END(trace_buffer);
 
+        mutex_unlock(&g_mfd->resume_lock);
 	return ret;
 }
 
@@ -2063,13 +2084,13 @@ static int mdss_fb_blank(int blank_mode, struct fb_info *info)
 			mfd->suspend.panel_power_state = MDSS_PANEL_POWER_OFF;
 		return 0;
 	}
-	printk(KERN_DEBUG"[DEBUG]%s mode: %d\n",__func__, blank_mode);
+	printk(KERN_DEBUG"[DISP]%s mode: %s\n",__func__, blank_name[blank_mode]);
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 
 	if (pdata->panel_info.is_lpm_mode &&
 			blank_mode == FB_BLANK_UNBLANK) {
-		printk(KERN_DEBUG"[DEBUG]fb_blank panel is in lpm mode\n");
+		printk(KERN_DEBUG"[DISP]fb_blank panel is in lpm mode\n");
 		mfd->mdp.configure_panel(mfd, 0, 1);
 		mdss_fb_set_mdp_sync_pt_threshold(mfd, mfd->panel.type);
 		pdata->panel_info.is_lpm_mode = false;

@@ -203,6 +203,8 @@ void migrate_to_reboot_cpu(void)
 	set_cpus_allowed_ptr(current, cpumask_of(cpu));
 }
 
+extern void smbchg_if_enter_shipping_mode(void); //chih-hsuan add for shipping mode
+
 /**
  *	kernel_restart - reboot the system
  *	@cmd: pointer to buffer containing command to execute for restart
@@ -216,6 +218,13 @@ void kernel_restart(char *cmd)
 	kernel_restart_prepare(cmd);
 	migrate_to_reboot_cpu();
 	syscore_shutdown();
+	//chih-hsuan add for shipping mode +++
+	if(cmd&&strcmp(cmd,"EnterShippingMode")==0){
+		pr_emerg("[PM] Enter Shipping Mode\n");
+		smbchg_if_enter_shipping_mode();
+		return;
+	}
+	//chih-hsuan add for shipping mode ---
 	if (!cmd)
 		pr_emerg("Restarting system\n");
 	else
