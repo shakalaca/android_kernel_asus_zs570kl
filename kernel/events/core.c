@@ -986,77 +986,6 @@ static void perf_event_ctx_unlock(struct perf_event *event,
 }
 
 /*
- * Because of perf_event::ctx migration in sys_perf_event_open::move_group and
- * perf_pmu_migrate_context() we need some magic.
- *
- * Those places that change perf_event::ctx will hold both
- * perf_event_ctx::mutex of the 'old' and 'new' ctx value.
- *
- * Lock ordering is by mutex address. There is one other site where
- * perf_event_context::mutex nests and that is put_event(). But remember that
- * that is a parent<->child context relation, and migration does not affect
- * children, therefore these two orderings should not interact.
- *
- * The change in perf_event::ctx does not affect children (as claimed above)
- * because the sys_perf_event_open() case will install a new event and break
- * the ctx parent<->child relation, and perf_pmu_migrate_context() is only
- * concerned with cpuctx and that doesn't have children.
- *
- * The places that change perf_event::ctx will issue:
- *
- *   perf_remove_from_context();
- *   synchronize_rcu();
- *   perf_install_in_context();
- *
- * to affect the change. The remove_from_context() + synchronize_rcu() should
- * quiesce the event, after which we can install it in the new location. This
- * means that only external vectors (perf_fops, prctl) can perturb the event
- * while in transit. Therefore all such accessors should also acquire
- * perf_event_context::mutex to serialize against this.
- *
- * However; because event->ctx can change while we're waiting to acquire
- * ctx->mutex we must be careful and use the below perf_event_ctx_lock()
- * function.
- *
- * Lock order:
- *	task_struct::perf_event_mutex
- *	  perf_event_context::mutex
- *	    perf_event_context::lock
- *	    perf_event::child_mutex;
- *	    perf_event::mmap_mutex
- *	    mmap_sem
- */
-static struct perf_event_context *perf_event_ctx_lock(struct perf_event *event)
-{
-	struct perf_event_context *ctx;
-
-again:
-	rcu_read_lock();
-	ctx = ACCESS_ONCE(event->ctx);
-	if (!atomic_inc_not_zero(&ctx->refcount)) {
-		rcu_read_unlock();
-		goto again;
-	}
-	rcu_read_unlock();
-
-	mutex_lock(&ctx->mutex);
-	if (event->ctx != ctx) {
-		mutex_unlock(&ctx->mutex);
-		put_ctx(ctx);
-		goto again;
-	}
-
-	return ctx;
-}
-
-static void perf_event_ctx_unlock(struct perf_event *event,
-				  struct perf_event_context *ctx)
-{
-	mutex_unlock(&ctx->mutex);
-	put_ctx(ctx);
-}
-
-/*
  * This must be done under the ctx->lock, such as to serialize against
  * context_equiv(), therefore we cannot call put_ctx() since that might end up
  * calling scheduler related locks and ctx->lock nests inside those.
@@ -1522,17 +1451,10 @@ static void perf_group_detach(struct perf_event *event)
 	 * If this was a group event with sibling events then
 	 * upgrade the siblings to singleton events by adding them
 	 * to whatever list we are on.
-	 * If this isn't on a list, make sure we still remove the sibling's
-	 * group_entry from this sibling_list; otherwise, when that sibling
-	 * is later deallocated, it will try to remove itself from this
-	 * sibling_list, which may well have been deallocated already,
-	 * resulting in a use-after-free.
 	 */
 	list_for_each_entry_safe(sibling, tmp, &event->sibling_list, group_entry) {
 		if (list)
 			list_move_tail(&sibling->group_entry, list);
-		else
-			list_del_init(&sibling->group_entry);
 		sibling->group_leader = sibling;
 
 		/* Inherit group flags from the previous leader */
@@ -1853,19 +1775,6 @@ retry:
 		event->state = PERF_EVENT_STATE_OFF;
 	}
 	raw_spin_unlock_irq(&ctx->lock);
-}
-
-/*
- * Strictly speaking kernel users cannot create groups and therefore this
- * interface does not need the perf_event_ctx_lock() magic.
- */
-static void _perf_event_disable(struct perf_event *event)
-{
-	struct perf_event_context *ctx;
-
-	ctx = perf_event_ctx_lock(event);
-	_perf_event_disable(event);
-	perf_event_ctx_unlock(event, ctx);
 }
 
 /*
@@ -2403,7 +2312,7 @@ out:
 /*
  * See perf_event_disable();
  */
-static void _perf_event_enable(struct perf_event *event)
+void perf_event_enable(struct perf_event *event)
 {
 	struct perf_event_context *ctx;
 
@@ -4132,19 +4041,6 @@ static long _perf_ioctl(struct perf_event *event, unsigned int cmd, unsigned lon
 		perf_event_for_each_child(event, func);
 
 	return 0;
-}
-
-static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-	struct perf_event *event = file->private_data;
-	struct perf_event_context *ctx;
-	long ret;
-
-	ctx = perf_event_ctx_lock(event);
-	ret = _perf_ioctl(event, cmd, arg);
-	perf_event_ctx_unlock(event, ctx);
-
-	return ret;
 }
 
 static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -7532,15 +7428,6 @@ static void mutex_lock_double(struct mutex *a, struct mutex *b)
 	mutex_lock_nested(b, SINGLE_DEPTH_NESTING);
 }
 
-static void mutex_lock_double(struct mutex *a, struct mutex *b)
-{
-	if (b < a)
-		swap(a, b);
-
-	mutex_lock(a);
-	mutex_lock_nested(b, SINGLE_DEPTH_NESTING);
-}
-
 /**
  * sys_perf_event_open - open a performance event, associate it to a task/cpu
  *
@@ -7802,8 +7689,9 @@ SYSCALL_DEFINE5(perf_event_open,
 		/*
 		 * Wait for everybody to stop referencing the events through
 		 * the old lists, before installing it on new lists.
-		 */		
+		 */
 		synchronize_rcu();
+
 		perf_install_in_context(ctx, group_leader, group_leader->cpu);
 		get_ctx(ctx);
 		list_for_each_entry(sibling, &group_leader->sibling_list,
@@ -7822,7 +7710,7 @@ SYSCALL_DEFINE5(perf_event_open,
 	}
 	mutex_unlock(&ctx->mutex);
 	if (group_leader)
-		mutex_unlock(&group_leader->group_leader_mutex);	
+		mutex_unlock(&group_leader->group_leader_mutex);
 
 	put_online_cpus();
 
@@ -7910,11 +7798,6 @@ perf_event_create_kernel_counter(struct perf_event_attr *attr, int cpu,
 	mutex_lock(&ctx->mutex);
 	perf_install_in_context(ctx, event, cpu);
 	perf_unpin_context(ctx);
-
-	if (move_group) {
-		mutex_unlock(&gctx->mutex);
-		put_ctx(gctx);
-	}
 	mutex_unlock(&ctx->mutex);
 
 	return event;
