@@ -1301,6 +1301,7 @@ static int frmnet_bind_config(struct usb_configuration *c, unsigned portno)
 		pr_err("%s: cannot allocate memory for name\n", __func__);
 		return -ENOMEM;
 	}
+	c->cdev->gadget->bam2bam_func_enabled = true;
 
 	f->strings = rmnet_strings;
 	f->bind = frmnet_bind;
