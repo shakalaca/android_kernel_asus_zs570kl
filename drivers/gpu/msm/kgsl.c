@@ -474,7 +474,7 @@ void kgsl_context_dump(struct kgsl_context *context)
 EXPORT_SYMBOL(kgsl_context_dump);
 
 /* Allocate a new context ID */
-int _kgsl_get_context_id(struct kgsl_device *device)
+static int _kgsl_get_context_id(struct kgsl_device *device)
 {
 	int id;
 
@@ -1666,7 +1666,7 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 	write_lock(&device->context_lock);
 	idr_replace(&device->context_idr, context, context->id);
 	write_unlock(&device->context_lock);
-	
+
 	param->drawctxt_id = context->id;
 done:
 	return result;

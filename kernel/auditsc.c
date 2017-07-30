@@ -1047,7 +1047,7 @@ static void audit_log_execve_info(struct audit_context *context,
 		audit_panic("out of memory for argv string");
 		return;
 	}
-	buf = buf_head;	
+	buf = buf_head;
 
 	audit_log_format(*ab, "argc=%d", context->execve.argc);
 
@@ -1111,7 +1111,7 @@ static void audit_log_execve_info(struct audit_context *context,
 			/* length of the buffer in the audit record? */
 			len_abuf = (encode ? len_buf * 2 : len_buf + 2);
 		}
-		
+
 		/* write as much as we can to the audit log */
 		if (len_buf > 0) {
 			/* NOTE: some magic numbers here - basically if we
@@ -1126,6 +1126,7 @@ static void audit_log_execve_info(struct audit_context *context,
 				if (!*ab)
 					goto out;
 			}
+
 			/* create the non-arg portion of the arg record */
 			len_tmp = 0;
 			if (require_data || (iter > 0) ||
@@ -1180,7 +1181,7 @@ static void audit_log_execve_info(struct audit_context *context,
 	} while (arg < context->execve.argc);
 
 	/* NOTE: the caller handles the final audit_log_end() call */
-	
+
 out:
 	kfree(buf_head);
 }
