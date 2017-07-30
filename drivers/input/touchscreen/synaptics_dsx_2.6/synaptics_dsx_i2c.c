@@ -529,11 +529,11 @@ static int synaptics_rmi4_i2c_write(struct synaptics_rmi4_data *rmi4_data,
 	struct i2c_msg msg[1];
     unsigned char buf_val[2] ={0};
 
+	mutex_lock(&rmi4_data->rmi4_io_ctrl_mutex);
+
 	retval = synaptics_rmi4_i2c_alloc_buf(rmi4_data, length + 1);
 	if (retval < 0)
-		return retval;
-
-	mutex_lock(&rmi4_data->rmi4_io_ctrl_mutex);
+		goto exit;
 
     if(cap_sel_status == 1 && fts_a5_flag == 1){
         printk("%s [fts] fts_a5_flag = %d\n", __func__, fts_a5_flag);
