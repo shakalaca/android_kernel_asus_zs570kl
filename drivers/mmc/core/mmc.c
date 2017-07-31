@@ -1175,12 +1175,12 @@ static int mmc_select_hs400(struct mmc_card *card)
 		return err;
 	}
 
+	mmc_set_timing(card->host, MMC_TIMING_MMC_HS);
+	mmc_set_bus_speed(card);
+
 	err = mmc_switch_status(card, false);
 	if (err)
 		goto out_err;
-
-	mmc_set_timing(card->host, MMC_TIMING_MMC_HS);
-	mmc_set_bus_speed(card);
 
 	val = EXT_CSD_DDR_BUS_WIDTH_8;
 	if (card->ext_csd.strobe_support) {
