@@ -498,15 +498,22 @@ static ssize_t rmidev_read(struct file *filp, char __user *buf,
 		return -EBADF;
 	}
 
-	if (count == 0)
-		return 0;
+	mutex_lock(&(dev_data->file_mutex));
+
+	if (*f_pos > REG_ADDR_LIMIT) {
+		retval = -EFAULT;
+		goto clean_up;
+	}
 
 	if (count > (REG_ADDR_LIMIT - *f_pos))
 		count = REG_ADDR_LIMIT - *f_pos;
 
-	rmidev_allocate_buffer(count);
+	if (count == 0) {
+		retval = 0;
+		goto clean_up;
+	}
 
-	mutex_lock(&(dev_data->file_mutex));
+	rmidev_allocate_buffer(count);
 
 	retval = synaptics_rmi4_reg_read(rmidev->rmi4_data,
 			*f_pos,
