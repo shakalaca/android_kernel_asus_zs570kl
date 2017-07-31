@@ -1268,12 +1268,9 @@ static int msm_camera_disable_i2c_mux(struct msm_camera_i2c_conf *i2c_conf)
 	return 0;
 }
 
-static int msm_camera_pinctrl_init(struct msm_camera_power_ctrl_t *ctrl)
-{
-	struct msm_pinctrl_info *sensor_pctrl = NULL;
-
-	sensor_pctrl = &ctrl->pinctrl_info;
-	sensor_pctrl->pinctrl = devm_pinctrl_get(ctrl->dev);
+int msm_camera_pinctrl_init(
+	struct msm_pinctrl_info *sensor_pctrl, struct device *dev) {
+	sensor_pctrl->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR_OR_NULL(sensor_pctrl->pinctrl)) {
 		pr_err("%s:%d Getting pinctrl handle failed\n",
 			__func__, __LINE__);
@@ -1374,7 +1371,7 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 	if (ctrl->gpio_conf->cam_gpiomux_conf_tbl != NULL)
 		pr_err("%s:%d mux install\n", __func__, __LINE__);
 
-	ret = msm_camera_pinctrl_init(ctrl);
+	ret = msm_camera_pinctrl_init(&(ctrl->pinctrl_info), ctrl->dev);
 	if (ret < 0) {
 		pr_err("%s:%d Initialization of pinctrl failed\n",
 				__func__, __LINE__);
