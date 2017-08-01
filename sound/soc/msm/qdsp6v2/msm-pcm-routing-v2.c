@@ -1897,11 +1897,6 @@ static int msm_routing_slim_0_rx_aanc_mux_put(struct snd_kcontrol *kcontrol,
 {
 	struct aanc_data aanc_info;
 
-	if (mux >= e->items) {
-		pr_err("%s: Invalid mux value %d\n", __func__, mux);
-		return -EINVAL;
-	}
-
 	mutex_lock(&routing_lock);
 	memset(&aanc_info, 0x00, sizeof(aanc_info));
 	pr_debug("%s: AANC Mux Port %ld\n", __func__,
@@ -2052,11 +2047,6 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	struct snd_soc_dapm_update *update = NULL;
 	
-	if (mux >= e->items) {
-		pr_err("%s: Invalid mux value %d\n", __func__, mux);
-		return -EINVAL;
-	}
-
 	if (mux >= e->items) {
 		pr_err("%s: Invalid mux value %d\n", __func__, mux);
 		return -EINVAL;
