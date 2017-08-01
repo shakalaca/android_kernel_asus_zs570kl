@@ -644,7 +644,6 @@ static int rmidev_release(struct inode *inp, struct file *filp)
 			"%s: Attention interrupt enabled\n",
 			__func__);
 
-unlock:
 	mutex_unlock(&(dev_data->file_mutex));
 
 	rmi4_data->reset_device(rmi4_data, false);
