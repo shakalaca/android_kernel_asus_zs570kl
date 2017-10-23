@@ -5950,6 +5950,20 @@ void smbchg_thermal_policy_work(struct work_struct *work)
 					msleep(50);
 				}
 			}
+			/* check if previous usb in current is lower than we want to set */
+			rc = smbchg_read(chip, &reg, chip->usb_chgpth_base + USB_CHPTH_USBIN_IL_CFG, 1);
+			if (rc < 0) {
+				pr_err("Couldn't read 0x13F2 rc = %d\n", rc);
+				goto out;
+			} else {
+				pr_smb(PR_STATUS, "set input current limit to 1000MA\n");
+				//CURRENT_LIMIT = USBIN_IL_1000MA
+				if ((reg&0x1F) < USBIN_IL_1000MA)
+					smbchg_set_input_current(chip, USBIN_IL_1000MA, true);
+				else
+					smbchg_set_input_current(chip, USBIN_IL_1000MA, false);
+			}
+#if 0
 			if (soc >= 15) {
 				pr_smb(PR_STATUS, "set input current limit to 500MA\n");
 				//CURRENT_LIMIT = USBIN_IL_500MA
@@ -5983,6 +5997,7 @@ void smbchg_thermal_policy_work(struct work_struct *work)
 						smbchg_set_input_current(chip, USBIN_IL_1000MA, false);
 				}
 			}
+#endif
 			break;
 		case THERM_LEVEL_3:
 			pr_smb(PR_STATUS, "start level 3 thermal policy, suspend all chargers\n");
