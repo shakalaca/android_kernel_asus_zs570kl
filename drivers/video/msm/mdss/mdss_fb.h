@@ -307,9 +307,9 @@ struct msm_fb_data_type {
 	u32 bl_level_scaled;
 	struct mutex bl_lock;
 	bool ipc_resume;
-	struct mutex resume_hold;
-	struct mutex resume_lock;
-	struct wake_lock wakelock;
+	//struct mutex resume_hold;
+	//struct mutex resume_lock;
+	//struct wake_lock wakelock;
 	struct platform_device *pdev;
 
 	u32 mdp_fb_page_protection;

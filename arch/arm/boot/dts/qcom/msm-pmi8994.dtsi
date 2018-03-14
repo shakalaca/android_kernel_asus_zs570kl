@@ -325,7 +325,7 @@
 			qcom,bcl-mh-threshold-ma = <405>;
 			qcom,fg-iterm-ma = <125>;
 			qcom,fg-chg-iterm-ma = <150>;
-			qcom,irq-volt-empty-mv = <3350>; // should be 50mV less than the cutoff
+			qcom,irq-volt-empty-mv = <3000>; // should be 50mV less than the cutoff
 			qcom,fg-cutoff-voltage-mv = <3400>;
 			qcom,fg-vbat-estimate-diff-mv = <250>;
 			qcom,cycle-counter-en;

@@ -153,7 +153,7 @@ static enum sleep_type sleep = SLEEP_DEFAULT;
 #if V4L2_SNOOP_ENABLE
 /* HCI snoop and netlink socket related variables */
 /* Variables for netlink sockets for hcisnoop */
-#define NETLINK_USER 30
+#define NETLINK_USER 28
 
 struct sock *nl_sk_hcisnoop = NULL;
 static int hcisnoop_client_pid = 0;
@@ -321,6 +321,7 @@ static void brcm_hcisnoop_recv_msg(struct sk_buff *skb)
 static int enable_snoop(void)
 {
     int err;
+    BT_LDISC_DBG(V4L2_DBG_TX, "ldisc_snoop_enable_param = %d", ldisc_snoop_enable_param);
     if(ldisc_snoop_enable_param)
     {
         /* check whether snoop is enabled */

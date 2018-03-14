@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2111,6 +2111,12 @@ int mdss_mdp_layer_pre_commit_wfd(struct msm_fb_data_type *mfd,
 		wfd = mdp5_data->wfd;
 		output_layer = commit->output_layer;
 
+		if (output_layer->buffer.plane_count > MAX_PLANES) {
+			pr_err("Output buffer plane_count exceeds MAX_PLANES limit:%d\n",
+					output_layer->buffer.plane_count);
+			return -EINVAL;
+		}
+
 		data = mdss_mdp_wfd_add_data(wfd, output_layer);
 		if (IS_ERR_OR_NULL(data))
 			return PTR_ERR(data);
@@ -2141,6 +2147,14 @@ int mdss_mdp_layer_pre_commit_wfd(struct msm_fb_data_type *mfd,
 		sync_pt_data = &mfd->mdp_sync_pt_data;
 		mutex_lock(&sync_pt_data->sync_mutex);
 		count = sync_pt_data->acq_fen_cnt;
+
+		if (count >= MDP_MAX_FENCE_FD) {
+			pr_err("Reached maximum possible value for fence count\n");
+			mutex_unlock(&sync_pt_data->sync_mutex);
+			rc = -EINVAL;
+			goto input_layer_err;
+		}
+
 		sync_pt_data->acq_fen[count] = fence;
 		sync_pt_data->acq_fen_cnt++;
 		mutex_unlock(&sync_pt_data->sync_mutex);

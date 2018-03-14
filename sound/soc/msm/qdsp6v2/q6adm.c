@@ -2308,9 +2308,9 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	int port_idx, copp_idx, flags;
 	int tmp_port = q6audio_get_port_id(port_id);
 
-	pr_debug("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
+	pr_err("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d, bit_width=%d\n",
 		 __func__, port_id, path, rate, channel_mode, perf_mode,
-		 topology);
+		 topology, bit_width);
 
 	/* For DTS EAGLE only, force 24 bit */
 	if ((topology == ADM_CMD_COPP_OPEN_TOPOLOGY_ID_DTS_HPX) &&
@@ -2319,6 +2319,13 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		pr_debug("%s: Force open adm in 24-bit for DTS HPX topology 0x%x\n",
 			__func__, topology);
 	}
+	if (((topology == ADM_CMD_COPP_OPEN_TOPOLOGY_ID_SPK && channel_mode == 2) ||
+		(topology == ADM_CMD_COPP_OPEN_TOPOLOGY_ID_HP && channel_mode == 2)) && perf_mode == 0 ) {
+		bit_width = 24;
+		pr_err("%s: Force open adm in 24-bit for topology 0x%x\n",
+			__func__, topology);
+	}
+
 	port_id = q6audio_convert_virtual_to_portid(port_id);
 	port_idx = adm_validate_and_get_port_index(port_id);
 	if (port_idx < 0) {

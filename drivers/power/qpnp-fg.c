@@ -249,7 +249,7 @@ static struct fg_mem_setting settings[FG_MEM_SETTING_MAX] = {
 	SETTING(BCL_MH_THRESHOLD, 0x47C,   3,      752),
 	SETTING(TERM_CURRENT,	 0x40C,   2,      250),
 	SETTING(CHG_TERM_CURRENT, 0x4F8,   2,      250),
-	SETTING(IRQ_VOLT_EMPTY,	 0x458,   3,      3100),
+	SETTING(IRQ_VOLT_EMPTY,	 0x458,   3,      2800),
 	SETTING(CUTOFF_VOLTAGE,	 0x40C,   0,      3200),
 	SETTING(VBAT_EST_DIFF,	 0x000,   0,      30),
 	SETTING(DELTA_SOC,	 0x450,   3,      1),
@@ -731,6 +731,7 @@ static bool is_input_present(struct fg_chip *chip);
 int64_t adc_temp = 0;
 int pre_capacity;
 bool pre_usb_present;
+bool first_in = true; // WA for TT 1008379: if power on with cable but capacity is lower than showed, present status is always out
 
 // 20160706 origin table
 int num_capacity_charge[101]=	{2,2,3,2,3,3,2,3,2,3,2,3,2,3,2,3,3,2,3,2,
@@ -2354,27 +2355,51 @@ static int get_prop_capacity_asus(struct fg_chip *chip)
 	else if (msoc == FULL_SOC_RAW)
 		return FULL_CAPACITY;
 
-	if (input_present) {
-		if (pre_usb_present == input_present) {
+	if (first_in) {
+		pre_usb_present = input_present;
+		if (input_present) { //avoid final soc is 0% when power on without cable
 			pre_capacity = mapping_charge[adc_temp];
-			final_soc = pre_capacity;
 		} else {
-			if (mapping_charge[adc_temp] >= pre_capacity){
+			pre_capacity = mapping_discharge[adc_temp];
+		}
+		first_in = false;
+	}
+
+	if (input_present) {
+		pr_fg(FG_STATUS, "cable IN, pre cable status is cable %s, pre soc is %d, charging mapping soc is %d\n",
+		pre_usb_present? "in": "out", pre_capacity, mapping_charge[adc_temp]);
+		if (pre_usb_present == input_present) {
+			if (mapping_charge[adc_temp] >= pre_capacity) {
+				pre_capacity = mapping_charge[adc_temp];
+				final_soc = pre_capacity;
+			} else {
+				final_soc = pre_capacity;
+			}
+		} else {
+			if (mapping_charge[adc_temp] >= pre_capacity) {
 				pre_usb_present = input_present;
 				final_soc = mapping_charge[adc_temp];
-			} else
+			} else {
 				final_soc = mapping_discharge[adc_temp];
+			}
 		}
 	} else {
+		pr_fg(FG_STATUS, "cable OUT, pre cable status is cable %s, pre soc is %d, discharging mapping soc is %d\n",
+		pre_usb_present? "in": "out", pre_capacity, mapping_discharge[adc_temp]);
 		if (pre_usb_present == input_present) {
-			pre_capacity = mapping_discharge[adc_temp];
-			final_soc = pre_capacity;
+			if (mapping_discharge[adc_temp] <= pre_capacity) {
+				pre_capacity = mapping_discharge[adc_temp];
+				final_soc = pre_capacity;
+			} else {
+				final_soc = pre_capacity;
+			}
 		} else{
 			if (mapping_discharge[adc_temp] <= pre_capacity) {
 				pre_usb_present = input_present;
 				final_soc = mapping_discharge[adc_temp];
-			} else
+			} else {
 				final_soc = mapping_charge[adc_temp];
+			}
 		}
 	}
 	pr_fg(FG_STATUS, "raw soc is %d.%d%%, msoc is %d, final asus soc is %d, charging status is %s\n",

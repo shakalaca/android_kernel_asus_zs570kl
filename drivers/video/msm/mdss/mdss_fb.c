@@ -93,7 +93,7 @@ char *power_state_name[4] = {
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
 struct msm_fb_data_type *g_mfd;
-static int fb_mutex_index = 1;
+//static int fb_mutex_index = 1;
 
 
 static u32 mdss_fb_pseudo_palette[16] = {
@@ -151,9 +151,9 @@ static int mdss_fb_send_panel_event(struct msm_fb_data_type *mfd,
 					int event, void *arg);
 static void mdss_fb_set_mdp_sync_pt_threshold(struct msm_fb_data_type *mfd,
 		int type);
-static void fb_timer_expired(unsigned long data);
+//static void fb_timer_expired(unsigned long data);
 static int mdss_fb_resume_sub(struct msm_fb_data_type *mfd);
-DEFINE_TIMER(fb_timer, fb_timer_expired, 0, 0);
+//DEFINE_TIMER(fb_timer, fb_timer_expired, 0, 0);
 void mdss_fb_no_update_notify_timer_cb(unsigned long data)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)data;
@@ -531,7 +531,7 @@ static void __mdss_fb_idle_notify_work(struct work_struct *work)
 	mfd->idle_state = MDSS_FB_IDLE;
 }
 
-static void pm_resume_func_delay_work(struct work_struct *work)
+/*static void pm_resume_func_delay_work(struct work_struct *work)
 {
 	struct delayed_work *dw = to_delayed_work(work);
 	struct device *dev = &g_mfd->pdev->dev;
@@ -553,7 +553,7 @@ static void pm_resume_func_delay_work(struct work_struct *work)
 	wake_unlock(&g_mfd->wakelock);
 	fb_mutex_index = 1;
 	return;
-}
+}*/
 static ssize_t mdss_fb_get_idle_time(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1206,9 +1206,9 @@ static int mdss_fb_probe(struct platform_device *pdev)
 
 	mutex_init(&mfd->bl_lock);
 	mutex_init(&mfd->switch_lock);
-	mutex_init(&mfd->resume_hold);
-	mutex_init(&mfd->resume_lock);
-	wake_lock_init(&mfd->wakelock, WAKE_LOCK_SUSPEND, "fb_wakelock");
+	//mutex_init(&mfd->resume_hold);
+	//mutex_init(&mfd->resume_lock);
+	//wake_lock_init(&mfd->wakelock, WAKE_LOCK_SUSPEND, "fb_wakelock");
 
 	fbi_list[fbi_list_index++] = fbi;
 
@@ -1281,7 +1281,7 @@ static int mdss_fb_probe(struct platform_device *pdev)
 			pr_err("failed to register input handler\n");
 
 	INIT_DELAYED_WORK(&mfd->idle_notify_work, __mdss_fb_idle_notify_work);
-	INIT_DELAYED_WORK(&mfd->pm_resume_delay_work, pm_resume_func_delay_work);
+	//INIT_DELAYED_WORK(&mfd->pm_resume_delay_work, pm_resume_func_delay_work);
 	if(mfd->index == 0) {
 		g_mfd = mfd;
 		printk(KERN_DEBUG "[DISP] Set True2life initail value for FB0\n");
@@ -1346,7 +1346,7 @@ static int mdss_fb_remove(struct platform_device *pdev)
 
 	pm_runtime_disable(mfd->fbi->dev);
 
-	wake_lock_destroy(&mfd->wakelock);
+	//wake_lock_destroy(&mfd->wakelock);
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
@@ -1425,12 +1425,12 @@ static int mdss_fb_suspend_sub(struct msm_fb_data_type *mfd)
 		 * on, but turn off all interface clocks.
 		 */
 		if (mdss_fb_is_power_on(mfd)) {
-			if (mfd->index != 0)
+			//if (mfd->index != 0)
 				ret = mdss_fb_blank_sub(BLANK_FLAG_ULP, mfd->fbi,
 					mfd->suspend.op_enable);
-			else
+			/*else
 				ret = mdss_fb_blank_sub(FB_BLANK_POWERDOWN, mfd->fbi,
-					mfd->suspend.op_enable);
+					mfd->suspend.op_enable); */
 			if (ret) {
 				pr_err("can't turn off display!\n");
 				goto exit;
@@ -1476,7 +1476,7 @@ static int mdss_fb_resume_sub(struct msm_fb_data_type *mfd)
 	 * flag. If fb was in ulp state when entering suspend, then nothing
 	 * needs to be done.
 	 */
-	if (mfd->index != 0) {
+	//if (mfd->index != 0) {
 		if (mdss_panel_is_power_on(mfd->suspend.panel_power_state) &&
 			!mdss_panel_is_power_on_ulp(mfd->suspend.panel_power_state)) {
 			int unblank_flag = mdss_panel_is_power_on_interactive(
@@ -1489,7 +1489,7 @@ static int mdss_fb_resume_sub(struct msm_fb_data_type *mfd)
 			else
 				fb_set_suspend(mfd->fbi, FBINFO_STATE_RUNNING);
 		}
-	} else {
+	/*} else {
 		mfd->op_enable = true;
 		mfd->suspend.op_enable = true;
 
@@ -1498,7 +1498,7 @@ static int mdss_fb_resume_sub(struct msm_fb_data_type *mfd)
 			pr_warn("can't turn on display!\n");
 		else
 			fb_set_suspend(mfd->fbi, FBINFO_STATE_RUNNING);
-	}
+	}*/
 
 	mfd->is_power_setting = false;
 	complete_all(&mfd->power_set_comp);
@@ -1535,16 +1535,16 @@ static int mdss_fb_resume(struct platform_device *pdev)
 
 #ifdef CONFIG_PM_SLEEP
 extern int alstate;
-static void fb_timer_expired(unsigned long data)
+/*static void fb_timer_expired(unsigned long data)
 {
 	mutex_unlock(&g_mfd->resume_hold);
 	wake_unlock(&g_mfd->wakelock);
 	printk(KERN_EMERG"[DISP][PM] fb_timer_expired, unlock mutex, FB index=%d\n", g_mfd->index);
-}
+}*/
 int mdss_fb_pm_suspend(struct device *dev)
 {
 	struct msm_fb_data_type *mfd = dev_get_drvdata(dev);
-	static int counter = 0;
+	//static int counter = 0;
 
 	if (alstate) {
 		printk(KERN_EMERG"[DISP]%s Always on Skip pm_suspend\n",__func__);
@@ -1557,9 +1557,9 @@ int mdss_fb_pm_suspend(struct device *dev)
 
 	dev_dbg(dev, "display pm suspend\n");
 
-	if (mfd->index != 0) {
+	//if (mfd->index != 0) {
 		return mdss_fb_suspend_sub(mfd);
-	} else {
+	/*} else {
 		while (fb_mutex_index != 1) {
 			counter++;
 			printk(KERN_EMERG"[DISP] fb_mutex_index= %d\n", fb_mutex_index);
@@ -1578,7 +1578,7 @@ int mdss_fb_pm_suspend(struct device *dev)
 		mutex_unlock(&mfd->resume_hold);
 
 		return 0;
-	}
+	}*/
 }
 
 
@@ -1601,13 +1601,13 @@ int mdss_fb_pm_resume(struct device *dev)
 	 * have been active when the system was suspended. Reset the runtime
 	 * status to suspended state after a complete system resume.
 	 */
-	if (mfd->index != 0) {
+	//if (mfd->index != 0) {
 		pm_runtime_disable(dev);
 		pm_runtime_set_suspended(dev);
 		pm_runtime_enable(dev);
 
 		return mdss_fb_resume_sub(mfd);
-	} else {
+	/*} else {
 		mutex_lock(&mfd->resume_hold);
 		cancel_delayed_work(&mfd->pm_resume_delay_work);
 		wake_lock_timeout(&mfd->wakelock, msecs_to_jiffies(500));
@@ -1615,7 +1615,7 @@ int mdss_fb_pm_resume(struct device *dev)
 		printk(KERN_EMERG"[DISP]%s mod_timer 500ms and set wakelock to 500ms.\n",__func__);
 		schedule_delayed_work(&mfd->pm_resume_delay_work, msecs_to_jiffies(0));
 		return 0;
-	}
+	}*/
 }
 #endif
 
@@ -1976,7 +1976,7 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 	if (mfd->dcm_state == DCM_ENTER)
 		return -EPERM;
 
-        mutex_lock(&g_mfd->resume_lock);
+        //mutex_lock(&g_mfd->resume_lock);
 	printk(KERN_DEBUG"[DISP]%pS mode:%s\n", __builtin_return_address(0),
 		blank_name[blank_mode]);
 
@@ -1995,14 +1995,14 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 		if (BLANK_FLAG_LP == blank_mode) {
 			pr_debug("lp mode only valid for cmd mode panels\n");
 			if (mdss_fb_is_power_on_interactive(mfd)) {
-                                mutex_unlock(&g_mfd->resume_lock);
+                                //mutex_unlock(&g_mfd->resume_lock);
 				return 0;
                         }else
 				blank_mode = FB_BLANK_UNBLANK;
 		} else if (BLANK_FLAG_ULP == blank_mode) {
 			pr_debug("ulp mode valid for cmd mode panels\n");
 			if (mdss_fb_is_power_off(mfd)) {
-                                mutex_unlock(&g_mfd->resume_lock);
+                               // mutex_unlock(&g_mfd->resume_lock);
 				return 0;
                         }else
 				blank_mode = FB_BLANK_POWERDOWN;
@@ -2019,7 +2019,7 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 		pr_debug("ultra low power mode requested\n");
 		if (mdss_fb_is_power_off(mfd)) {
 			pr_debug("Unsupp transition: off --> ulp\n");
-                        mutex_unlock(&g_mfd->resume_lock);
+                        //mutex_unlock(&g_mfd->resume_lock);
 			return 0;
 		}
 
@@ -2056,7 +2056,7 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 
 	ATRACE_END(trace_buffer);
 
-        mutex_unlock(&g_mfd->resume_lock);
+        //mutex_unlock(&g_mfd->resume_lock);
 	return ret;
 }
 

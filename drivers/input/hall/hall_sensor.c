@@ -212,7 +212,6 @@ static ssize_t show_hall_sensor_enable(struct device *dev, struct device_attribu
 static ssize_t store_hall_sensor_enable(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	int request;
-
 	if(!hall_sensor_dev) {
 		printk("Hall sensor does not exist!\n");
 		return 0;
@@ -229,16 +228,22 @@ static ssize_t store_hall_sensor_enable(struct device *dev, struct device_attrib
 			// Turn off
 			printk("[Hall sensor] Turn off.\n");
 
+			disable_irq_wake(HALL_SENSOR_IRQ);
+			disable_irq(HALL_SENSOR_IRQ);
 			spin_lock_irqsave(&hall_sensor_dev->mHallSensorLock, flags);
 			hall_sensor_dev->enable=request;
+			disable_irq_nosync(HALL_SENSOR_IRQ);
 			spin_unlock_irqrestore(&hall_sensor_dev->mHallSensorLock, flags);
 
 		}else if(1 == request){
 			// Turn on
 			printk("[Hall sensor] Turn on. \n");
 
+			enable_irq(HALL_SENSOR_IRQ);
+			enable_irq_wake(HALL_SENSOR_IRQ);
 			spin_lock_irqsave(&hall_sensor_dev->mHallSensorLock, flags);
 			hall_sensor_dev->enable=request;
+			enable_irq(HALL_SENSOR_IRQ);
 			spin_unlock_irqrestore(&hall_sensor_dev->mHallSensorLock, flags);
 
 		}else{

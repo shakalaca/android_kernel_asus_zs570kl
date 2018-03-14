@@ -192,7 +192,7 @@ int glove_mode = 0;
 //<ASUS_COVER+>
 int cover_mode = 0;
 //<ASUS_COVER->
-
+int screen_flag=1;
 //<ASUS_focal+>
 static int fts_btn_back;
 static int fts_btn_menu;
@@ -1682,8 +1682,9 @@ static ssize_t synaptics_rmi4_cover_mode_store(struct device *dev,
 	cover_mode = input;
 	printk("[synaptics] cover_mode: %d\n", cover_mode);
 		
-	if(!fw_update_state)
+	if(!fw_update_state && screen_flag == 1)
 		synaptics_rmi4_set_cover_param(rmi4_data);
+	printk("screen_flag = %d\n",screen_flag);
 	
 	return count;
 }
@@ -7671,17 +7672,20 @@ static int synaptics_rmi4_fb_notifier_cb(struct notifier_block *self,
 				//printk(KERN_EMERG "%s FB_BLANK_POWERDOWN\n", __func__);
 				synaptics_rmi4_suspend(&rmi4_data->pdev->dev);
 				rmi4_data->fb_ready = false;
+				screen_flag=0;
 			} else if (*transition == FB_BLANK_UNBLANK) {
 				//printk(KERN_EMERG "%s FB_BLANK_UNBLANK\n", __func__);
 				if (fw_update_state == 1) {
 				} else {
 					synaptics_rmi4_resume(&rmi4_data->pdev->dev);
 					rmi4_data->fb_ready = true;
+					screen_flag=1;
 				}
 			} else if (*transition == FB_BLANK_NORMAL) {
 				//printk(KERN_EMERG "%s FB_BLANK_NORMAL\n", __func__);
                 synaptics_rmi4_suspend(&rmi4_data->pdev->dev);
                 rmi4_data->fb_ready = false;
+				screen_flag=0;
             }
 		}
 	}
@@ -7916,7 +7920,7 @@ static int synaptics_rmi4_resume(struct device *dev)
 	unsigned char buf_reg_val_PR_glove[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove parameter
 	unsigned char buf_reg_val_PR_glove_usb[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove and usb parameter	
     unsigned long onesec = msecs_to_jiffies(1500);
-
+	printk("%s start\n",__func__);
 	if (strcmp(androidboot_mode,"charger")==0) {
 		printk("[Power] %s: skip this driver in charger mode\n", __func__);
 		return 0;

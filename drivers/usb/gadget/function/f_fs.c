@@ -3040,6 +3040,7 @@ static int ffs_func_set_alt(struct usb_function *f,
 	if (ffs->func) {
 		ffs_func_eps_disable(ffs->func);
 		ffs->func = NULL;
+                usb_gadget_autopm_put_async(ffs->gadget);
 	}
 
 	if (ffs->state != FFS_ACTIVE)
@@ -3064,12 +3065,12 @@ static int ffs_func_set_alt(struct usb_function *f,
 
 static void ffs_func_disable(struct usb_function *f)
 {
-	struct ffs_function *func = ffs_func_from_usb(f);
-	struct ffs_data *ffs = func->ffs;
+	//struct ffs_function *func = ffs_func_from_usb(f);
+	//struct ffs_data *ffs = func->ffs;
 
 	ffs_func_set_alt(f, 0, (unsigned)-1);
 	/* matching put to allow LPM on disconnect */
-	usb_gadget_autopm_put_async(ffs->gadget);
+	//usb_gadget_autopm_put_async(ffs->gadget);
 }
 
 static int ffs_func_setup(struct usb_function *f,
