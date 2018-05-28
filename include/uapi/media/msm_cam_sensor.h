@@ -18,7 +18,7 @@
 
 #define MAX_OIS_MOD_NAME_SIZE 32
 #define MAX_OIS_NAME_SIZE 32
-#define MAX_OIS_REG_SETTINGS 1050
+#define MAX_OIS_REG_SETTINGS 1200
 
 #define MOVE_NEAR 0
 #define MOVE_FAR  1
@@ -83,6 +83,8 @@ enum sensor_sub_module_t {
 	SUB_MODULE_CSIPHY_3D,
 	SUB_MODULE_OIS,
 	SUB_MODULE_EXT,
+	SUB_MODULE_IR_LED,
+	SUB_MODULE_IR_CUT,
 	SUB_MODULE_MAX,
 };
 
@@ -258,7 +260,6 @@ enum eeprom_cfg_type_t {
 	CFG_EEPROM_WRITE_DATA,
 	CFG_EEPROM_GET_MM_INFO,
 	CFG_EEPROM_INIT,
-	CFG_EEPROM_SET_INFO,
 };
 
 struct eeprom_get_t {
@@ -287,25 +288,26 @@ struct msm_eeprom_info_t {
 	struct msm_eeprom_memory_map_array *mem_map_array;
 };
 
-struct msm_eeprom_data_info_t {
-	uint8_t af_module_info_cs;
-	uint8_t pdaf_cs;
-	uint8_t eis_cs;
-	uint8_t dlc_cs;
-	uint8_t ois_cs;
+struct msm_ir_led_cfg_data_t {
+	enum msm_ir_led_cfg_type_t cfg_type;
+	int32_t pwm_duty_on_ns;
+	int32_t pwm_period_ns;
+};
+
+struct msm_ir_cut_cfg_data_t {
+	enum msm_ir_cut_cfg_type_t cfg_type;
 };
 
 struct msm_eeprom_cfg_data {
 	enum eeprom_cfg_type_t cfgtype;
 	uint8_t is_supported;
 	union {
-		char eeprom_name[MAX_EEPROM_NAME];
+		char eeprom_name[MAX_SENSOR_NAME];
 		struct eeprom_get_t get_data;
 		struct eeprom_read_t read_data;
 		struct eeprom_write_t write_data;
 		struct eeprom_get_cmm_t get_cmm_data;
 		struct msm_eeprom_info_t eeprom_info;
-		struct msm_eeprom_data_info_t eeprom_data_info;
 	} cfg;
 };
 
@@ -365,8 +367,8 @@ enum msm_ois_cfg_type_t {
 	CFG_OIS_POWERDOWN,
 	CFG_OIS_POWERUP,
 	CFG_OIS_CONTROL,
-	CFG_OIS_CONTROL_ACCEL_GAIN,
 	CFG_OIS_I2C_WRITE_SEQ_TABLE,
+	CFG_OIS_I2C_WRITE_MODE,
 };
 
 enum msm_ois_cfg_download_type_t {
@@ -376,8 +378,8 @@ enum msm_ois_cfg_download_type_t {
 
 enum msm_ois_i2c_operation {
 	MSM_OIS_WRITE = 0,
+	MSM_OIS_READ,
 	MSM_OIS_POLL,
-    MSM_OIS_READ,
 };
 
 struct reg_settings_ois_t {
@@ -433,10 +435,6 @@ struct msm_actuator_params_t {
 	uint16_t data_size;
 	uint16_t init_setting_size;
 	uint32_t i2c_addr;
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	uint32_t imx318_i2c_addr;
-	uint32_t i2c_cmd_pass_thru_imx318;
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	enum i2c_freq_mode_t i2c_freq_mode;
 	enum msm_camera_i2c_reg_addr_type i2c_addr_type;
 	enum msm_camera_i2c_data_type i2c_data_type;
@@ -487,7 +485,6 @@ struct msm_ois_cfg_data {
 	union {
 		struct msm_ois_set_info_t set_info;
 		struct msm_camera_i2c_seq_reg_setting *settings;
-		int32_t data;
 	} cfg;
 };
 
@@ -602,6 +599,12 @@ struct sensor_init_cfg_data {
 
 #define VIDIOC_MSM_OIS_CFG_DOWNLOAD \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 14, struct msm_ois_cfg_download_data)
+
+#define VIDIOC_MSM_IR_LED_CFG \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 15, struct msm_ir_led_cfg_data_t)
+
+#define VIDIOC_MSM_IR_CUT_CFG \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 15, struct msm_ir_cut_cfg_data_t)
 
 #endif
 

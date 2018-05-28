@@ -110,6 +110,7 @@ struct vfsspi_device_data {
 	bool irq_wakeup_flag;
 	struct delayed_work fp_sensor_work;
 };
+
 struct vfsspi_device_data *fp_device;
 struct vfsspi_device_data *vfsSpiDevTmp = NULL;
 static struct workqueue_struct 	*fp_sensor_wq;
@@ -237,7 +238,7 @@ void vfsspi_screen_notify(void)
 	            printk("No such efd_file\n");
 	            return -ENODEV;
 	        }
-	        
+
 	        efd_ctx = eventfd_ctx_fileget(efd_file);
 	        if (efd_ctx == NULL) {
 	            printk("eventfd_ctx_fileget is failed\n");
@@ -301,21 +302,21 @@ void vfsspi_screen_on(void)
 			}
 			efd_file = fcheck_files(t->files, vfsSpiDevTmp->eSignalID);
 			rcu_read_unlock();
-	
+
 			if (efd_file == NULL) {
 				printk("No such efd_file\n");
 				return -ENODEV;
 			}
-			
+
 			efd_ctx = eventfd_ctx_fileget(efd_file);
 			if (efd_ctx == NULL) {
 				printk("eventfd_ctx_fileget is failed\n");
 				return -ENODEV;
 			}
-	
+
 			/* notify DRDY eventfd to user process */
 			eventfd_signal(efd_ctx, 1);
-	
+
 			/* Release eventfd context */
 			eventfd_ctx_put(efd_ctx);
 		}
@@ -324,13 +325,11 @@ void vfsspi_screen_on(void)
 }
 #endif
 
-
 static void fp_sensor_report_function(struct work_struct *dat)
 {
 	vfsspi_screen_notify();
 	global_counter--;
 }
-
 
 // add for fb detection start
 static int SYNA_fb_state_notify_callback(struct notifier_block *nb, unsigned long val, void *fbdata)
@@ -340,10 +339,10 @@ static int SYNA_fb_state_notify_callback(struct notifier_block *nb, unsigned lon
 
 	if (val != FB_EARLY_EVENT_BLANK)
 		return 0;
-	
+
 	printk("SYNA_fb_state_notify_callback value = %d\n",(int)val);
-	
-	if (fb_data && fb_data->data) 
+
+	if (fb_data && fb_data->data)
 	{
 		fb_state = *(int *)(fb_data->data);
 		switch (fb_state) {
@@ -368,8 +367,7 @@ static int SYNA_fb_state_notify_callback(struct notifier_block *nb, unsigned lon
 	return NOTIFY_OK;
 }
 
-
-static struct notifier_block SYNA_notify_block = {	
+static struct notifier_block SYNA_notify_block = {
 	.notifier_call = SYNA_fb_state_notify_callback,
 };
 // add for fb detection end
@@ -450,7 +448,7 @@ static int vfsspi_sendDrdyEventFd(struct vfsspi_device_data *vfsSpiDev)
             printk("No such efd_file\n");
             return -ENODEV;
         }
-        
+
         efd_ctx = eventfd_ctx_fileget(efd_file);
         if (efd_ctx == NULL) {
             printk("eventfd_ctx_fileget is failed\n");
@@ -471,43 +469,43 @@ static int vfsspi_sendDrdyNotify(struct vfsspi_device_data *vfsSpiDev)
 {
     int ret = 0;
 
-if(vfsSpiDev != NULL){
-    if (vfsSpiDev->drdy_ntf_type == VFSSPI_DRDY_NOTIFY_TYPE_EVENTFD) {
-        ret = vfsspi_sendDrdyEventFd(vfsSpiDev);
-    } else {
-        ret = vfsspi_send_drdy_signal(vfsSpiDev);
+    if(vfsSpiDev != NULL){
+        if (vfsSpiDev->drdy_ntf_type == VFSSPI_DRDY_NOTIFY_TYPE_EVENTFD) {
+            ret = vfsspi_sendDrdyEventFd(vfsSpiDev);
+        } else {
+            ret = vfsspi_send_drdy_signal(vfsSpiDev);
+        }
     }
-}
     return ret;
 }
 
 static int vfsspi_enableIrq(struct vfsspi_device_data *vfsspi_device)
 {
 	printk("vfsspi_enableIrq\n");
-if(vfsspi_device != NULL){
-	if (vfsspi_device->is_drdy_irq_enabled == DRDY_IRQ_ENABLE) {
-		printk("DRDY irq already enabled\n");
-		return -EINVAL;
-	}
+	if(vfsspi_device != NULL){
+		if (vfsspi_device->is_drdy_irq_enabled == DRDY_IRQ_ENABLE) {
+			printk("DRDY irq already enabled\n");
+			return -EINVAL;
+		}
 
-	enable_irq(gpio_irq);
-	vfsspi_device->is_drdy_irq_enabled = DRDY_IRQ_ENABLE;
-}
+		enable_irq(gpio_irq);
+		vfsspi_device->is_drdy_irq_enabled = DRDY_IRQ_ENABLE;
+	}
 	return 0;
 }
 
 static int vfsspi_disableIrq(struct vfsspi_device_data *vfsspi_device)
 {
 	printk("vfsspi_disableIrq\n");
-if(vfsspi_device != NULL){
-	if (vfsspi_device->is_drdy_irq_enabled == DRDY_IRQ_DISABLE) {
-		printk("DRDY irq already disabled\n");
-		return -EINVAL;
-	}
+	if(vfsspi_device != NULL){
+		if (vfsspi_device->is_drdy_irq_enabled == DRDY_IRQ_DISABLE) {
+			printk("DRDY irq already disabled\n");
+			return -EINVAL;
+		}
 
-	disable_irq_nosync(gpio_irq);
-	vfsspi_device->is_drdy_irq_enabled = DRDY_IRQ_DISABLE;
-}
+		disable_irq_nosync(gpio_irq);
+		vfsspi_device->is_drdy_irq_enabled = DRDY_IRQ_DISABLE;
+	}
 	return 0;
 }
 static int vfsspi_set_drdy_int(struct vfsspi_device_data *vfsspi_device,
@@ -574,7 +572,7 @@ static long vfsspi_ioctl(struct file *filp, unsigned int cmd,
 
 	vfsspi_device = filp->private_data;
 	vfsSpiDevTmp = vfsspi_device;
-	
+
 	mutex_lock(&vfsspi_device->buffer_mutex);
 	switch (cmd) {
 	case VFSSPI_IOCTL_DEVICE_RESET:
@@ -594,7 +592,7 @@ static long vfsspi_ioctl(struct file *filp, unsigned int cmd,
 		break;
 	}
 	// register for screen on/off end
-	
+
 	case VFSSPI_IOCTL_REGISTER_DRDY_SIGNAL:
 		printk("VFSSPI_IOCTL_REGISTER_DRDY_SIGNAL\n");
 		ret_val = vfsspi_register_drdy_signal(vfsspi_device, arg);
@@ -754,26 +752,28 @@ static int fp_sensor_suspend(struct platform_device *pdev, pm_message_t state)
 	struct vfsspi_device_data *fp = dev_get_drvdata(&pdev->dev);
 	struct timeval time_s, time_e;
 
-		printk("[FP] sensor suspend +++\n");
-		if(global_counter > 0){
-			do_gettimeofday(&time_s);
-			flush_workqueue(fp_sensor_wq);//flush all works
-			do_gettimeofday(&time_e);
-			if(global_counter > 0){ //still have work be scheduled after flush_workqueue.
-	 			printk(KERN_ERR "\n[FP] global_counter INCORRECT %d\n",global_counter);
-				printk(KERN_ERR "[FP] delay %lu\n", time_e.tv_usec - time_s.tv_usec);
-				wake_lock_timeout(&fp->wake_lock_irq, 3);//30ms
-				return -EBUSY;
-			}else{
-				printk(KERN_ERR "\n[FP] delay %lu\n", time_e.tv_usec - time_s.tv_usec);
-			}
+	printk("[FP] sensor suspend +++\n");
+	if(global_counter > 0){
+		do_gettimeofday(&time_s);
+		flush_workqueue(fp_sensor_wq);//flush all works
+		do_gettimeofday(&time_e);
+		if(global_counter > 0){ //still have work be scheduled after flush_workqueue.
+			printk(KERN_ERR "\n[FP] global_counter INCORRECT %d\n",global_counter);
+			printk(KERN_ERR "[FP] delay %lu\n", time_e.tv_usec - time_s.tv_usec);
+			wake_lock_timeout(&fp->wake_lock_irq, 3);//30ms
+			return -EBUSY;
+		}else{
+			printk(KERN_ERR "\n[FP] delay %lu\n", time_e.tv_usec - time_s.tv_usec);
 		}
-		if (fp->is_drdy_irq_enabled & !fp->irq_wakeup_flag) {
-			printk("[FP] enable irq wake up  \n");
-			enable_irq_wake(fp->isr_pin);
-			fp->irq_wakeup_flag = true;
-		}
-		printk("[FP] sensor suspend ---\n");
+	}
+
+	if (fp->is_drdy_irq_enabled & !fp->irq_wakeup_flag) {
+		printk("[FP] enable irq wake up  \n");
+		enable_irq_wake(fp->isr_pin);
+		fp->irq_wakeup_flag = true;
+	}
+
+	printk("[FP] sensor suspend ---\n");
 
 	return 0;
 }
@@ -782,14 +782,14 @@ static int fp_sensor_resume(struct platform_device *pdev)
 {
 	struct vfsspi_device_data *fp = dev_get_drvdata(&pdev->dev);
 
-		printk("[FP] sensor resume +++\n");
+	printk("[FP] sensor resume +++\n");
 
-		if (fp->irq_wakeup_flag) {
-			disable_irq_wake(fp->isr_pin);
-			fp->irq_wakeup_flag = false;
-		}
-		flush_workqueue(fp_sensor_wq);//flush all works
-		printk("[FP] sensor resume ---\n");
+	if (fp->irq_wakeup_flag) {
+		disable_irq_wake(fp->isr_pin);
+		fp->irq_wakeup_flag = false;
+	}
+	flush_workqueue(fp_sensor_wq);//flush all works
+	printk("[FP] sensor resume ---\n");
 
 	return 0;
 }
@@ -937,7 +937,7 @@ static int fp_sensor_probe(struct platform_device *pdev)
 	fp_device->fb_notifier = SYNA_notify_block;
 	fb_register_client(&fp_device->fb_notifier);
 	// register receiver for FB event
-	
+
 	dev = device_create(vfsspi_device_class, &pdev->dev,
 			    fp_device->devt, fp_device, "vfsspi");
 	status = IS_ERR(dev) ? PTR_ERR(dev) : 0;

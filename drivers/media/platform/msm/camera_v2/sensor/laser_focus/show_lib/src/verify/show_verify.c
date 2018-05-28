@@ -9,7 +9,7 @@
 #include "show_log.h"
 
 /** @brief Verify whether or not the range is legal
-*	
+*
 *	@param RawRange the range detected
 *	@param ctrl the contorller which spec will be used
 *

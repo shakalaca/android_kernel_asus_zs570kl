@@ -421,6 +421,7 @@ struct ufs_clk_gating {
 	struct device_attribute enable_attr;
 	bool is_enabled;
 	int active_reqs;
+	struct workqueue_struct *ungating_workq;
 };
 
 /* Hibern8 state  */
@@ -529,6 +530,7 @@ struct debugfs_files {
 	struct dentry *show_hba;
 	struct dentry *host_regs;
 	struct dentry *dump_dev_desc;
+	struct dentry *dump_health_desc;
 	struct dentry *power_mode;
 	struct dentry *dme_local_read;
 	struct dentry *dme_peer_read;
@@ -716,11 +718,6 @@ struct ufs_hba {
 	int spm_lvl;
 	struct device_attribute rpm_lvl_attr;
 	struct device_attribute spm_lvl_attr;
-	struct device_attribute total_size_attr;
-	struct device_attribute ufs_total_size_attr;
-	struct device_attribute ufs_manfid_attr;
-	struct device_attribute ufs_health_attr;
-	struct device_attribute ufs_spec_ver_attr;
 	int pm_op_in_progress;
 
 	struct ufshcd_lrb *lrb;
@@ -733,11 +730,14 @@ struct ufs_hba {
 	int nutrs;
 	int nutmrs;
 	u32 ufs_version;
-	u32 ufs_spec_version;
-	u32 ufs_manfid;
-	u16 ufs_health_info;
-	u16 ufs_health_time_est_A;
-	u16 ufs_health_time_est_B;
+	u32 ufs_spec_version;           /* Device Descriptor 0x10 */
+	u32 ufs_total_size;
+	u32 ufs_vendor;                 /* Device Descriptor 0x18 */
+	u8 device_pre_eol;              /* Health Descriptor 0x2 */
+	u8 device_life_time_A;          /* Health Descriptor 0x3 */
+	u8 device_life_time_B;          /* Health Descriptor 0x4 */
+	const char *rev;
+
 	struct ufs_hba_variant *var;
 	void *priv;
 	unsigned int irq;
@@ -897,6 +897,9 @@ struct ufs_hba {
 	bool no_ref_clk_gating;
 
 	int scsi_block_reqs_cnt;
+
+	int			latency_hist_enabled;
+	struct io_latency_state io_lat_s;
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
@@ -1056,7 +1059,7 @@ static inline int ufshcd_dme_peer_get(struct ufs_hba *hba,
 }
 
 int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size);
-
+int ufshcd_read_health_desc(struct ufs_hba *hba, u8 *buf, u32 size);
 static inline bool ufshcd_is_hs_mode(struct ufs_pa_layer_attr *pwr_info)
 {
 	return (pwr_info->pwr_rx == FAST_MODE ||

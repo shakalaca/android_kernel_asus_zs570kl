@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -92,14 +92,15 @@ static ssize_t gpu_load_show(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
 {
-	unsigned long sysfs_busy_perc;
+	unsigned long sysfs_busy_perc = 0;
 	/*
 	 * Average out the samples taken since last read
 	 * This will keep the average value in sync with
 	 * with the client sampling duration.
 	 */
 	spin_lock(&sample_lock);
-	sysfs_busy_perc = (acc_relative_busy * 100) / acc_total;
+	if (acc_total)
+		sysfs_busy_perc = (acc_relative_busy * 100) / acc_total;
 
 	/* Reset the parameters */
 	acc_total = 0;
@@ -233,7 +234,7 @@ static int tz_init_ca(struct devfreq_msm_adreno_tz_data *priv)
 {
 	unsigned int tz_ca_data[2];
 	struct scm_desc desc = {0};
-	unsigned int *tz_buf;
+	u8 *tz_buf;
 	int ret;
 
 	/* Set data for TZ */
@@ -278,7 +279,7 @@ static int tz_init(struct devfreq_msm_adreno_tz_data *priv,
 			scm_is_call_available(SCM_SVC_DCVS, TZ_UPDATE_ID_64) &&
 			scm_is_call_available(SCM_SVC_DCVS, TZ_RESET_ID_64)) {
 		struct scm_desc desc = {0};
-		unsigned int *tz_buf;
+		u8 *tz_buf;
 
 		if (!is_scm_armv8()) {
 			ret = scm_call(SCM_SVC_DCVS, TZ_INIT_ID_64,
@@ -381,9 +382,6 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 		return level;
 	}
 
-	//printk(KERN_EMERG"[DEBUG]%s bin.busy_time = %lld, bin.total_time = %lld;  \n",__func__, priv->bin.busy_time, priv->bin.total_time);
-	if(4*priv->bin.busy_time > priv->bin.total_time)
-		priv->bin.busy_time = priv->bin.total_time;
 	/*
 	 * If there is an extended block of busy processing,
 	 * increase frequency.  Otherwise run the normal algorithm.

@@ -43,7 +43,6 @@
 
 #include "timeconst.h"
 #include "timekeeping.h"
-#include <linux/asusdebug.h>
 #include <linux/rtc.h>
 
 /*

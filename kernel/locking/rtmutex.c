@@ -19,7 +19,6 @@
 
 #include "rtmutex_common.h"
 
-extern struct rt_mutex fake_rtmutex;
 /*
  * lock->owner state tracking:
  *
@@ -1126,10 +1125,8 @@ __rt_mutex_slowlock(struct rt_mutex *lock, int state,
 		raw_spin_unlock(&lock->wait_lock);
 
 		debug_rt_mutex_print_deadlock(waiter);
-                
-                task_thread_info(current)->pWaitingRTMutex=lock;
+
 		schedule_rt_mutex(lock);
-                task_thread_info(current)->pWaitingRTMutex=&fake_rtmutex;
 
 		raw_spin_lock(&lock->wait_lock);
 		set_current_state(state);

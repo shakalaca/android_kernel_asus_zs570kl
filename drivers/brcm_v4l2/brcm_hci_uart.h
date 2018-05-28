@@ -13,7 +13,7 @@
  * for more details.
 
 
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  */
 
 
@@ -66,12 +66,13 @@
 
 #define LOCAL_NAME_BUFFER_LEN  32
 #define UART_DEV_NAME_LEN      32
-#define VENDOR_PARAMS_LEN 300
+#define VENDOR_PARAMS_LEN      300
 
 /* time in msec to wait for
  * line discipline to be installed
  */
-#define LDISC_TIME             1500
+#define LDISC_START_TIMEOUT    1500
+#define LDISC_STOP_TIMEOUT     1500
 #define CMD_RESP_TIME          800
 #define CMD_WR_TIME            5000
 #define POR_RETRY_COUNT        5
@@ -225,7 +226,6 @@ long brcm_sh_ldisc_write(struct sk_buff *);
  * internal init function, passed onto protocol drivers
  * via the init function ptr of protocol struct
  */
-/* ask for reference from KIM */
 void hu_ref(struct hci_uart **, int);
 long brcm_sh_ldisc_start(struct hci_uart *hu);
 long brcm_sh_ldisc_stop(struct hci_uart *hu);

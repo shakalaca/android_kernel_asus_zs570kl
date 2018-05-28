@@ -1,0 +1,24 @@
+/*This Document describe the tutorial to msm_debugfs.c*/
+
+/*
+* Function: Test VCM AF
+* Function Name: dbg_dump_vcm_test_write
+* Debugfs Node: /d/cameraID/vcm_test
+* Input Params: "val1 val2"
+* Description: Write val1val2 to i2c command to VCM, val is the DAC value.
+*              The VCM location is bi-direction, the possible value is 8001 -> ffff -> 0000 -> 7fff
+* Example: echo "7f ff" > /d/camera0/vcm_test means set DAC to 7fff
+*/
+
+/*
+* Function: Test Flash
+* Function Name: dbg_dump_flash_set_status
+* Debugfs Node: /d/camera_flash
+* Input Params: "val1"
+* Description: Write val1 to be the command, command is one of three:
+*			   val == 1 : flash low mode (torch mode)
+*			   val == 2 : flash high mode (flash mode)
+*			   val == 3 : flash off (turn off flash)
+* Example: echo 1 > /d/camera_flash means use flash torch mode.
+*/
+

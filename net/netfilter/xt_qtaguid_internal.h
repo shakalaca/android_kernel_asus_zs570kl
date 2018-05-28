@@ -166,7 +166,7 @@ enum ifs_tx_rx {
 enum ifs_proto {
 	IFS_TCP,
 	IFS_UDP,
-	IFS_DNS,
+        IFS_DNS,//ASUS_BSP Johnny yujoe +++[Qcom][PS][][Modify]Add the dns packet to the data stall trigger condition
 	IFS_PROTO_OTHER,
 	IFS_MAX_PROTOS
 };
@@ -257,8 +257,6 @@ struct iface_stat_work {
 struct sock_tag {
 	struct rb_node sock_node;
 	struct sock *sk;  /* Only used as a number, never dereferenced */
-	/* The socket is needed for sockfd_put() */
-	struct socket *socket;
 	/* Used to associate with a given pid */
 	struct list_head list;   /* in proc_qtu_data.sock_tag_list */
 	pid_t pid;
@@ -292,10 +290,10 @@ struct qtaguid_event_counts {
 	 */
 	atomic64_t match_no_sk;
 	/*
-	 * The file ptr in the sk_socket wasn't there.
+	 * The file ptr in the sk_socket wasn't there and we couldn't get GID.
 	 * This might happen for traffic while the socket is being closed.
 	 */
-	atomic64_t match_no_sk_file;
+	atomic64_t match_no_sk_gid;
 };
 
 /* Track the set active_set for the given tag. */

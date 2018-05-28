@@ -9,7 +9,7 @@
 #include "show_log.h"
 
 /** @brief Allocate memory for mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -20,19 +20,15 @@ int _mutex_allocate(struct mutex **_mutex){
 
 	/*if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}*/
 
-	#if 1
 	/* Allocate memory for mutex */
         *_mutex = kzalloc(sizeof(*_mutex), GFP_KERNEL);
         if (!*_mutex) {
                LOG_Handler(LOG_ERR, "%s: failed: no memory to mutex %p", __func__, _mutex);
                return -ENOMEM;
         }
-	#else
-	*_mutex=&hptg_mutex;
-	#endif
 
 	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
 
@@ -40,7 +36,7 @@ int _mutex_allocate(struct mutex **_mutex){
 }
 
 /** @brief Initialize mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -51,19 +47,19 @@ int _mutex_init(struct mutex *_mutex){
 
 	if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}
 
 	/* Initialize mutex */
 	mutex_init(_mutex);
 
 	////LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+
 	return rc;
 }
 
 /** @brief Lock mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -74,19 +70,19 @@ int _mutex_lock(struct mutex *_mutex){
 
 	if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}
 
 	/* Lock mutex */
 	mutex_lock(_mutex);
 
 	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+
 	return rc;
 }
 
 /** @brief Try lock mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -97,19 +93,19 @@ int _mutex_trylock(struct mutex *_mutex){
 
 	if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}
 
 	/* try lock mutex */
 	mutex_trylock(_mutex);
 
 	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+
 	return rc;
 }
 
 /** @brief Unlock mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -120,7 +116,7 @@ int _mutex_unlock(struct mutex *_mutex){
 
 	if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}
 
 	/* Unlock mutex */
@@ -132,7 +128,7 @@ int _mutex_unlock(struct mutex *_mutex){
 }
 
 /** @brief Destroy mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -143,7 +139,7 @@ int _mutex_destroy(struct mutex *_mutex){
 
 	if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}
 
 	/* Destroy mutex */
@@ -155,7 +151,7 @@ int _mutex_destroy(struct mutex *_mutex){
 }
 
 /** @brief Free memory for mutex
-*	
+*
 *	@param _mutex the mutex lock
 *
 */
@@ -166,13 +162,13 @@ int _mutex_free(struct mutex *_mutex){
 
 	/*if(!_mutex){
 		LOG_Handler(LOG_ERR, "%s: failed: invalid mutex %p\n", __func__, _mutex);
-		return -EMUTEX; 
+		return -EMUTEX;
 	}*/
-	
+
 	kfree(_mutex);
 
 	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+
 	return rc;
 }
 

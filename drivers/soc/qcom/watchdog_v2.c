@@ -29,6 +29,7 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/memory_dump.h>
 #include <soc/qcom/watchdog.h>
+#include <linux/debugfs.h>
 
 #define MODULE_NAME "msm_watchdog"
 #define WDT0_ACCSCSSNBARK_INT 0
@@ -52,6 +53,9 @@
 static struct msm_watchdog_data *wdog_data;
 
 static int cpu_idle_pc_state[NR_CPUS];
+
+bool asus_wdt_warm_reset = false;
+struct dentry *wdt_debug_root;
 
 struct msm_watchdog_data {
 	unsigned int __iomem phys_base;
@@ -682,6 +686,19 @@ static int msm_wdog_dt_to_pdata(struct platform_device *pdev,
 	return 0;
 }
 
+static int asus_wdt_warm_reset_get(void *data, u64 *val)
+{
+	*val = asus_wdt_warm_reset ? 1 : 0;
+	return 0;
+}
+
+static int asus_wdt_warm_reset_set(void *data, u64 val)
+{
+	asus_wdt_warm_reset = val ? true : false;
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(asus_wdt_warm_reset_enable_ops, asus_wdt_warm_reset_get, asus_wdt_warm_reset_set, "0x%02llx\n");
+
 static int msm_watchdog_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -707,6 +724,14 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 		goto err;
 	}
 	init_watchdog_data(wdog_dd);
+
+	wdt_debug_root = debugfs_create_dir("watchdog", NULL);
+	if (!wdt_debug_root) {
+		pr_err("Couldn't create debug dir\n");
+		return -EINVAL;
+	}
+	debugfs_create_file("asus_wdt_warm_reset_enable", S_IFREG | S_IWUSR | S_IRUGO, wdt_debug_root, NULL, &asus_wdt_warm_reset_enable_ops);
+
 	return 0;
 err:
 	kzfree(wdog_dd);

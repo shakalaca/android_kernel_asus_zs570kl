@@ -357,7 +357,6 @@ bluetooth: bt_sleep {
 };
 
 &mdss_dsi1 {
-        status = "disabled";
 	qcom,dsi-pref-prim-pan = <&dsi_samsung_1080p_cmd>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
 	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
@@ -593,7 +592,7 @@ bluetooth: bt_sleep {
 
 &pmi8994_pwm_4 {
         qcom,channel-owner = "button-backlight";
-        qcom,dtest-line = <3>; /* DTEST3*/
+        qcom,dtest-line = <3>;              /* DTEST3*/
         qcom,dtest-output = <1>;
         qcom,mode-select = <0>;                 /* PWM */
         status = "okay";
@@ -648,8 +647,8 @@ bluetooth: bt_sleep {
 			synaptics,panel-coords = <0 0 1079 1919>;
 			synaptics,reset-gpio = <&tlmm 89 0x00>;
 			synaptics,irq-gpio = <&tlmm 125 0x2008>;
-			synaptics,power-delay-ms = <150>;
-			synaptics,reset-delay-ms = <100>;
+			synaptics,power-delay-ms = <20>;
+			synaptics,reset-delay-ms = <20>;
 			synaptics,irq-on-state = <0>;
 			synaptics,disable-gpios;
 			synaptics,fw-name = "synaptics_fw.img";
@@ -730,7 +729,6 @@ bluetooth: bt_sleep {
         sound-9335 {
                  compatible = "qcom,msm8996-asoc-snd-tasha";
                  qcom,model = "msm8996-tasha-snd-card";
-                 qcom,uart-gpio = <&tlmm 92 0x00>;
 
                  qcom,audio-routing =
                          "AIF4 VI", "MCLK",
@@ -1030,26 +1028,33 @@ bluetooth: bt_sleep {
 	};
 };
 
-&i2c_9 {
-          hptg@4c {
-                  compatible = "hptg,olivia";
-                  reg = <0x4c>;
-                  vdd-supply = <&pm8994_l17>;
-                  vdd_i2c-supply = <&pm8994_lvs1>;
-                        laser-vdd-voltage = <3000000>;
-                        laser-i2c-voltage = <1800000>;
-          };
-	  /* for CM3323E */
-	  cm3323e: cm3323e@1 {
-		  compatible = "capella,cm3323e";
-		  reg = <0x10>;
-                  vdd-supply = <&pm8994_l17>;
-                  vdd_i2c-supply = <&pm8994_lvs1>;
-                        laser-vdd-voltage = <3000000>;
-                        laser-i2c-voltage = <1800000>;
-	  };
-};
 
+&i2c_9 {
+       /* for CM3323E */
+       qcom_cm3323e_i2c@10 {
+		compatible = "capella,cm3323e";
+		reg = <0x10>;
+		cam_vio-supply = <&pm8994_lvs1>;
+		vdd-supply = <&pm8994_l17>;
+		qcom,cam-vreg-name = "cam_vio", "vdd";
+		qcom,cam-vreg-min-voltage = <3000000 3000000>;
+		qcom,cam-vreg-max-voltage = <3000000 3000000>;
+		qcom,cam-vreg-op-mode = <80000 80000>;
+       };
+       laser: qcom,laser@4C {
+		cell-index = <0>;
+		reg = <0x4C>;
+		cam_vio-supply = <&pm8994_lvs1>;
+		vdd-supply = <&pm8994_l17>;
+                qcom,cam-vreg-name = "cam_vio", "vdd";
+                qcom,cam-vreg-min-voltage = <3000000 3000000>;
+                qcom,cam-vreg-max-voltage = <3000000 3000000>;
+                qcom,cam-vreg-op-mode = <80000 80000>;
+		qcom,slave-id = <0x98 0x0328 0x2AD>;
+		compatible = "qcom,laser";
+		label = "Olivia";
+       };
+};
 
 &i2c_7 {
 	silabs4705@10 { /* SiLabs FM chip, slave id 0x10*/

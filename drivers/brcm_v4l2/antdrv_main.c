@@ -4,7 +4,7 @@
  *  This sub-module of ANT+ driver is common for ant+ RX and TX
  *  functionality. This module is responsible for:
  *  Copyright (C) 2009 Texas Instruments
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -38,7 +38,7 @@
 #include "include/v4l2_logs.h"
 
 /* set this module parameter to enable debug info */
-int ant_dbg_param = 31;
+int ant_dbg_param = 0;
 
 /*******************************************************************************
 **  Static Variables
@@ -200,6 +200,8 @@ int ant_prepare(struct antdrv_ops *antdev)
 
     /* Initialize RX Queue */
     skb_queue_head_init(&antdev->rx_q);
+
+    spin_lock_init(&antdev->rx_q.lock);
 
     antdev->device_info.capabilities = V4L2_CAP_RADIO | V4L2_CAP_MODULATOR | V4L2_CAP_READWRITE;
     antdev->device_info.type = V4L2_TUNER_RADIO;

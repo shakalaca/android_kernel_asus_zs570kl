@@ -73,16 +73,12 @@
 #define WAKEUP_GESTURE true
 
 #define ASUS_TOUCH_PROXIMITY_NODE	//<ASUS_Proximity+>
-#define ASUS_KEYPAD_MODE
 
 //<ASUS_Proximity+>
 #ifdef ASUS_TOUCH_PROXIMITY_NODE	
 #define PROXIMITY_NAME "asus_touch_proximity_status"
 #endif
 //<ASUS_Proximity->
-#ifdef ASUS_KEYPAD_MODE
-#define KEYPAD_MODE_NAME "keypad_mode"
-#endif
 
 #define NO_0D_WHILE_2D
 #define REPORT_2D_Z
@@ -144,12 +140,14 @@
 #define F51_CUSTOM_CTRL 0x407
 
 #ifdef WAKEUP_GESTURE
-#define  KEY_GESTURE_V          263
-#define  KEY_GESTURE_Z          264
-#define  KEY_GESTURE_C          265
-#define  KEY_GESTURE_E          266
-#define  KEY_GESTURE_S          267
-#define  KEY_GESTURE_W          268
+#define  KEY_GESTURE_E		KEY_E//KEY_F21//KEY_E
+#define  KEY_GESTURE_C		KEY_C//KEY_F20//KEY_C
+//#define  KEY_GESTURE_M	KEY_M 
+//#define  KEY_GESTURE_L	KEY_L
+#define  KEY_GESTURE_W		KEY_W//KEY_F23//KEY_W
+#define  KEY_GESTURE_S		KEY_S//KEY_F22//KEY_S 
+#define  KEY_GESTURE_V		KEY_V//KEY_F18//KEY_V
+#define  KEY_GESTURE_Z		KEY_Z//KEY_F19//KEY_Z
 #define  KEY_GESTURE_DCLICK	KEY_POWER
 #define  KEY_GESTURE_SWIPE_UP	KEY_WAKEUP
 
@@ -202,7 +200,7 @@ unsigned int cap_sel_status = 1;    //cap_sel_status(description cap chip) -> 0:
 static unsigned int buf_count_add=0;
 static unsigned int buf_count_neg=0;
 u8 buf_touch_data[30*POINT_READ_BUF] = { 0 };
-extern int fts_6336GU_ctpm_fw_upgrade(struct synaptics_rmi4_data *rmi4_data, u8 *pbt_buf, u32 dw_lenth);
+//extern int fts_6336GU_ctpm_fw_upgrade(struct synaptics_rmi4_data *rmi4_data, u8 *pbt_buf, u32 dw_lenth);
 int fts_a5_flag = 0;
 static struct proc_dir_entry *fts_proc_entry;
 static unsigned char proc_operate_mode = PROC_UPGRADE;
@@ -210,9 +208,6 @@ static unsigned char proc_operate_mode = PROC_UPGRADE;
 
 #ifdef ASUS_TOUCH_PROXIMITY_NODE
 struct proc_dir_entry *tp_proximity_proc = NULL; //<ASUS_Proximity+>
-#endif
-#ifdef ASUS_KEYPAD_MODE
-struct proc_dir_entry *tp_keypad_mode_proc = NULL;
 #endif
 
 //ASUS_FACTORY+
@@ -400,26 +395,6 @@ static const struct file_operations tp_proximity_proc_fops = {
 #endif
 #endif
 //<ASUS_Proximity->
-
-#ifdef ASUS_KEYPAD_MODE
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
-static ssize_t tp_keypad_mode_proc_read(struct file *file, char __user *buf, size_t count, loff_t *ppos);
-static ssize_t tp_keypad_mode_proc_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos);
-#else
-static int tp_keypad_mode_proc_read(char *buf, char **start, off_t offset, int request, int *eof, void *data);
-static int tp_keypad_mode_proc_write(struct file *file, const char *buffer, unsigned long count, void *data);
-#endif
-
-static unsigned int keypad_mode = 1;
-
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
-static const struct file_operations tp_keypad_mode_proc_fops = {
-	.owner = THIS_MODULE,
-	.read = tp_keypad_mode_proc_read,
-	.write = tp_keypad_mode_proc_write,
-};
-#endif
-#endif
 
 struct synaptics_rmi4_data *gb_rmi4_data;
 		
@@ -1308,29 +1283,30 @@ static ssize_t synaptics_rmi4_set_glove_param(struct synaptics_rmi4_data *rmi4_d
 			"%s old ctrl23 data[0] = 0x%x\n", __func__, ctrl_23->data[0]);
 	//Enable glove mode
 	if (glove_mode == 1) {
-        printk("%s into glove mode\n", __func__);
+		printk("%s into glove mode\n", __func__);
 		if (rmi4_data->usb_status == 1) {
-            if(cap_sel_status == 0) { //<ASUS_focal+>
-                printk("[cap] golve=1 usb=1 init\n");
-                cap_sensor_glove_usb_mode_init(rmi4_data);
-            }
-		} else {
-            if(cap_sel_status == 0) { //<ASUS_focal+>
-                printk("[cap] golve=1 usb=0 init\n");
-                cap_sensor_glove_init(rmi4_data);
-            }
+			if(cap_sel_status == 0) { //<ASUS_focal+>
+				printk("[cap] golve=1 usb=1 init\n");
+				cap_sensor_glove_usb_mode_init(rmi4_data);
+			}
 		}
-        
-        //<ASUS_focal+>
-        if(cap_sel_status == 1) {            
-            cap_buf[0] = 0xc0;
-            cap_buf[1] = 0x01;
-            retval = cap_i2c_write(rmi4_data, cap_buf, 2);
-            if(retval < 0)
-                printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
-        }
-        //<ASUS_focal->
-        
+		else {
+			if(cap_sel_status == 0) { //<ASUS_focal+>
+				printk("[cap] golve=1 usb=0 init\n");
+				cap_sensor_glove_init(rmi4_data);
+			}
+		}
+
+		//<ASUS_focal+>
+		if(cap_sel_status == 1) {
+			cap_buf[0] = 0xc0;
+			cap_buf[1] = 0x01;
+			retval = cap_i2c_write(rmi4_data, cap_buf, 2);
+			if(retval < 0)
+				printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
+		}
+		//<ASUS_focal->
+
 		ctrl_23->gloved_finger_enable |= 0x01;		
 		retval = synaptics_rmi4_reg_write(rmi4_data,
 			rmi4_data->f12_ctrl23_base_addr,
@@ -1349,12 +1325,13 @@ static ssize_t synaptics_rmi4_set_glove_param(struct synaptics_rmi4_data *rmi4_d
 				"%s enable glove =0x%x, ctrl23 data[0] = 0x%x\n", 
 				__func__, ctrl_23->gloved_finger_enable, ctrl_23->data[0]);
                 
-        if(cover_mode == 1) {
-            ctrl_10->min_peak_amp = 0x0A;
-		}else {
-            ctrl_10->min_peak_amp = 0x0C;
-        }
-		
+		if(cover_mode == 1) {
+			ctrl_10->min_peak_amp = 0x0A;
+		}
+		else {
+			ctrl_10->min_peak_amp = 0x0C;
+		}
+
 		retval = synaptics_rmi4_reg_write(rmi4_data,
 			rmi4_data->f12_ctrl10_base_addr,
 			ctrl_10->data,
@@ -1370,31 +1347,33 @@ static ssize_t synaptics_rmi4_set_glove_param(struct synaptics_rmi4_data *rmi4_d
 		
 		dev_dbg(rmi4_data->pdev->dev.parent,
 				"%s enable glove, min peak = 0x%x, ctrl_10->data[1]=0x%x\n", __func__, ctrl_10->min_peak_amp, ctrl_10->data[1]);
-	} else {
-		//disable glove mode
-        printk("%s not into glove mode\n", __func__);
-		if (rmi4_data->usb_status == 1) { 
-            if(cap_sel_status == 0) { //<ASUS_focal+>
-                printk("[cap] golve=0 usb=1 init\n");
-                cap_sensor_usb_init(rmi4_data);
-            }
-		} else {
-            if(cap_sel_status == 0) { //<ASUS_focal+>
-                printk("[cap] golve=0 usb=0 init\n");
-                cap_sensor_reg_init(rmi4_data);
-            }
+	}
+	else {
+	//disable glove mode
+		printk("%s not into glove mode\n", __func__);
+		if (rmi4_data->usb_status == 1) {
+			if(cap_sel_status == 0) { //<ASUS_focal+>
+				printk("[cap] golve=0 usb=1 init\n");
+				cap_sensor_usb_init(rmi4_data);
+			}
 		}
-		
-        //<ASUS_focal+>
-        if(cap_sel_status == 1) {            
-            cap_buf[0] = 0xc0;
-            cap_buf[1] = 0x00;
-            retval = cap_i2c_write(rmi4_data, cap_buf, 2);
-            if(retval < 0)
-                printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
-        }
-        //<ASUS_focal->
-        
+		else {
+			if(cap_sel_status == 0) { //<ASUS_focal+>
+				printk("[cap] golve=0 usb=0 init\n");
+				cap_sensor_reg_init(rmi4_data);
+			}
+		}
+
+		//<ASUS_focal+>
+		if(cap_sel_status == 1) {
+			cap_buf[0] = 0xc0;
+			cap_buf[1] = 0x00;
+			retval = cap_i2c_write(rmi4_data, cap_buf, 2);
+			if(retval < 0)
+				printk("%s [fts] retval = %d glove mode write failure.\n", __func__, retval);
+		}
+		//<ASUS_focal->
+
 		ctrl_23->gloved_finger_enable &= 0x00;		
 		retval = synaptics_rmi4_reg_write(rmi4_data,
 			rmi4_data->f12_ctrl23_base_addr,
@@ -1412,13 +1391,14 @@ static ssize_t synaptics_rmi4_set_glove_param(struct synaptics_rmi4_data *rmi4_d
 		
 		dev_dbg(rmi4_data->pdev->dev.parent,
 				"%s disable glove =0x%x, ctrl23 data[0] = 0x%x\n", __func__, ctrl_23->gloved_finger_enable, ctrl_23->data[0]);
-		
-        if(cover_mode == 1) {
-            ctrl_10->min_peak_amp = 0x0F;
-        }else {
-            ctrl_10->min_peak_amp = 0x14;
-        }
-		
+
+		if(cover_mode == 1) {
+			ctrl_10->min_peak_amp = 0x0F;
+		}
+		else {
+			ctrl_10->min_peak_amp = 0x14;
+		}
+
 		retval = synaptics_rmi4_reg_write(rmi4_data,
 			rmi4_data->f12_ctrl10_base_addr,
 			ctrl_10->data,
@@ -1946,6 +1926,7 @@ static void fts_sw_reset(struct synaptics_rmi4_data *rmi4_data)
     u8 buf[2] = {0};
     u8 reg_val[2] = {0};
     
+    printk("[Touch] %s start\n", __func__);
     for(i =0;i<5;i++) {
         /*********Step 1:Reset  CTPM *****/
         buf[0] = FTS_RST_CMD_REG2;
@@ -1989,6 +1970,7 @@ static void fts_sw_reset(struct synaptics_rmi4_data *rmi4_data)
 	auc_i2c_write_buf[0] = 0x07;
 	cap_i2c_write(rmi4_data, auc_i2c_write_buf, 1);
 	msleep(150);
+	printk("[Touch] %s end\n", __func__);
 }
 
 static ssize_t fts_fts_sw_reset_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
@@ -2190,87 +2172,6 @@ static int tp_proximity_proc_write(struct file *file, const char *buffer,
 #endif
 #endif
 //<ASUS_Proximity->
-
-#ifdef ASUS_KEYPAD_MODE
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
-static ssize_t tp_keypad_mode_proc_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
-	{
-	char *str;
-	int len, retval;
-
-	if (keypad_mode == 1) {
-		printk("[Synaptics] Virtual key is enable now\n");
-		str = "Touch is enabled now\n";
-	} else if (keypad_mode == 0) {
-		printk("[Synaptics] Virtual key is disable now\n");
-		str = "Touch is disabled now\n";
-	}
-
-	len = strlen(str);
-	if(copy_to_user(buf, str, len))
-		retval = -EFAULT;
-	else if (*ppos == 0)
- 		*ppos += len;
-	else
-		len = 0;
-	return len;
-}
-static ssize_t tp_keypad_mode_proc_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
-{
-	char str[128];
-	if (count > PAGE_SIZE) //procfs write and read has PAGE_SIZE limit
-		count = 128;
-
-    if (copy_from_user(str, buf, count))
-	{
-		printk("copy_from_user failed!\n");
-		return -EFAULT;
-        }
-
-	if (count > 1)
-	{
-		str[count-1] = '\0';
-	}
-
-	if ((int)(str[0]) == (1+48)) {
-		keypad_mode = 1;
-		printk("[Synaptics] Enable Virtual Key\n");
-	} else {
-		keypad_mode = 0;
-		printk("[Synaptics] Disable Virtual Key\n");
-	}
-
-	return count;
-}
-#else
-static int tp_keypad_mode_proc_read(char *buf, char **start, off_t offset, int request,
-				     int *eof, void *data)
-{
-	if (keypad_mode == 1) {
-		printk("[Synaptics] Virtual key is enabled now\n");
-		return sprintf(buf, "Virtual key is enabled now\n");
-	} else if (keypad_mode == 0) {
-		printk("[Synaptics] Virtual key is disabled now\n");
-		return sprintf(buf, "Virtual key is disabled now\n");
-	}
-
-	return 0;
-}
-static int tp_keypad_mode_proc_write(struct file *file, const char *buffer,
-				      unsigned long count, void *data)
-{
-	if ((int)(*buffer) == (1+48)) {
-		keypad_mode = 1;
-		printk("[Synaptics] Enable Touch\n");
-	} else {
-		keypad_mode = 0;
-		printk("[Synaptics] Disable Touch\n");
-	}
-
-	return count;
-}
-#endif
-#endif
 
 static int synaptics_rmi4_debug_suspend_set(void *_data, u64 val)
 {
@@ -3461,11 +3362,6 @@ static void cap_sensor_report(struct synaptics_rmi4_data *rmi4_data)
 	onesec = msecs_to_jiffies(2000);
 	#endif
 	//<ASUS_led->
-
-#ifdef ASUS_KEYPAD_MODE
-        if (!keypad_mode)
-                return;
-#endif
 	
 	cap_i2c_Read(rmi4_data, &cap_read_addr, 1, &buf_val, 1);
 	printk("[cap] %s : buf_val=%d\n", __func__, buf_val);
@@ -3752,11 +3648,6 @@ static void fts_report_value(struct synaptics_rmi4_data *rmi4_data)
 			return;*/
 	}
     
-#ifdef ASUS_KEYPAD_MODE
-        if (!keypad_mode)
-                return;
-#endif
-
     //printk("%s [FTS] x=%d, y=%d\n", __func__, au16_x[0], au16_y[0]);
     //key down
     for (i = 0; i < FTS_MAX_POINTS; i++)
@@ -5788,9 +5679,9 @@ static int synaptics_rmi4_set_gpio(struct synaptics_rmi4_data *rmi4_data)
 
 	if (bdata->reset_gpio >= 0) {
 		gpio_set_value(bdata->reset_gpio, bdata->reset_on_state);
-		msleep(bdata->reset_active_ms);
+		msleep(20);
 		gpio_set_value(bdata->reset_gpio, !bdata->reset_on_state);
-		msleep(bdata->reset_delay_ms);
+		msleep(20);
 	}
 	if(cap_sel_status == 0) {
         //<ASUS_cap_sensor+>
@@ -5987,7 +5878,7 @@ static int synaptics_rmi4_sw_reset(struct synaptics_rmi4_data *rmi4_data)
 	if (retval < 0)
 		return retval;
 
-	msleep(rmi4_data->hw_if->board_data->reset_delay_ms);
+	msleep(20);
 
 	if (rmi4_data->hw_if->ui_hw_init) {
 		retval = rmi4_data->hw_if->ui_hw_init(rmi4_data);
@@ -6882,15 +6773,16 @@ void fts_release_apk_debug_channel(void)
 static int synaptics_rmi4_probe(struct platform_device *pdev)
 {
 	int retval, len;
-    int i;//<ASUS_focal+>
+	int i;//<ASUS_focal+>
 	unsigned char attr_count;
 	struct synaptics_rmi4_data *rmi4_data;
 	const struct synaptics_dsx_hw_interface *hw_if;
 	const struct synaptics_dsx_board_data *bdata;
 	struct dentry *temp;
-    u8 regaddr=0x9F,regvalue=0xff;//<ASUS_cap_sensor+>
-    unsigned char buf_val[2]={0}; //<ASUS_bootmode+>
+	u8 regaddr=0x9F,regvalue=0xff;//<ASUS_cap_sensor+>
+	unsigned char buf_val[2]={0}; //<ASUS_bootmode+>
 	
+	printk("[Angel Touch] start\n");
 	printk("%s: start\n", __func__);
 	hw_if = pdev->dev.platform_data;
 	if (!hw_if) {
@@ -7024,45 +6916,46 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 		goto err_set_input_dev;
 	}
 
-    //<ASUS_cap_sensor+>
-    //<ASUS_focal+>
-    for(i=0; i<5; i++) {
-        retval = cap_i2c_Read(rmi4_data, &regaddr, 1, &regvalue, 1);
-        printk("%s [FTS][cap]retval = %d, regvalue =0x%02x\n", __func__, retval, regvalue);
-    }
-    if(retval > 0) {
-        cap_sel_status = 1;
-    }
+	//<ASUS_cap_sensor+>
+	//<ASUS_focal+>
+	for(i=0; i<5; i++) {
+		retval = cap_i2c_Read(rmi4_data, &regaddr, 1, &regvalue, 1);
+		printk("%s [FTS][cap]retval = %d, regvalue =0x%02x\n", __func__, retval, regvalue);
+	}
+	if(retval > 0) {
+		cap_sel_status = 1;
+	}
     
-    regaddr = 0x01;
-    cap_addr = CAP_I2C_ADDR;
-    for(i=0; i<5; i++) {
-        retval = cap_i2c_Read(rmi4_data, &regaddr, 1, &regvalue, 1);
-        printk("%s [cap]retval = %d, regvalue =0x%02x\n", __func__, retval, regvalue);
-    }
-    if(retval > 0) {
-        cap_sel_status = 0;
-    }
-    
-    if(cap_sel_status == 1) {
-        init_i2c_read_func(FTS_I2c_Read);
-        init_i2c_write_func(FTS_I2c_Write);
-        cap_addr = FTS_CAP_I2C_ADDR;
-        fts_a5_flag = 0;
-        regaddr = 0xa6;
-        retval = cap_i2c_Read(rmi4_data, &regaddr, 1, &regvalue, 1);
-        if(retval < 0)
-            printk("%s [FTS][cap]retval = %d, regvalue =0x%02x\n", __func__, retval, regvalue);
-        printk("%s [fts] cap fw version = 0x%02x\n", __func__, regvalue);
-        rmi4_data->cap_fw_id = regvalue;
-    }else if(cap_sel_status == 0){
-        cap_addr = CAP_I2C_ADDR;
-        rmi4_data->cap_fw_id = 0x88;
-    }
-    printk("%s [cap] cap_sel_status = %d, cap_addr = 0x%02x\n", __func__, cap_sel_status, cap_addr);
-    //<ASUS_focal->
-    //<ASUS_cap_sensor->
-    
+	regaddr = 0x01;
+	cap_addr = CAP_I2C_ADDR;
+	for(i=0; i<5; i++) {
+		retval = cap_i2c_Read(rmi4_data, &regaddr, 1, &regvalue, 1);
+		printk("%s [cap]retval = %d, regvalue =0x%02x\n", __func__, retval, regvalue);
+	}
+	if(retval > 0) {
+		cap_sel_status = 0;
+	}
+
+	if(cap_sel_status == 1) {
+		init_i2c_read_func(FTS_I2c_Read);
+		init_i2c_write_func(FTS_I2c_Write);
+		cap_addr = FTS_CAP_I2C_ADDR;
+		fts_a5_flag = 0;
+		regaddr = 0xa6;
+		retval = cap_i2c_Read(rmi4_data, &regaddr, 1, &regvalue, 1);
+		if(retval < 0)
+			printk("%s [FTS][cap]retval = %d, regvalue =0x%02x\n", __func__, retval, regvalue);
+		printk("%s [fts] cap fw version = 0x%02x\n", __func__, regvalue);
+		rmi4_data->cap_fw_id = regvalue;
+	}
+	else if(cap_sel_status == 0){
+		cap_addr = CAP_I2C_ADDR;
+		rmi4_data->cap_fw_id = 0x88;
+	}
+	printk("%s [cap] cap_sel_status = %d, cap_addr = 0x%02x\n", __func__, cap_sel_status, cap_addr);
+	//<ASUS_focal->
+	//<ASUS_cap_sensor->
+
 #ifdef CONFIG_FB
 	rmi4_data->fb_notifier.notifier_call = synaptics_rmi4_fb_notifier_cb;
 	retval = fb_register_client(&rmi4_data->fb_notifier);
@@ -7095,9 +6988,9 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 				__func__);
 		goto err_enable_irq;
 	}
-	
+
 	//<ASUS_led+>
-	#ifdef ASUS_FACTORY_BUILD
+#ifdef ASUS_FACTORY_BUILD
 	printk("cap led start");
 	rmi4_data->led_wq = create_singlethread_workqueue("led_wq");
 	if (!rmi4_data->led_wq) 
@@ -7108,7 +7001,7 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&rmi4_data->led_delay_work, led_delay_work_func);
 	printk("\n[synaptics] Create delay workqueue success\n");
 	printk("cap led end");
-	#endif
+#endif
 	//<ASUS_led->
 
 	//<ASUS_usb_cable_status+>
@@ -7122,68 +7015,65 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	INIT_WORK(&rmi4_data->usb_detect_work, synaptics_cable_statue);
 	printk("[synaptics]:create usb cable detect workqueue success\n");
 	//<ASUS_usb_cable_status->
-	
-	//<ASUS_cap_sensor+>
-    if(cap_sel_status == 0) {
-        printk("cap sensor start\n");
-        rmi4_data->cap_wq = create_singlethread_workqueue("cap_wq");
-        if (!rmi4_data->cap_wq) 
-        {
-            printk(KERN_ERR "\n [cap] %s: create cap_sensor workqueue failed\n", __func__);
-            goto err_cap_sensor;
-        }
-        INIT_WORK(&rmi4_data->cap_work, cap_work_func);
 
-        printk("\n [cap] %s: Create cap_sensor workqueue success\n", __func__);
+	//<ASUS_cap_sensor+>
+	if(cap_sel_status == 0) {
+		printk("cap sensor start\n");
+		rmi4_data->cap_wq = create_singlethread_workqueue("cap_wq");
+		if (!rmi4_data->cap_wq) {
+			printk(KERN_ERR "\n [cap] %s: create cap_sensor workqueue failed\n", __func__);
+			goto err_cap_sensor;
+		}
+		INIT_WORK(&rmi4_data->cap_work, cap_work_func);
+
+		printk("\n [cap] %s: Create cap_sensor workqueue success\n", __func__);
+
+		retval = request_threaded_irq(CAP_INT_GET_PIN(CAP_INT_PIN), NULL, cap_sensor_interrupt,
+						IRQF_TRIGGER_FALLING | IRQF_ONESHOT, PLATFORM_DRIVER_NAME, rmi4_data);
+		if (retval < 0) {
+			dev_err(&pdev->dev, "[cap]: cap-sensor request irq failed\n");
+			goto err_cap_sensor;
+		}
+		printk("\n [cap] %s: request cap_sensor irq success\n", __func__);
+		cap_sensor_reg_init(rmi4_data);
         
-        retval = request_threaded_irq(CAP_INT_GET_PIN(CAP_INT_PIN), NULL, cap_sensor_interrupt,
-            IRQF_TRIGGER_FALLING | IRQF_ONESHOT, PLATFORM_DRIVER_NAME,
-            rmi4_data);
-        if (retval < 0) {
-            dev_err(&pdev->dev, "[cap]: cap-sensor request irq failed\n");
-            goto err_cap_sensor;
-        }
-        printk("\n [cap] %s: request cap_sensor irq success\n", __func__);	
-        
-        cap_sensor_reg_init(rmi4_data);
-        
-        //<ASUS_cap_calibration+>
-        /*printk("cap sensor calibration start\n");
-        rmi4_data->cap_cal_wq = create_singlethread_workqueue("cap_cal_wq");
-        if (!rmi4_data->cap_cal_wq) 
-        {
-            printk(KERN_ERR "\n [cap] %s: create cap_sensor calibration workqueue failed\n", __func__);		
-            goto err_cap_sensor;
-        }
-        INIT_DELAYED_WORK(&rmi4_data->calibration_work, calibration_work_function);*/
-        //<ASUS_cap_calibration->
-	}else if(cap_sel_status == 1){
+		//<ASUS_cap_calibration+>
+		/*printk("cap sensor calibration start\n");
+		rmi4_data->cap_cal_wq = create_singlethread_workqueue("cap_cal_wq");
+		if (!rmi4_data->cap_cal_wq) {
+			printk(KERN_ERR "\n [cap] %s: create cap_sensor calibration workqueue failed\n", __func__);
+			goto err_cap_sensor;
+		}
+		INIT_DELAYED_WORK(&rmi4_data->calibration_work, calibration_work_function);*/
+		//<ASUS_cap_calibration->
+	}
+	else if(cap_sel_status == 1) {
         //<ASUS_focal+>
-        INIT_WORK(&rmi4_data->fts_touch_event_work, fts_touch_irq_work);
-        rmi4_data->fts_workqueue = create_workqueue(FTS_WORKQUEUE_NAME);
-        if (!rmi4_data->fts_workqueue)
-        {
-            printk(KERN_ERR "\n [FTS] %s: create fts cap workqueue failed\n", __func__);
-            goto err_cap_sensor;
-        }
-        
-        retval = request_threaded_irq(CAP_INT_GET_PIN(CAP_INT_PIN), NULL, fts_ts_interrupt,
-                    IRQF_ONESHOT | IRQF_TRIGGER_FALLING, PLATFORM_DRIVER_NAME, rmi4_data);
-        if (retval < 0) {
-            dev_err(&pdev->dev, "[FTS]: cap-sensor request irq failed\n");
-            goto err_cap_sensor;
-        }
-        fts_create_apk_debug_channel();
-        rmi4_data->fts_glove_wq = create_singlethread_workqueue("fts_glove_wq");
-        if (!rmi4_data->fts_glove_wq) 
-        {
-            printk(KERN_ERR "\n%s [FTS]: create fts glove workqueue failed\n", __func__);		
-            goto err_cap_sensor;
-        }
-        INIT_DELAYED_WORK(&rmi4_data->fts_glove_delay_work, fts_glove_delay_work_func);
-    }
+		INIT_WORK(&rmi4_data->fts_touch_event_work, fts_touch_irq_work);
+		rmi4_data->fts_workqueue = create_workqueue(FTS_WORKQUEUE_NAME);
+		if (!rmi4_data->fts_workqueue)
+		{
+			printk(KERN_ERR "\n [FTS] %s: create fts cap workqueue failed\n", __func__);
+			goto err_cap_sensor;
+		}
+
+		retval = request_threaded_irq(CAP_INT_GET_PIN(CAP_INT_PIN), NULL, fts_ts_interrupt,
+					IRQF_ONESHOT | IRQF_TRIGGER_FALLING, PLATFORM_DRIVER_NAME, rmi4_data);
+		if (retval < 0) {
+			dev_err(&pdev->dev, "[FTS]: cap-sensor request irq failed\n");
+			goto err_cap_sensor;
+		}
+		fts_create_apk_debug_channel();
+		rmi4_data->fts_glove_wq = create_singlethread_workqueue("fts_glove_wq");
+		if (!rmi4_data->fts_glove_wq) {
+			printk(KERN_ERR "\n%s [FTS]: create fts glove workqueue failed\n", __func__);
+			goto err_cap_sensor;
+		}
+		INIT_DELAYED_WORK(&rmi4_data->fts_glove_delay_work, fts_glove_delay_work_func);
+	}
+
 err_cap_sensor:
-    //<ASUS_focal->
+	//<ASUS_focal->
 	//<ASUS_cap_sensor->
 	
 	if (vir_button_map->nbuttons) {
@@ -7276,26 +7166,6 @@ err_cap_sensor:
 	}
 #endif
 //<ASUS_Proximity->
-
-#ifdef ASUS_KEYPAD_MODE
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
-	tp_keypad_mode_proc = proc_create(KEYPAD_MODE_NAME, 0664, NULL, &tp_keypad_mode_proc_fops);
-#else
-	tp_keypad_mode_proc = create_proc_entry(KEYPAD_MODE_NAME, 0664, NULL);
-#endif
-	if (!tp_keypad_mode_proc) {
-		dev_err(&pdev->dev,
-				"%s: Failed to create proc keypad_mode node\n",
-				__func__);
-		goto err_sysfs;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0))
-	} else {
-		tp_keypad_mode_proc->write_proc = tp_keypad_mode_proc_write;
-		tp_keypad_mode_proc->read_proc = tp_keypad_mode_proc_read;
-		tp_keypad_mode_proc->data = NULL;
-#endif
-	}
-#endif
 
 	//<ASUS_SDev+>
 	rmi4_data->touch_sdev.name = "touch";
@@ -7536,13 +7406,6 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
 #endif
 //<ASUS_Proximity->
 
-#ifdef ASUS_KEYPAD_MODE
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 10, 0))
-	proc_remove(tp_keypad_mode_proc);
-#else
-	remove_proc_entry(KEYPAD_MODE_NAME, NULL);
-#endif
-#endif
 	kfree(rmi4_data);
 
 	return 0;
@@ -7919,129 +7782,145 @@ static int synaptics_rmi4_resume(struct device *dev)
 	unsigned char buf_reg_val_PR_usb[] = {0x20, 0x07, 0x4c, 0x47, 0x40}; //usb parameter
 	unsigned char buf_reg_val_PR_glove[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove parameter
 	unsigned char buf_reg_val_PR_glove_usb[] = {0x29, 0x07, 0x3e, 0x3e, 0x3e}; //glove and usb parameter	
-    unsigned long onesec = msecs_to_jiffies(1500);
-	printk("%s start\n",__func__);
+	unsigned long onesec = msecs_to_jiffies(1500);
+
+	printk("[Touch] %s start!!!!!\n", __func__);
 	if (strcmp(androidboot_mode,"charger")==0) {
 		printk("[Power] %s: skip this driver in charger mode\n", __func__);
 		return 0;
 	}
     
 	if(cap_sel_status == 0) {
-        printk("%s [cap] enable cap_button virtualkey\n", __func__);
-        if (asus_HW_ID == HW_ID_ER1) {
-            for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
-                buf_val[0] = buf_reg[i];
-                buf_val[1] = buf_reg_val_ER[i];
-                retval = cap_i2c_write(rmi4_data, buf_val, 2);
-                if(retval < 0){
-                    printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
-                }
-                //printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
-            }
-        } else{
-            if (glove_mode == 1) {
-                if (rmi4_data->usb_status == 1) {
-                    for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
-                        buf_val[0] = buf_reg[i];
-                        buf_val[1] = buf_reg_val_PR_glove_usb[i];
-                        retval = cap_i2c_write(rmi4_data, buf_val, 2);
-                        if(retval < 0){
-                            printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
-                        }
-                        //printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
-                    }
-                }else {
-                    for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
-                        buf_val[0] = buf_reg[i];
-                        buf_val[1] = buf_reg_val_PR_glove[i];
-                        retval = cap_i2c_write(rmi4_data, buf_val, 2);
-                        if(retval < 0){
-                            printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
-                        }
-                        //printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
-                    }
-                }
-            } else {
-                if (rmi4_data->usb_status == 1){
-                    for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
-                        buf_val[0] = buf_reg[i];
-                        buf_val[1] = buf_reg_val_PR_usb[i];
-                        retval = cap_i2c_write(rmi4_data, buf_val, 2);
-                        if(retval < 0){
-                            printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
-                        }
-                        //printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
-                    }			
-                } else {
-                    for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
-                        buf_val[0] = buf_reg[i];
-                        buf_val[1] = buf_reg_val_PR[i];
-                        retval = cap_i2c_write(rmi4_data, buf_val, 2);
-                        if(retval < 0){
-                            printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
-                        }
-                        //printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
-                    }
-                }
-            }
-        }		
-	enable_irq(CAP_INT_GET_PIN(CAP_INT_PIN));
-    }else if(cap_sel_status == 1){        
-        buf_val[0] = 0xa5;
-        buf_val[1] = 0x00;
-        retval = cap_i2c_write(rmi4_data, buf_val, 2);
-        if(retval < 0){
-            printk("[cap] write reg_addr=0x%02x, retval =%d\n", buf_val[0], retval);
-        }
-        msleep(5);
-        printk("%s [FTS] enable cap_button virtualkey\n", __func__);
-        fts_sw_reset(rmi4_data);        
-        enable_irq(CAP_INT_GET_PIN(CAP_INT_PIN));
-    }
-	
+		printk("[Touch] cap_sel_status == 0 !!!!!\n");
+		printk("%s [cap] enable cap_button virtualkey\n", __func__);
+		if (asus_HW_ID == HW_ID_ER1) {
+			for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
+				buf_val[0] = buf_reg[i];
+				buf_val[1] = buf_reg_val_ER[i];
+				retval = cap_i2c_write(rmi4_data, buf_val, 2);
+				if(retval < 0){
+					printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
+				}
+				//printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
+			}
+		}
+		else {
+			if (glove_mode == 1) {
+				if (rmi4_data->usb_status == 1) {
+					for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
+						buf_val[0] = buf_reg[i];
+						buf_val[1] = buf_reg_val_PR_glove_usb[i];
+						retval = cap_i2c_write(rmi4_data, buf_val, 2);
+						if(retval < 0){
+							printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
+						}
+						//printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
+					}
+				}
+				else {
+					for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
+						buf_val[0] = buf_reg[i];
+						buf_val[1] = buf_reg_val_PR_glove[i];
+						retval = cap_i2c_write(rmi4_data, buf_val, 2);
+						if(retval < 0){
+							printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
+						}
+						//printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
+					}
+				}
+			}
+			else {
+				if (rmi4_data->usb_status == 1){
+					for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
+						buf_val[0] = buf_reg[i];
+						buf_val[1] = buf_reg_val_PR_usb[i];
+						retval = cap_i2c_write(rmi4_data, buf_val, 2);
+						if(retval < 0){
+							printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
+						}
+						//printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
+					}
+				}
+				else {
+					for(i=0; i<(sizeof(buf_reg)/sizeof(buf_reg[0])); i++) {
+						buf_val[0] = buf_reg[i];
+						buf_val[1] = buf_reg_val_PR[i];
+						retval = cap_i2c_write(rmi4_data, buf_val, 2);
+						if(retval < 0){
+							printk("[cap] write reg_addr=%d, retval =%d\n", buf_val[0], retval);
+						}
+						//printk("[cap] cap sensor write buf[0] =%x, buf[1]=%x\n", buf_val[0], buf_val[1]);
+					}
+				}
+			}
+		}
+		enable_irq(CAP_INT_GET_PIN(CAP_INT_PIN));
+	}
+	else if(cap_sel_status == 1) {
+		printk("[Touch] cap_sel_status == 1 !!!!!\n");
+		buf_val[0] = 0xa5;
+		buf_val[1] = 0x00;
+		retval = cap_i2c_write(rmi4_data, buf_val, 2);
+		if(retval < 0){
+			printk("[cap] write reg_addr=0x%02x, retval =%d\n", buf_val[0], retval);
+		}
+		msleep(5);
+		printk("%s [FTS] enable cap_button virtualkey\n", __func__);
+		fts_sw_reset(rmi4_data);
+		enable_irq(CAP_INT_GET_PIN(CAP_INT_PIN));
+	}
+
 	synaptics_rmi4_sw_reset(rmi4_data);
-	
+
 	//calibration+
-    if(cap_sel_status == 0) {
-        cap_i2c_Read(rmi4_data, &cap_read_addr, 1, &cap_status, 1);
-        buf_val[0] = 0x06;
-        buf_val[1] = 0x0F;
-        if (glove_mode == 1) {
-            if (rmi4_data->usb_status == 1) { //(glove, usb) = (1,1)
-                buf_val[1] = 0x29;
-            }else {							  //(glove, usb) = (1,0)
-                buf_val[1] = 0x29;
-            }
-        }else {
-            if (rmi4_data->usb_status == 1) { //(glove, usb) = (0,1)
-                buf_val[1] = 0x20;
-            } else {
-                buf_val[1] = 0x20;	  //(glove, usb) = (0,0)
-            }
-        }
-        if (buf_val == 0) {		
-            retval = cap_i2c_write(rmi4_data, buf_val, 2);
-            printk("[cap] %s set sampling configuration write value=0x%x.\n", __func__, buf_val[1]);
-        }
-    }
+	if(cap_sel_status == 0) {
+		cap_i2c_Read(rmi4_data, &cap_read_addr, 1, &cap_status, 1);
+		buf_val[0] = 0x06;
+		buf_val[1] = 0x0F;
+		if (glove_mode == 1) {
+			if (rmi4_data->usb_status == 1) {
+				//(glove, usb) = (1,1)
+				buf_val[1] = 0x29;
+			}
+			else {
+				//(glove, usb) = (1,0)
+				buf_val[1] = 0x29;
+			}
+		}
+		else {
+			if (rmi4_data->usb_status == 1) {
+				//(glove, usb) = (0,1)
+				buf_val[1] = 0x20;
+			}
+			else {
+				//(glove, usb) = (0,0)
+				buf_val[1] = 0x20;
+			}
+		}
+		if (buf_val == 0) {
+			retval = cap_i2c_write(rmi4_data, buf_val, 2);
+			printk("[cap] %s set sampling configuration write value=0x%x.\n", __func__, buf_val[1]);
+		}
+	}
 	//calibration-
-	
+
 	//<ASUS_COVER+>
 	synaptics_rmi4_set_cover_param(rmi4_data);
 	//<ASUS_COVER->
+
 	//<ASUS_Glove+>
 	synaptics_rmi4_set_glove_param(rmi4_data);
-    if(cap_sel_status == 1) {
-        retval = work_busy(&rmi4_data->fts_glove_delay_work.work);
-        if(retval == WORK_BUSY_PENDING) {
-            cancel_delayed_work_sync(&rmi4_data->fts_glove_delay_work);					
-        }
-        retval = queue_delayed_work(rmi4_data->fts_glove_wq, &rmi4_data->fts_glove_delay_work, onesec);
-        if(retval < 0)
-            printk("%s ret = %d glove delay queue failure\n", __func__, retval);
-    }
+	if(cap_sel_status == 1) {
+		retval = work_busy(&rmi4_data->fts_glove_delay_work.work);
+		if(retval == WORK_BUSY_PENDING) {
+			cancel_delayed_work_sync(&rmi4_data->fts_glove_delay_work);
+		}
+		retval = queue_delayed_work(rmi4_data->fts_glove_wq, &rmi4_data->fts_glove_delay_work, onesec);
+		if(retval < 0)
+			printk("%s ret = %d glove delay queue failure\n", __func__, retval);
+	}
 	//<ASUS_Glove->
-	
+
 	if (rmi4_data->stay_awake)
 		return 0;
 
@@ -8064,6 +7943,8 @@ static int synaptics_rmi4_resume(struct device *dev)
 	synaptics_rmi4_sleep_enable(rmi4_data, false);
 	synaptics_rmi4_irq_enable(rmi4_data, true, false);
 
+	printk("[Touch] %s end!!!!!\n", __func__);
+
 exit:
 #ifdef FB_READY_RESET
 	retval = synaptics_rmi4_reset_device(rmi4_data, false);
@@ -8083,7 +7964,6 @@ exit:
 
 	rmi4_data->touch_stopped = false;
 	rmi4_data->suspend = false;
-
 	return 0;
 }
 

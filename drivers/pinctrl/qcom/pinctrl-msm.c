@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013, Sony Mobile Communications AB.
- * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,6 +30,7 @@
 #include <linux/syscore_ops.h>
 #include <linux/reboot.h>
 #include <linux/irqchip/msm-mpm-irq.h>
+#include <linux/irqchip/arm-gic-v3.h>
 #include "../core.h"
 #include "../pinconf.h"
 #include "pinctrl-msm.h"
@@ -39,10 +40,8 @@
 #define PS_HOLD_OFFSET 0x820
 #define TLMM_EBI2_EMMC_GPIO_CFG 0x111000
 
-//[Power] +++ Add for wakeup debug
-int gpio_irq_cnt, gpio_resume_irq[8];
-extern bool gpio_wakeup_device;
-//[Power] --- Add for wakeup debug
+int gpio_irq_cnt;
+struct gic_resume_irq_data gpio_resume_irq[8];
 
 /**
  * struct msm_pinctrl - state for a pinctrl-msm device
@@ -515,7 +514,6 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 	int drive;
 	int pull;
 	u32 ctl_reg;
-	u32 val;
 
 	static const char * const pulls[] = {
 		"no pull",
@@ -526,7 +524,6 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 
 	g = &pctrl->soc->groups[offset];
 	ctl_reg = readl(pctrl->regs + g->ctl_reg);
-	val = readl(pctrl->regs + g->io_reg);
 
 	is_out = !!(ctl_reg & BIT(g->oe_bit));
 	func = (ctl_reg >> g->mux_bit) & 7;
@@ -535,8 +532,7 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 
 	seq_printf(s, " %-8s: %-3s %d", g->name, is_out ? "out" : "in", func);
 	seq_printf(s, " %dmA", msm_regval_to_drive(drive));
-	seq_printf(s, " %-9s", pulls[pull]);
-	seq_printf(s, "  %s", !!(val & BIT(g->in_bit)) ? "hi" : "lo");
+	seq_printf(s, " %s", pulls[pull]);
 }
 
 static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
@@ -805,7 +801,7 @@ static struct irq_chip msm_gpio_irq_chip = {
 	.irq_set_wake   = msm_gpio_irq_set_wake,
 };
 
-static void msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
+bool msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	struct gpio_chip *gc = irq_desc_get_handler_data(desc);
 	const struct msm_pingroup *g;
@@ -815,9 +811,9 @@ static void msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 	int handled = 0;
 	u32 val;
 	int i;
+	bool ret;
 
 	chained_irq_enter(chip, desc);
-	gpio_irq_cnt = 0; //[Power] Add GPIO wakeup information
 
 	/*
 	 * Each pin has it's own IRQ status register, so use
@@ -828,25 +824,17 @@ static void msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 		val = readl(pctrl->regs + g->intr_status_reg);
 		if (val & BIT(g->intr_status_bit)) {
 			irq_pin = irq_find_mapping(gc->irqdomain, i);
-			//[Power] +++ Add GPIO wakeup information
-			if (gpio_wakeup_device && gpio_irq_cnt<8) {
-				gpio_resume_irq[gpio_irq_cnt] = i;
-				gpio_irq_cnt ++;
-				printk(KERN_EMERG "[PM] GPIO: %d resume triggered\n", i);
-			}
-			//[Power] --- Add GPIO wakeup information
-			generic_handle_irq(irq_pin);
-			handled++;
+			handled += generic_handle_irq(irq_pin);
 		}
 	}
 
-	gpio_wakeup_device = false; //[Power] Add GPIO wakeup information
-
+	ret = (handled != 0);
 	/* No interrupts were flagged */
 	if (handled == 0)
-		handle_bad_irq(irq, desc);
+		ret = handle_bad_irq(irq, desc);
 
 	chained_irq_exit(chip, desc);
+	return ret;
 }
 
 /*
@@ -957,7 +945,7 @@ static int msm_pinctrl_suspend(void)
 
 static void msm_pinctrl_resume(void)
 {
-	int i, irq;
+	int i, irq, j;
 	u32 val;
 	unsigned long flags;
 	struct irq_desc *desc;
@@ -967,6 +955,12 @@ static void msm_pinctrl_resume(void)
 
 	if (!msm_show_resume_irq_mask)
 		return;
+
+	for (j = 0;j < 8; j++) {
+		gpio_resume_irq[j].gic_resume_irq_num = 0;
+		memset(gpio_resume_irq[j].gic_resume_irq_name, 0, sizeof(gpio_resume_irq[j].gic_resume_irq_name));
+	}
+	gpio_irq_cnt = 0;
 
 	spin_lock_irqsave(&pctrl->lock, flags);
 	for_each_set_bit(i, pctrl->enabled_irqs, pctrl->chip.ngpio) {
@@ -981,8 +975,18 @@ static void msm_pinctrl_resume(void)
 				name = desc->action->name;
 
 			pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+
+			if (gpio_irq_cnt < 8) {
+				gpio_resume_irq[gpio_irq_cnt].gic_resume_irq_num = irq;
+				strncpy(gpio_resume_irq[gpio_irq_cnt].gic_resume_irq_name, name, sizeof(gpio_resume_irq[gpio_irq_cnt].gic_resume_irq_name));
+			}
+			gpio_irq_cnt++;
 		}
+		if (gpio_irq_cnt >= 8)
+			gpio_irq_cnt = 7;
 	}
+	if (gpio_irq_cnt >= 8)
+		gpio_irq_cnt = 7;
 	spin_unlock_irqrestore(&pctrl->lock, flags);
 }
 #else
@@ -994,8 +998,6 @@ static struct syscore_ops msm_pinctrl_pm_ops = {
 	.suspend = msm_pinctrl_suspend,
 	.resume = msm_pinctrl_resume,
 };
-
-extern int msm_gpio_chip_irq; //[Power] Add for wakeup debug
 
 int msm_pinctrl_probe(struct platform_device *pdev,
 		      const struct msm_pinctrl_soc_data *soc_data)
@@ -1034,8 +1036,6 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 		dev_err(&pdev->dev, "No interrupt defined for msmgpio\n");
 		return pctrl->irq;
 	}
-
-	msm_gpio_chip_irq = pctrl->irq;//[Power] Add for wakeup debug
 
 	msm_pinctrl_desc.name = dev_name(&pdev->dev);
 	msm_pinctrl_desc.pins = pctrl->soc->pins;

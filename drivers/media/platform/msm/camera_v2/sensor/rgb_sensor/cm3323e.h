@@ -1,7 +1,7 @@
 /* include/linux/cm3323e.h
  *
  * Copyright (C) 2012 Capella Microsystems Inc.
- * Author: Frank Hsieh <pengyueh@gmail.com>  
+ * Author: Frank Hsieh <pengyueh@gmail.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -21,9 +21,6 @@
 
 #define	CM3323E_ADDR			0x20 >> 1
 
-#define STATUS_PROC_FILE                "driver/RGB_status"      /* Status */
-#define RGBDEBUG_PROC_FILE              "driver/asusRgbDebug"    /* rgb debug */
-
 /* cm3323e command code */
 #define	CM3323E_CONF			0x00
 #define CM3323E_R_DATA		0x08
@@ -35,16 +32,14 @@
 #define CM3323E_CONF_SD			1
 #define CM3323E_CONF_AF			(1 << 1)
 #define CM3323E_CONF_TRIG		(1 << 2)
-#define CM3323E_CONF_IT_40MS		0
-#define CM3323E_CONF_IT_80MS		1
-#define CM3323E_CONF_IT_160MS	2
-#define CM3323E_CONF_IT_320MS	3
-#define CM3323E_CONF_IT_640MS	4
-#define CM3323E_CONF_IT_1280MS	5
+#define CM3323E_CONF_IT_40MS		(0 << 4)
+#define CM3323E_CONF_IT_80MS		(1 << 4)
+#define CM3323E_CONF_IT_160MS	(2 << 4)
+#define CM3323E_CONF_IT_320MS	(3 << 4)
+#define CM3323E_CONF_IT_640MS	(4 << 4)
+#define CM3323E_CONF_IT_1280MS	(5 << 4)
 #define CM3323E_CONF_DEFAULT		0
 
-#define CM3323E_CONF_IT_MASK            0x0070
- 
 #define LS_PWR_ON					(1 << 0)
 
 struct cm3323e_platform_data {
@@ -53,3 +48,13 @@ struct cm3323e_platform_data {
 };
 
 #endif
+
+static bool g_debugMode;
+/*+++BSP David+++*/
+#define RGB_TAG "[CM3323E]"
+#define ERROR_TAG "[ERR]"
+#define RGB_DBG(...)  printk(KERN_INFO RGB_TAG __VA_ARGS__)
+#define RGB_DBG_E(...)  printk(KERN_ERR RGB_TAG ERROR_TAG __VA_ARGS__)
+#define RGB_DBG_API(...)	if(g_debugMode)\
+							printk(KERN_INFO RGB_TAG __VA_ARGS__)
+/*---BSP David---*/

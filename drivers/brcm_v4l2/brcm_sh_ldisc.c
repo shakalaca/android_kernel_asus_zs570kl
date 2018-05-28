@@ -13,7 +13,7 @@
  * for more details.
 
 
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  */
 
 
@@ -69,7 +69,6 @@
 *****************************************************************************/
 /* set this module parameter to enable debug info */
 int ldisc_dbg_param = 0;
-int fm_dbg_param = 0;
 
 #if V4L2_SNOOP_ENABLE
 /* parameter to enable HCI snooping */
@@ -130,6 +129,7 @@ spinlock_t  reg_lock;
 static int is_print_reg_error = 1;
 static unsigned long jiffi1, jiffi2;
 struct mutex cmd_credit;
+struct mutex mutex_register_proto;
 
 /* setting custom baudrate received from UIM */
 struct ktermios ktermios;
@@ -153,7 +153,7 @@ static enum sleep_type sleep = SLEEP_DEFAULT;
 #if V4L2_SNOOP_ENABLE
 /* HCI snoop and netlink socket related variables */
 /* Variables for netlink sockets for hcisnoop */
-#define NETLINK_USER 28
+#define NETLINK_USER 29
 
 struct sock *nl_sk_hcisnoop = NULL;
 static int hcisnoop_client_pid = 0;
@@ -256,42 +256,14 @@ int dbg_ldisc_drv(char *p_conf_name, char *p_conf_value)
     return 0;
 }
 
-int dbg_bt_drv(char *p_conf_name, char *p_conf_value)
-{
-    pr_info("%s = %s\n", p_conf_name, p_conf_value);
-    sscanf(p_conf_value, "%d", &bt_dbg_param);
-    return 0;
-}
-
-int dbg_fm_drv(char *p_conf_name, char *p_conf_value)
-{
-    pr_info("%s = %s\n", p_conf_name, p_conf_value);
-    sscanf(p_conf_value, "%d", &fm_dbg_param);
-    return 0;
-}
-
-#if V4L2_ANT
-int dbg_ant_drv(char *p_conf_name, char *p_conf_value)
-{
-    pr_info("%s = %s\n", p_conf_name, p_conf_value);
-    sscanf(p_conf_value, "%d", &ant_dbg_param);
-    return 0;
-}
-#endif
-
 static const conf_entry_t conf_table[] = {
     {"custom_baudrate", parse_custom_baudrate, 0},
     {"patchram_settlement_delay", parse_patchram_settlement_delay, 0},
     {"LpmUseBluesleep", parse_LpmUseBluesleep, 0},
     {"ControllerAddrRead", parse_ControllerAddrRead, 0},
     {"ldisc_snoop_enable_param", parse_ldisc_snoop_enable_param, 0},
-    {"lpm_param" , parse_lpm_param, 0},
-    {"ldisc_dbg_param",dbg_ldisc_drv},
-    {"bt_dbg_param",dbg_bt_drv},
-    {"fm_dbg_param",dbg_fm_drv},
-#if V4L2_ANT
-    {"ant_dbg_param",dbg_ant_drv},
-#endif
+    {"lpm_param", parse_lpm_param, 0},
+    {"ldisc_dbg_param", dbg_ldisc_drv},
     {(const char *) NULL, NULL, 0}
 };
 
@@ -321,7 +293,6 @@ static void brcm_hcisnoop_recv_msg(struct sk_buff *skb)
 static int enable_snoop(void)
 {
     int err;
-    BT_LDISC_DBG(V4L2_DBG_TX, "ldisc_snoop_enable_param = %d", ldisc_snoop_enable_param);
     if(ldisc_snoop_enable_param)
     {
         /* check whether snoop is enabled */
@@ -697,32 +668,32 @@ static ssize_t store_snoop_enable(struct device *dev,
 
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_bdaddr =
-__ATTR(bdaddr, 0664, NULL,(void *)store_bdaddr);
+__ATTR(bdaddr, 0660, NULL,(void *)store_bdaddr);
 
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_install =
-__ATTR(install, 0664, (void *)show_install, (void *)store_install);
+__ATTR(install, 0660, (void *)show_install, (void *)store_install);
 
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_vendor_params =
-__ATTR(vendor_params, 0664, (void *)show_vendor_params, (void *)store_vendor_params);
+__ATTR(vendor_params, 0660, (void *)show_vendor_params, (void *)store_vendor_params);
 
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_bt_err =
-__ATTR(bt_err, 0664, (void *)show_bt_err, (void *)store_bt_err);
+__ATTR(bt_err, 0660, (void *)show_bt_err, (void *)store_bt_err);
 
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_fm_err =
-__ATTR(fm_err, 0664, (void *)show_fm_err, (void *)store_fm_err);
+__ATTR(fm_err, 0660, (void *)show_fm_err, (void *)store_fm_err);
 
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_fw_patchfile =
-__ATTR(fw_patchfile, 0664, NULL, (void *)store_fw_patchfile);
+__ATTR(fw_patchfile, 0660, NULL, (void *)store_fw_patchfile);
 
 #if V4L2_SNOOP_ENABLE
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_snoop_enable =
-__ATTR(snoop_enable, 0664, (void *)show_snoop_enable, (void *)store_snoop_enable);
+__ATTR(snoop_enable, 0660, (void *)show_snoop_enable, (void *)store_snoop_enable);
 #endif
 
 static struct attribute *uim_attrs[] = {
@@ -877,7 +848,8 @@ void brcm_hci_uart_route_frame(enum proto_type protoid, struct hci_uart *hu,
 
         return;
     }
-  /* this cannot fail. This shouldn't take long. Should be just skb_queue_tail for the
+
+   /* this cannot fail. This shouldn't take long. Should be just skb_queue_tail for the
     *   protocol stack driver
     */
     if (likely(hu->list[protoid]->recv != NULL))
@@ -941,6 +913,10 @@ static int brcm_hci_uart_set_proto(struct hci_uart *hu, int id)
 
     hu->proto = p;
     BT_LDISC_DBG(V4L2_DBG_INIT, "%p", p);
+
+   /* installation of N_BRCM_HCI ldisc complete */
+    sh_ldisc_complete(hu);
+
     return 0;
 }
 
@@ -1114,9 +1090,16 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
     unsigned long flags, diff;
     struct hci_uart *hu;
 
+    mutex_lock(&mutex_register_proto);
     hu_ref(&hu, 0);
     BT_LDISC_DBG(V4L2_DBG_OPEN, "%p",hu);
 
+    if(new_proto == NULL)
+    {
+        pr_err("new_proto is NULL");
+        mutex_unlock(&mutex_register_proto);
+        return -EINVAL;
+    }
     if(new_proto->type != 0)
     {
         BT_LDISC_DBG(V4L2_DBG_OPEN, "(%d) ", new_proto->type);
@@ -1140,6 +1123,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
             if ( ((diff *1000)/HZ) >= 1000)
                 is_print_reg_error = 1;
         }
+        mutex_unlock(&mutex_register_proto);
         return -1;
     }
 
@@ -1148,6 +1132,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
     {
         spin_unlock_irqrestore(&reg_lock, flags);
         pr_err("protocol %d not supported", new_proto->type);
+        mutex_unlock(&mutex_register_proto);
         return -EPROTONOSUPPORT;
     }
 
@@ -1156,6 +1141,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
     {
         spin_unlock_irqrestore(&reg_lock, flags);
         BT_LDISC_DBG(V4L2_DBG_OPEN, "protocol %d already registered", new_proto->type);
+        mutex_unlock(&mutex_register_proto);
         return -EALREADY;
     }
     if (test_bit(LDISC_REG_IN_PROGRESS, &hu->sh_ldisc_state)) {
@@ -1168,6 +1154,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
 
         set_bit(LDISC_REG_PENDING, &hu->sh_ldisc_state);
         spin_unlock_irqrestore(&reg_lock, flags);
+        mutex_unlock(&mutex_register_proto);
         return -EINPROGRESS;
     } else if (hu->protos_registered == LDISC_EMPTY) {
         BT_LDISC_DBG(V4L2_DBG_OPEN, " chnl_id list empty :%d ", new_proto->type);
@@ -1184,6 +1171,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
                 (test_bit(LDISC_REG_PENDING, &hu->sh_ldisc_state))) {
                 pr_err(" ldisc registration failed ");
             }
+            mutex_unlock(&mutex_register_proto);
             return -EINVAL;
         }
 
@@ -1198,6 +1186,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
         if (hu->is_registered[new_proto->type] == true) {
             pr_err(" proto %d already registered ",
                    new_proto->type);
+            mutex_unlock(&mutex_register_proto);
             return -EALREADY;
         }
 
@@ -1212,6 +1201,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
         resetErrFlags(new_proto);
 
         BT_LDISC_DBG(V4L2_DBG_OPEN, "exiting %s with err = %ld", __func__, err);
+        mutex_unlock(&mutex_register_proto);
         return err;
     }
     /* if firmware patchram is already downloaded & new protocol driver registers */
@@ -1223,6 +1213,7 @@ long brcm_sh_ldisc_register(struct sh_proto_s *new_proto)
         new_proto->write = brcm_sh_ldisc_write;
         spin_unlock_irqrestore(&reg_lock, flags);
         resetErrFlags(new_proto);
+        mutex_unlock(&mutex_register_proto);
         return err;
     }
 
@@ -1281,11 +1272,6 @@ long brcm_sh_ldisc_unregister(enum proto_type type)
 
         BT_LDISC_DBG(V4L2_DBG_CLOSE," all chnl_ids unregistered ");
 
-        if(mutex_is_locked(&cmd_credit))
-        {
-            complete_all(&hu->cmd_rcvd);
-        }
-
         /* stop traffic on tty */
         if (hu->tty){
             BT_LDISC_DBG(V4L2_DBG_CLOSE," calling tty_ldisc_flush ");
@@ -1296,6 +1282,11 @@ long brcm_sh_ldisc_unregister(enum proto_type type)
 
         /* all chnl_ids now unregistered */
         brcm_sh_ldisc_stop(hu);
+
+        if(mutex_is_locked(&cmd_credit))
+        {
+            complete_all(&hu->cmd_rcvd);
+        }
     }
 
     return err;
@@ -1452,12 +1443,6 @@ static long download_patchram(struct hci_uart *hu)
 
     unsigned char *buf = NULL;
     struct ktermios ktermios;
-
-    if (tty == NULL) {
-        err = -EAGAIN;
-        goto error_state;
-    }
-
     if (!(buf = kmalloc(RESP_BUFF_SIZE, GFP_KERNEL))) {
         BT_LDISC_ERR("Unable to allocate memory for buf");
         err = -ENOMEM;
@@ -1496,8 +1481,12 @@ static long download_patchram(struct hci_uart *hu)
 
         brcm_hci_write(hu, hci_download_minidriver, 4);
 
-        /* delay before patchram download */
-        msleep(50);
+        if (!wait_for_completion_timeout
+          (&hu->cmd_rcvd, msecs_to_jiffies(CMD_RESP_TIME))) {
+            BT_LDISC_ERR(" waiting for download minidriver command response \
+                - timed out ");
+            return -ETIMEDOUT;
+        }
 
         /* start downloading firmware */
         do {
@@ -1670,7 +1659,11 @@ long brcm_sh_ldisc_stop(struct hci_uart *hu)
 {
     long err = 0;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+    reinit_completion (&hu->ldisc_installed);
+#else
     INIT_COMPLETION(hu->ldisc_installed);
+#endif
 
     brcm_btsleep_stop(sleep);
 
@@ -1681,7 +1674,7 @@ long brcm_sh_ldisc_stop(struct hci_uart *hu)
 
     /* wait for ldisc to be un-installed */
     err = wait_for_completion_timeout(&hu->ldisc_installed,
-            msecs_to_jiffies(LDISC_TIME));
+            msecs_to_jiffies(LDISC_STOP_TIMEOUT));
     if (!err) {     /* timeout */
         BT_LDISC_ERR(" timed out waiting for ldisc to be un-installed");
         return -ETIMEDOUT;
@@ -1706,7 +1699,12 @@ long brcm_sh_ldisc_start(struct hci_uart *hu)
     BT_LDISC_DBG(V4L2_DBG_INIT, " %p",tty);
 
     do {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,13,0)
+        reinit_completion (&hu->ldisc_installed);
+#else
         INIT_COMPLETION(hu->ldisc_installed);
+#endif
+
         /* send notification to UIM */
         hu->ldisc_install = V4L2_STATUS_ON;
         BT_LDISC_DBG(V4L2_DBG_INIT, "ldisc_install = %c",\
@@ -1716,12 +1714,43 @@ long brcm_sh_ldisc_start(struct hci_uart *hu)
 
         /* wait for ldisc to be installed */
         err = wait_for_completion_timeout(&hu->ldisc_installed,
-                msecs_to_jiffies(LDISC_TIME));
+                msecs_to_jiffies(LDISC_START_TIMEOUT));
         if (!err) { /* timeout */
             pr_err("line disc installation timed out ");
-            err = brcm_sh_ldisc_stop(hu);
-            continue;
+            do {
+                err = brcm_sh_ldisc_stop(hu);
+                if(err > 0 && hu->tty == NULL) {
+                    pr_err("Stop Complete");
+                    break;
+                } else {
+                    // Print Status
+                    if (!err) {
+                        pr_err("line disc stop timed out");
+                    } else if (err > 0 && hu->tty != NULL) {
+                        pr_err("(err > 0 && hu->tty != NULL)");
+                    } else if (err < 0 && hu->tty == NULL){
+                        pr_err("(err < 0 && hu->tty == NULL)");
+                    } else if (err < 0 && hu->tty != NULL) {
+                        pr_err("(err < 0 && hu->tty != NULL)");
+                    } else {
+                        pr_err("unknown error");
+                    }
+
+                    continue;
+                }
+            } while(retry--);
+
+            if(retry > 0){
+                pr_err("retry again");
+            } else {
+                err = -1;
+                pr_err("end retry");
+                break;
+            }
         } else {
+            if(hu->tty == NULL) {
+                continue;
+            }
             /* ldisc installed now */
             BT_LDISC_DBG(V4L2_DBG_INIT, " line discipline installed ");
             err = download_patchram(hu);
@@ -1942,9 +1971,6 @@ static int brcm_hci_uart_tty_open(struct tty_struct *tty)
     }
 #endif
 
-   /* installation of N_BRCM_HCI ldisc complete */
-    sh_ldisc_complete(hu);
-
     return 0;
 }
 
@@ -2007,8 +2033,8 @@ static void brcm_hci_uart_tty_close(struct tty_struct *tty)
             }
         }
     }
-    sh_ldisc_complete(hu);
     hu->tty = 0;
+    sh_ldisc_complete(hu);
     BT_LDISC_DBG(V4L2_DBG_INIT, "tty close exit");
 }
 
@@ -2386,6 +2412,7 @@ static int __init bcmbt_ldisc_init(void)
 {
     platform_driver_register(&bcmbt_ldisc_platform_driver);
     mutex_init(&cmd_credit);
+    mutex_init(&mutex_register_proto);
     return 0;
 }
 
@@ -2393,6 +2420,7 @@ static void __exit bcmbt_ldisc_exit(void)
 {
     platform_driver_unregister(&bcmbt_ldisc_platform_driver);
     mutex_destroy(&cmd_credit);
+    mutex_destroy(&mutex_register_proto);
 
 #if V4L2_SNOOP_ENABLE
     if(ldisc_snoop_enable_param)

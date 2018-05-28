@@ -22,7 +22,6 @@
  * reinit_completion(), and macros DECLARE_COMPLETION(),
  * DECLARE_COMPLETION_ONSTACK().
  */
-#if 0
 struct completion {
 	unsigned int done;
 	wait_queue_head_t wait;
@@ -30,16 +29,6 @@ struct completion {
 
 #define COMPLETION_INITIALIZER(work) \
 	{ 0, __WAIT_QUEUE_HEAD_INITIALIZER((work).wait) }
-
-#else
-struct completion {
-        unsigned int done;
-        wait_queue_head_t wait;
-        char name[32];
-};
-#define COMPLETION_INITIALIZER(work) \
-        { 0, __WAIT_QUEUE_HEAD_INITIALIZER((work).wait), #work }
-#endif
 
 #define COMPLETION_INITIALIZER_ONSTACK(work) \
 	({ init_completion(&work); work; })
@@ -116,14 +105,5 @@ extern bool completion_done(struct completion *x);
 
 extern void complete(struct completion *);
 extern void complete_all(struct completion *);
-
-/**
- * INIT_COMPLETION - reinitialize a completion structure
- * @x:  completion structure to be reinitialized
- *
- * This macro should be used to reinitialize a completion structure so it can
- * be reused. This is especially important after complete_all() is used.
- **/
-#define INIT_COMPLETION(x)      ((x).done = 0)
 
 #endif

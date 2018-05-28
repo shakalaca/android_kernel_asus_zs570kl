@@ -33,7 +33,6 @@ enum msm_ois_state_t {
 	OIS_OPS_ACTIVE,
 	OIS_OPS_INACTIVE,
 	OIS_DISABLE_STATE,
-	OIS_CCI_READY,
 };
 
 struct msm_ois_vreg {

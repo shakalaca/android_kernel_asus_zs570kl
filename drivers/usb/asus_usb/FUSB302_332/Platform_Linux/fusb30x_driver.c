@@ -64,7 +64,7 @@ extern FSC_U32          SinkRequestOpPower;
 union power_supply_propval refresh_timer = {0,};
 /* ASUS_BSP : refresh traffic monitor timer --- */
 
-//#define INIT_COMPLETION(x)      ((x).done = 0)
+#define INIT_COMPLETION(x)      ((x).done = 0)
 #ifdef FSC_DEBUG
 #include "../core/core.h"                                                       // GetDeviceTypeCStatus
 #endif // FSC_DEBUG
@@ -584,7 +584,6 @@ ssize_t fusb302_speed_3_write(struct file *filp,const char __user *buffer, size_
         if(adb_val == 1)
                 usb_psy->set_property(usb_psy,POWER_SUPPLY_PROP_REFRESH_TIMER, &refresh_timer);
         /* ASUS_BSP : refresh traffic moni timer --- */
-
 	return count;
 }
 
@@ -1078,7 +1077,7 @@ static int fusb30x_probe (struct i2c_client* client,
         if (!usb_psy) {
                 USB_FUSB302_331_INFO("USB supply not found, deferring probe\n");
         }
-	usb_parallel_psy= power_supply_get_by_name("usb-parallel");
+	usb_parallel_psy= power_supply_get_by_name("parallel");
         if (!usb_parallel_psy) {
                 USB_FUSB302_331_INFO("USB(parallel) supply not found, deferring probe\n");
         }

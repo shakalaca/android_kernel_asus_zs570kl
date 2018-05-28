@@ -621,4 +621,6 @@ void cap_sensor_glove_init(struct synaptics_rmi4_data *rmi4_data);
 void cap_sensor_glove_usb_mode_init(struct synaptics_rmi4_data *rmi4_data);
 //<ASUS_cap_sensor->
 
+extern int fts_6336GU_ctpm_fw_upgrade(struct synaptics_rmi4_data *rmi4_data, u8 *pbt_buf, u32 dw_lenth);
+
 #endif

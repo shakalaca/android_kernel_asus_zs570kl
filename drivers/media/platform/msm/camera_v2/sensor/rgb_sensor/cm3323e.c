@@ -13,7 +13,6 @@
  *
  */
 
-#include <linux/proc_fs.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
@@ -26,83 +25,108 @@
 #include <linux/gpio.h>
 #include <linux/miscdevice.h>
 #include <linux/slab.h>
-#include <linux/regulator/consumer.h>
 #include <asm/uaccess.h>
 #include <asm/setup.h>
 #include <linux/jiffies.h>
-#include <linux/asus_project.h>
-#include "lightsensor.h"
+#include <linux/proc_fs.h>
+#include <linux/ioctl.h>
+#include <media/msm_cam_sensor.h>
+#include "../io/msm_camera_dt_util.h"
+#include "../../common/msm_camera_io_util.h"
 #include "cm3323e.h"
+#include "lightsensor.h"
+
+#define ASUS_RGB_SENSOR_DATA_SIZE	5
+#define ASUS_RGB_SENSOR_NAME_SIZE	32
+#define ASUS_RGB_SENSOR_IOC_MAGIC                      ('C')	///< RGB sensor ioctl magic number
+#define ASUS_RGB_SENSOR_IOCTL_DATA_READ           _IOR(ASUS_RGB_SENSOR_IOC_MAGIC, 1, int[ASUS_RGB_SENSOR_DATA_SIZE])	///< RGB sensor ioctl command - Read data RGBW
+#define ASUS_RGB_SENSOR_IOCTL_IT_SET           _IOW(ASUS_RGB_SENSOR_IOC_MAGIC, 2, int)	///< RGB sensor ioctl command - Set integration time
+#define ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE           _IOW(ASUS_RGB_SENSOR_IOC_MAGIC, 3, int)	///< RGB sensor ioctl command - Get debug mode
+#define ASUS_RGB_SENSOR_IOCTL_MODULE_NAME           _IOR(ASUS_RGB_SENSOR_IOC_MAGIC, 4, char[ASUS_RGB_SENSOR_NAME_SIZE])	///< RGB sensor ioctl command - Get module name
 
 #define D(x...) pr_info(x)
 
 #define I2C_RETRY_COUNT 10
+#define IT_TIME_LOG_SAMPLE_RATE 500
 
-#define LS_POLLING_DELAY 50
+#define LS_POLLING_DELAY 600
 
 #define REL_RED		REL_X
 #define REL_GREEN	REL_Y
 #define REL_BLUE	REL_Z
 #define REL_WHITE	REL_MISC
 
-#define ASUS_RGB_SENSOR_DATA_SIZE	5
-#define ASUS_RGB_SENSOR_NAME_SIZE	32
-#define ASUS_RGB_SENSOR_IOC_MAGIC                      ('C')	///< RGB sensor ioctl magic number 
-#define ASUS_RGB_SENSOR_IOCTL_DATA_READ           _IOR(ASUS_RGB_SENSOR_IOC_MAGIC, 1, int[ASUS_RGB_SENSOR_DATA_SIZE])	///< RGB sensor ioctl command - Read data RGBW
-#define ASUS_RGB_SENSOR_IOCTL_IT_SET           _IOW(ASUS_RGB_SENSOR_IOC_MAGIC, 2, int)	///< RGB sensor ioctl command - Set integration time
-#define ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE           _IOW(ASUS_RGB_SENSOR_IOC_MAGIC, 3, int)	///< RGB sensor ioctl command - Get debug mode
-#define ASUS_RGB_SENSOR_IOCTL_MODULE_NAME           _IOR(ASUS_RGB_SENSOR_IOC_MAGIC, 4, char[ASUS_RGB_SENSOR_NAME_SIZE])	///< RGB sensor ioctl command - Get module name
+#define CFG_IT_MASK            0x0070
+#define CFG_SD_MASK            0x0001
 
-#define READ_RGB_TEMP_DATA          //ASUS_BSP +++, Leong, Create Thread to read RGB Data
+#define RGB_INDEX_R 0
+#define RGB_INDEX_G 1
+#define RGB_INDEX_B 2
+#define RGB_INDEX_W 3
 
-static void report_do_work(struct work_struct *w);
-static DECLARE_DELAYED_WORK(report_work, report_do_work);
+#define RGB_SENSOR_FILE		"/factory/rgbSensor_data"
+extern int g_ftm_mode;
+int g_ftm_mode_RGB=0;
 
-static bool g_debugMode;
-
+static struct mutex als_enable_mutex;
+struct msm_rgb_sensor_vreg {
+	struct camera_vreg_t *cam_vreg;
+	void *data[CAM_VREG_MAX];
+	int num_vreg;
+};
 struct cm3323e_info {
 	struct class *cm3323e_class;
 	struct device *ls_dev;
 	struct input_dev *ls_input_dev;
-	struct regulator *reg_vdd;
-	struct regulator *reg_vdd_i2c;
 
 	struct i2c_client *i2c_client;
 	struct workqueue_struct *lp_wq;
+	struct msm_rgb_sensor_vreg vreg_cfg;
 
 	int als_enable;
-	uint16_t it_setting;
 	int (*power)(int, uint8_t); /* power to the chip */
-	int it_time;
+
 	int lightsensor_opened;
 	int polling_delay;
+	int it_time;
+	bool using_calib;
 };
-
 struct cm3323e_status {
 	bool need_wait;
-	long long int start_time_ms;
-	long long int end_time_ms;
 	u32 start_time_jiffies;
 	u32 end_time_jiffies;
 	u16 delay_time_ms;
 	u16 delay_time_jiffies;
 };
-
-
-struct cm3323e_info *lp_info;
+struct cm3323e_info *cm_lp_info;
 struct cm3323e_status g_rgb_status = {false, 0, 0};
 
-int enable_log = 0;
-static struct mutex als_enable_mutex, als_disable_mutex, als_get_adc_mutex;
-static int lightsensor_enable(struct cm3323e_info *lpi);
-static int lightsensor_disable(struct cm3323e_info *lpi);
 
-static uint16_t cm3323e_adc_red, cm3323e_adc_green, cm3323e_adc_blue, cm3323e_adc_white;
+static int calibration_data[] = {
+	1, 1, 1, 1
+};
+static int config_data[] = {
+	1, 1, 1, 1
+};
 
+enum RGB_data {
+	RGB_DATA_R = 0,
+	RGB_DATA_G,
+	RGB_DATA_B,
+	RGB_DATA_W,
+};
+enum RGB_it {
+	RGB_IT_40MS = 0,
+	RGB_IT_80MS,
+	RGB_IT_160MS,
+	RGB_IT_320MS,
+	RGB_IT_640MS,
+	RGB_IT_1280MS,
+};
 static int I2C_RxData(uint16_t slaveAddr, uint8_t cmd, uint8_t *rxData, int length)
 {
 	uint8_t loop_i;
-	uint8_t subaddr[] = {cmd};
+	uint8_t subaddr[1];
 
 	struct i2c_msg msg[] = {
 		{
@@ -118,20 +142,20 @@ static int I2C_RxData(uint16_t slaveAddr, uint8_t cmd, uint8_t *rxData, int leng
 		 .buf = rxData,
 		 },
 	};
+	subaddr[0] = cmd;
 
 	for (loop_i = 0; loop_i < I2C_RETRY_COUNT; loop_i++) {
-		if (i2c_transfer(lp_info->i2c_client->adapter, msg, 2) > 0)
+		if (i2c_transfer(cm_lp_info->i2c_client->adapter, msg, 2) > 0)
 			break;
 
 		msleep(10);
 	}
 	if (loop_i >= I2C_RETRY_COUNT) {
-		printk(KERN_ERR "[ERR][CM3323E error] %s retry over %d\n",
-			__func__, I2C_RETRY_COUNT);
+		RGB_DBG_E("%s retry over %d\n", __func__, I2C_RETRY_COUNT);
 		return -EIO;
 	}
 
-	return 0; 
+	return 0;
 }
 
 static int I2C_TxData(uint16_t slaveAddr, uint8_t *txData, int length)
@@ -148,15 +172,14 @@ static int I2C_TxData(uint16_t slaveAddr, uint8_t *txData, int length)
 	};
 
 	for (loop_i = 0; loop_i < I2C_RETRY_COUNT; loop_i++) {
-		if (i2c_transfer(lp_info->i2c_client->adapter, msg, 1) > 0)
+		if (i2c_transfer(cm_lp_info->i2c_client->adapter, msg, 1) > 0)
 			break;
 
 		msleep(10);
 	}
 
 	if (loop_i >= I2C_RETRY_COUNT) {
-		printk(KERN_ERR "[ERR][CM3323E error] %s retry over %d\n",
-			__func__, I2C_RETRY_COUNT);
+		RGB_DBG_E("%s retry over %d\n", __func__, I2C_RETRY_COUNT);
 		return -EIO;
 	}
 
@@ -173,17 +196,14 @@ static int _cm3323e_I2C_Read_Word(uint16_t slaveAddr, uint8_t cmd, uint16_t *pda
 
 	ret = I2C_RxData(slaveAddr, cmd, buffer, 2);
 	if (ret < 0) {
-		pr_err(
-			"[ERR][CM3323E error]%s: I2C_RxData fail [0x%x, 0x%x]\n",
-			__func__, slaveAddr, cmd);
+		RGB_DBG_E("%s: I2C_RxData fail [0x%x, 0x%x]\n", __func__, slaveAddr, cmd);
 		return ret;
 	}
 
 	*pdata = (buffer[1] << 8) | buffer[0];
 #if 0
 	/* Debug use */
-	printk(KERN_DEBUG "[CM3323E] %s: I2C_RxData[0x%x, 0x%x] = 0x%x\n",
-		__func__, slaveAddr, cmd, *pdata);
+	RGB_DBG("%s: I2C_RxData[0x%x, 0x%x] = 0x%x\n", __func__, slaveAddr, cmd, *pdata);
 #endif
 	return ret;
 }
@@ -194,9 +214,7 @@ static int _cm3323e_I2C_Write_Word(uint16_t SlaveAddress, uint8_t cmd, uint16_t 
 	int ret = 0;
 #if 0
 	/* Debug use */
-	printk(KERN_DEBUG
-	"[CM3323E] %s: _cm3323e_I2C_Write_Word[0x%x, 0x%x, 0x%x]\n",
-		__func__, SlaveAddress, cmd, data);
+	RGB_DBG("%s: _cm3323e_I2C_Write_Word[0x%x, 0x%x, 0x%x]\n", __func__, SlaveAddress, cmd, data);
 #endif
 	buffer[0] = cmd;
 	buffer[1] = (uint8_t)(data & 0xff);
@@ -204,7 +222,7 @@ static int _cm3323e_I2C_Write_Word(uint16_t SlaveAddress, uint8_t cmd, uint16_t 
 
 	ret = I2C_TxData(SlaveAddress, buffer, 3);
 	if (ret < 0) {
-		pr_err("[ERR][CM3323E error]%s: I2C_TxData fail\n", __func__);
+		RGB_DBG_E("%s: I2C_TxData fail\n", __func__);
 		return -EIO;
 	}
 
@@ -218,720 +236,1139 @@ static int _cm3323e_I2C_Mask_Write_Word(uint16_t SlaveAddress, uint8_t cmd, uint
 
 	rc = _cm3323e_I2C_Read_Word(SlaveAddress, cmd, &adc_data);
 	if (rc) {
-		pr_err("[ERR][CM3323E error]%s: Failed to read reg 0x%02x, rc=%d\n", __func__, cmd, rc);
+		RGB_DBG_E("%s: Failed to read reg 0x%02x, rc=%d\n", __func__, cmd, rc);
 		goto out;
 	}
 	adc_data &= ~mask;
 	adc_data |= data & mask;
 	rc = _cm3323e_I2C_Write_Word(SlaveAddress, cmd, adc_data);
 	if (rc) {
-		pr_err("[ERR][CM3323E error]%s: Failed to write reg 0x%02x, rc=%d\n", __func__, cmd, rc);
+		RGB_DBG_E("%s: Failed to write reg 0x%02x, rc=%d\n", __func__, cmd, rc);
 	}
 out:
 	return rc;
 }
 
-static void report_lsensor_input_event(struct cm3323e_info *lpi, bool resume)
-{/*when resume need report a data, so the paramerter need to quick reponse*/
-	//uint32_t r_val, g_val, b_val, w_val;
+static int32_t als_power(int config)
+{
+	int rc = 0, i, cnt;
+	struct msm_rgb_sensor_vreg *vreg_cfg;
+	if (!cm_lp_info) {
+		RGB_DBG_E("%s: null pointer, probe might not finished!\n", __func__);
+		return -1;
+	}
+	vreg_cfg = &cm_lp_info->vreg_cfg;
+	cnt = vreg_cfg->num_vreg;
+	if (!cnt)
+		return 0;
 
-	mutex_lock(&als_get_adc_mutex);
+	if (cnt >= CAM_VREG_MAX) {
+		pr_err("%s failed %d cnt %d\n", __func__, __LINE__, cnt);
+		return -EINVAL;
+	}
 
-	_cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_R_DATA, &cm3323e_adc_red);
-	_cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_G_DATA, &cm3323e_adc_green);
-	_cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_B_DATA, &cm3323e_adc_blue);
-	_cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_W_DATA, &cm3323e_adc_white);	
-
-	input_report_rel(lpi->ls_input_dev, REL_RED,   (int) cm3323e_adc_red);
-	input_report_rel(lpi->ls_input_dev, REL_GREEN, (int) cm3323e_adc_green);
-	input_report_rel(lpi->ls_input_dev, REL_BLUE,  (int) cm3323e_adc_blue);
-	input_report_rel(lpi->ls_input_dev, REL_WHITE, (int) cm3323e_adc_white);
-	input_sync(lpi->ls_input_dev);
-	//printk("[LS][CM3323E] %s %x %x %x %x \n", __func__, cm3323e_adc_red, cm3323e_adc_green, cm3323e_adc_blue, cm3323e_adc_white);
-	  
-	mutex_unlock(&als_get_adc_mutex);
+	for (i = 0; i < cnt; i++) {
+		rc = msm_camera_config_single_vreg(&(cm_lp_info->i2c_client->dev),
+			&vreg_cfg->cam_vreg[i],
+			(struct regulator **)&vreg_cfg->data[i],
+			config);
+	}
+	return rc;
+}
+void rgbSensor_setDefaultCalibrationData(void)
+{
+	int i = 0;
+	for (i = 0; i < 4; i++) {
+		config_data[i] = 1;
+		calibration_data[i] = 1;
+	}
 }
 
-static void report_do_work(struct work_struct *work)
+void rgbSensor_setCalibrationData(int config_local[], int calibration_local[])
 {
-	struct cm3323e_info *lpi = lp_info;
-	
- 	if (enable_log)
-		D("[CM3323E] %s\n", __func__);
-
-	report_lsensor_input_event(lpi, 0);
-
-	queue_delayed_work(lpi->lp_wq, &report_work, lpi->polling_delay);
+	int i = 0;
+	for (i = 0; i < 4; i++) {
+		if (config_local[i] <= 0 || calibration_local[i] <= 0) {
+			RGB_DBG_E("%s: wrong data!\n", __func__);
+			rgbSensor_setDefaultCalibrationData();
+			return;
+		}
+	}
+	for (i = 0; i < 4; i++) {
+		config_data[i] = config_local[i];
+		calibration_data[i] = calibration_local[i];
+	}
+	RGB_DBG("%s: calibration data updated!\n", __func__);
 }
 
-static int als_power(int enable)
+int rgbSensor_getUserSpaceData(char* buf, int len)
 {
-	struct cm3323e_info *lpi = lp_info;
+	struct file *fp = NULL;
+	mm_segment_t old_fs;
+	loff_t pos_lsts = 0;
+	int readlen = 0;
 
-	if (lpi->power)
-		lpi->power(LS_PWR_ON, 1);
+	fp = filp_open(RGB_SENSOR_FILE, O_RDONLY, S_IRWXU | S_IRWXG | S_IRWXO);
+	if (IS_ERR_OR_NULL(fp)) {
+		RGB_DBG_E("%s: open %s fail\n", __func__, RGB_SENSOR_FILE);
+		return -ENOENT;	/*No such file or directory*/
+	}
 
+	/*For purpose that can use read/write system call*/
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	if (fp->f_op != NULL && fp->f_op->read != NULL) {
+		pos_lsts = 0;
+		readlen = fp->f_op->read(fp, buf, len, &pos_lsts);
+		buf[readlen] = '\0';
+	} else {
+		RGB_DBG_E("%s: f_op=NULL or op->read=NULL\n", __func__);
+		return -ENXIO;	/*No such device or address*/
+	}
+	set_fs(old_fs);
+	filp_close(fp, NULL);
 	return 0;
 }
-
-static void dev_init(struct cm3323e_info *lpi)
+void rgbSensor_updateCalibrationData(void)
 {
 	int ret = 0;
-	ret = regulator_enable(lpi->reg_vdd);
-	if (ret){
-		pr_err("%s:%d failed to enable vdd\n", __func__, __LINE__);
-	}
-	ret = regulator_enable(lpi->reg_vdd_i2c);
-	if (ret){
-		pr_err("%s:%d failed to enable vdd_i2c\n", __func__, __LINE__);
-	}
-}
+	char buf[64];
+	int config_local[4] = {
+		0, 0, 0, 0
+	};
+	int calibration_local[4] = {
+		0, 0, 0, 0
+	};
+	ret = rgbSensor_getUserSpaceData(buf, 64);
 
-static void dev_deinit(struct cm3323e_info *lpi)
+	if (ret >= 0) {
+		sscanf(buf, "%d/%d\n%d/%d\n%d/%d\n%d/%d\n",
+			&config_local[0], &calibration_local[0],
+			&config_local[1], &calibration_local[1],
+			&config_local[2], &calibration_local[2],
+			&config_local[3], &calibration_local[3]);
+		RGB_DBG("%s: config: %d,%d,%d,%d. calib data: %d,%d,%d,%d\n", __func__,
+			config_local[0], config_local[1], config_local[2], config_local[3],
+			calibration_local[0], calibration_local[1], calibration_local[2], calibration_local[3]);
+	}
+	rgbSensor_setCalibrationData(config_local, calibration_local);
+}
+static void rgbSensor_setDelay(void)
+{
+	g_rgb_status.need_wait = true;
+	g_rgb_status.start_time_jiffies = jiffies;
+	if (cm_lp_info->it_time >= 0 && cm_lp_info->it_time <= 5) {
+		if (g_ftm_mode_RGB)
+			g_rgb_status.delay_time_ms = (40 << cm_lp_info->it_time) * 2;
+		else
+			g_rgb_status.delay_time_ms = (40 << cm_lp_info->it_time) * 5 / 4;
+		//RGB_DBG("%s: set delay time to %d ms\n", __func__, g_rgb_status.delay_time_ms);
+	} else{
+		g_rgb_status.delay_time_ms = 200;
+		RGB_DBG_E("%s: wrong IT time - %d, set delay time to 200ms \n", __func__, cm_lp_info->it_time);
+	}
+	g_rgb_status.delay_time_jiffies = g_rgb_status.delay_time_ms * HZ / 1000;
+	g_rgb_status.end_time_jiffies = g_rgb_status.start_time_jiffies + g_rgb_status.delay_time_jiffies;
+}
+static int rgbSensor_doEnable(bool enabled)
 {
 	int ret = 0;
-	ret = regulator_disable(lpi->reg_vdd);
-	if (ret){
-		pr_err("%s:%d failed to disable vdd\n", __func__, __LINE__);
+	int l_it_time;
+	RGB_DBG("%s: enabled = %d, IT time = %d\n", __func__, enabled ? 1 : 0, cm_lp_info->it_time);
+	l_it_time = cm_lp_info->it_time << 4;
+	if (enabled) {
+		cm_lp_info->als_enable = 1;
+		als_power(1);
+		msleep(5);
+		ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, l_it_time);
+		rgbSensor_setDelay();
+	} else{
+		cm_lp_info->als_enable = 0;
+		if (g_ftm_mode_RGB) {
+			/* Rgb sensor would use last time IT to read first data and then use current IT to read data afterwards */
+			/* so set IT to minimum 40ms when closing rgb sensor */
+			cm_lp_info->it_time = 0;
+			l_it_time = cm_lp_info->it_time << 4;
+		}
+		ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, l_it_time | CM3323E_CONF_SD);
+		als_power(0);
 	}
-	ret = regulator_disable(lpi->reg_vdd_i2c);
-	if (ret){
-		pr_err("%s:%d failed to disable vdd_i2c\n", __func__, __LINE__);
-	}
+	return ret;
 }
-
-void lightsensor_doDelay(u32 delay_time_ms)
+static int rgbSensor_setEnable(bool enabled)
 {
+	int ret = 0;
+	static int l_count = 0;
+	bool do_enabled = false;
+
+	if (!cm_lp_info) {
+		RGB_DBG_E("%s: null pointer, probe might not finished!\n", __func__);
+		return -1;
+	}
+	RGB_DBG("%s: count = %d, enabled = %d\n", __func__, l_count, enabled ? 1 : 0);
+	mutex_lock(&als_enable_mutex);
+	if ((enabled && l_count == 0) || (!enabled && l_count == 1)) {
+		ret = rgbSensor_doEnable(enabled);
+		do_enabled = enabled;
+	}
+	if (enabled) {
+		l_count++;
+	} else{
+		l_count--;
+	}
+	mutex_unlock(&als_enable_mutex);
+	if (enabled) {
+		rgbSensor_updateCalibrationData();
+	}
+
+	return ret;
+}
+#if 0
+static bool rgbSensor_getEnable(void)
+{
+	bool result;
+	if (!cm_lp_info) {
+		result = false;
+	} else{
+		mutex_lock(&als_enable_mutex);
+		if (cm_lp_info->als_enable == 1) {
+			result = true;
+		} else{
+			result = false;
+		}
+		mutex_unlock(&als_enable_mutex);
+	}
+	return result;
+}
+#endif
+void rgbSensor_doDelay(u32 delay_time_jiffies)
+{
+	u32 delay_time_ms = delay_time_jiffies * 1000 / HZ;
 	//RGB_DBG("%s: delay time = %u(ms)\n", __func__, delay_time_ms);
 	if (delay_time_ms < 0 || delay_time_ms > g_rgb_status.delay_time_ms) {
-		printk("[LS][CM3323E] %s: param wrong, delay default time = %u(ms)\n", __func__, g_rgb_status.delay_time_ms);
-		if( g_rgb_status.delay_time_ms > 0 && g_rgb_status.delay_time_ms <= 1600 ) 
-			msleep(g_rgb_status.delay_time_ms);
+		RGB_DBG_E("%s: param wrong, delay default time = %u(ms)\n", __func__, g_rgb_status.delay_time_ms);
+		msleep(g_rgb_status.delay_time_ms);
 	} else{
-		printk("[LS][CM3323E] %s: delay time = %u(ms)\n", __func__, delay_time_ms);
-		if( delay_time_ms > 0 && delay_time_ms <= 1600 )  
-			msleep(delay_time_ms);
+		msleep(delay_time_ms);
 	}
 }
-
-void lightsensor_checkStatus(void)
+void rgbSensor_checkStatus(void)
 {
-	struct timeval current_time; 
-	long long int current_time_ms = 0;
-	do_gettimeofday(&current_time);
-	current_time_ms = current_time.tv_sec * 1000LL + current_time.tv_usec / 1000LL;
-
+	u32 current_tme_l = jiffies;
 	if (g_rgb_status.need_wait) {
 		/*handling jiffies overflow*/
-		printk("[LS][CM3323E] %s: start at %lld, end at %lld, current at %lld, delay = %u(ms)\n", __func__,
-			g_rgb_status.start_time_ms, g_rgb_status.end_time_ms, current_time_ms, g_rgb_status.delay_time_ms);
+		//RGB_DBG("%s: start at %u, end at %u, current at %u, delay = %u(jiffies)\n", __func__,
+			//g_rgb_status.start_time_jiffies, g_rgb_status.end_time_jiffies, current_tme_l, g_rgb_status.delay_time_jiffies);
 		/*normal case*/
-		if (g_rgb_status.end_time_ms > g_rgb_status.start_time_ms) {
+		if (g_rgb_status.end_time_jiffies > g_rgb_status.start_time_jiffies) {
 			/*between start and end - need delay*/
-			if (current_time_ms >= g_rgb_status.start_time_ms && current_time_ms < g_rgb_status.end_time_ms)
-				lightsensor_doDelay(g_rgb_status.end_time_ms - current_time_ms);
-			else  // overflow or don't neet to delay
-				lightsensor_doDelay(0);
-		} 
+			if (current_tme_l >= g_rgb_status.start_time_jiffies && current_tme_l < g_rgb_status.end_time_jiffies) {
+				rgbSensor_doDelay(g_rgb_status.end_time_jiffies - current_tme_l);
+			} else{
+			}
+		/*overflow case*/
+		} else{
+			/*after end - don't need to delay*/
+			if (current_tme_l < g_rgb_status.start_time_jiffies && current_tme_l >= g_rgb_status.end_time_jiffies) {
+			} else{
+				if (current_tme_l >= g_rgb_status.start_time_jiffies) {
+					rgbSensor_doDelay(g_rgb_status.delay_time_jiffies - (current_tme_l - g_rgb_status.start_time_jiffies));
+				} else{
+					rgbSensor_doDelay(g_rgb_status.end_time_jiffies - current_tme_l);
+				}
+			}
+		}
 		g_rgb_status.need_wait = false;
 	}
 }
-
-static void lightsensor_setDelay(void)
+static int get_rgb_data(int rgb_data, u16 *pdata, bool l_needDelay)
 {
-	struct cm3323e_info *lpi = lp_info;
-	struct timeval start_time; 
-	g_rgb_status.need_wait = true;
-	do_gettimeofday(&start_time);
-	if (lpi->it_time >= 0 && lpi->it_time <= 5) {
-		g_rgb_status.delay_time_ms = (40 << lpi->it_time) * 5 / 4;
-		printk("[LS][CM3323E]%s: set delay time to %d ms\n", __func__, g_rgb_status.delay_time_ms);
-	} else{
-		g_rgb_status.delay_time_ms = 200;
-		printk("[LS][CM3323E]%s: wrong IT time - %d, set delay time to 200ms \n", __func__, lpi->it_time);
+	int ret = 0;
+	u8 cmd;
+	uint16_t adc_data;
+	if (cm_lp_info == NULL || cm_lp_info->als_enable == 0) {
+		RGB_DBG_E("%s: als not enabled yet!\n", __func__);
+		ret = -1;
+		goto end;
 	}
-	g_rgb_status.start_time_ms = start_time.tv_sec * 1000LL + start_time.tv_usec / 1000LL;
-	
-	g_rgb_status.end_time_ms = g_rgb_status.start_time_ms + g_rgb_status.delay_time_ms;
+	switch (rgb_data) {
+	case RGB_DATA_R:
+		cmd = CM3323E_R_DATA;
+		break;
+	case RGB_DATA_G:
+		cmd = CM3323E_G_DATA;
+		break;
+	case RGB_DATA_B:
+		cmd = CM3323E_B_DATA;
+		break;
+	case RGB_DATA_W:
+		cmd = CM3323E_W_DATA;
+		break;
+	default:
+		RGB_DBG_E("%s: unknown cmd(%d)\n", __func__, rgb_data);
+		ret = -1;
+		goto end;
+	}
+	if (l_needDelay) {
+		rgbSensor_checkStatus();
+	}
+	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, cmd, &adc_data);
+	if (ret < 0) {
+		RGB_DBG_E("%s: _cm3323e_I2C_Read_Word at %x fail\n", __func__, cmd);
+		goto end;
+	}
+	*pdata = adc_data;
+end:
+	return ret;
 }
 
-static void lightsensor_itSet_ms(int input_ms)
+static int rgbSensor_setup(struct cm3323e_info *lpi)
 {
-	struct cm3323e_info *lpi = lp_info;
+	int ret = 0;
+	uint16_t adc_data;
+
+	lpi->it_time = RGB_IT_160MS;
+
+	// Enable CM3323E
+	ret = rgbSensor_setEnable(true);
+	if(ret < 0) {
+		return ret;
+	}
+
+	// Get initial RED light data
+	ret = get_rgb_data(RGB_DATA_R, &adc_data, false);
+	if (ret < 0) {
+		return -EIO;
+	}
+
+	// Get initial GREEN light data
+	ret = get_rgb_data(RGB_DATA_G, &adc_data, false);
+	if (ret < 0) {
+		return -EIO;
+	}
+
+	// Get initial BLUE light data
+	ret = get_rgb_data(RGB_DATA_B, &adc_data, false);
+	if (ret < 0) {
+		return -EIO;
+	}
+
+	// Get initial WHITE light data
+	ret = get_rgb_data(RGB_DATA_W, &adc_data, false);
+	if (ret < 0) {
+		return -EIO;
+	}
+
+	rgbSensor_setEnable(false);
+	return ret;
+}
+/*+++BSP David ASUS Interface+++*/
+
+u8 rgbReg_CMD_Table[] = {
+	0x00, 0x08, 0x09, 0x0a, 0x0b
+};
+
+void rgbRegDump(char tempString[], int length)
+{
+	int i = 0;
+	uint16_t reg_value = -1;
+	if (cm_lp_info != NULL && cm_lp_info->als_enable == 1) {
+		for (i = 0; i < ARRAY_SIZE(rgbReg_CMD_Table); i++) {
+			if (i > 0) {
+				snprintf(tempString, length, "%s\n", tempString);
+			}
+			_cm3323e_I2C_Read_Word(CM3323E_ADDR, rgbReg_CMD_Table[i], &reg_value);
+			snprintf(tempString, length, "%s0x%02x=%u", tempString, rgbReg_CMD_Table[i], reg_value);
+		}
+	}
+}
+static bool rgbSensor_checkI2C(void)
+{
+	int ret = -1;
+	uint16_t adc_data;
+	// Get initial RED light data
+	rgbSensor_setEnable(true);
+	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_R_DATA, &adc_data);
+	rgbSensor_setEnable(false);
+	if (ret < 0) {
+		RGB_DBG_E("%s: fail\n", __func__);
+		return false;
+	} else{
+		return true;
+	}
+}
+static void rgbSensor_itSet_ms(int input_ms)
+{
+	static uint16_t l_count = 0;
 	int it_time;
 	if (input_ms < 80) {
-		it_time = CM3323E_CONF_IT_40MS;
+		it_time = 0;
 	} else if (input_ms < 160) {
-		it_time = CM3323E_CONF_IT_80MS;
+		it_time = 1;
 	} else if (input_ms < 320) {
-		it_time = CM3323E_CONF_IT_160MS;
+		it_time = 2;
 	} else if (input_ms < 640) {
-		it_time = CM3323E_CONF_IT_320MS;
+		it_time = 3;
 	} else if (input_ms < 1280) {
-		it_time = CM3323E_CONF_IT_640MS;
+		it_time = 4;
 	} else{
-		it_time = CM3323E_CONF_IT_1280MS;
+		it_time = 5;
 	}
-	lpi->it_time = it_time;
-	lpi->polling_delay = msecs_to_jiffies( (40 << lpi->it_time) * 5 / 4 );
-	printk("[LS][CM3323E] %s: write config - it time = %d, it set = %d, polling_delay = %d(%dms)\n", __func__, input_ms, lpi->it_time , lpi->polling_delay, (40 << lpi->it_time) * 5 / 4);
-	if (lpi->als_enable == 1) {
-		_cm3323e_I2C_Mask_Write_Word(CM3323E_ADDR, CM3323E_CONF, CM3323E_CONF_IT_MASK, lpi->it_time << 4);
+	if (l_count % IT_TIME_LOG_SAMPLE_RATE == 0) {
+		RGB_DBG("%s: it time = %d, it set = %d, log rate = %d\n", __func__, input_ms, it_time, IT_TIME_LOG_SAMPLE_RATE);
+		l_count = 0;
+	}
+	l_count++;
+	cm_lp_info->it_time = it_time;
+	if (cm_lp_info->als_enable == 1) {
+		_cm3323e_I2C_Mask_Write_Word(CM3323E_ADDR, CM3323E_CONF, CFG_IT_MASK, it_time << 4);
+		if (g_ftm_mode_RGB)
+			rgbSensor_setDelay();
 	} else{
-		printk("[LS][CM3323E] %s: write config - it time = %d, it set = %d\n", __func__, input_ms, lpi->it_time);
+		RGB_DBG("%s: write config - it time = %d, it set = %d\n", __func__, input_ms, it_time);
 	}
 }
-
-static int lightsensor_enable(struct cm3323e_info *lpi)
+/*+++BSP David proc rgbSensor_dump Interface+++*/
+static int rgbSensor_dump_proc_read(struct seq_file *buf, void *v)
 {
-	int ret = 0;
-
-	mutex_lock(&als_enable_mutex);
-	D("[LS][CM3323E] %s\n", __func__);
-  
-	dev_init(lpi);
-	msleep(5);
-
-	lpi->it_setting = lpi->it_time << 4;
-	printk("[LS][CM3323E] %s setting %x \n", __func__, lpi->it_setting); 
-	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting);
-	lightsensor_setDelay();
-	if (ret < 0) {
-		pr_err(
-		"[LS][CM3323E error]%s: set auto light sensor fail\n",
-		__func__);
-	} 
-	/*else {
-		msleep(200); // wait for 200 ms for the first report
-		report_lsensor_input_event(lpi, 1);// resume, IOCTL and DEVICE_ATTR
-	}*/
-#ifdef READ_RGB_TEMP_DATA			  //ASUS_BSP +++, Leong, Create Thread to read RGB Data
-	queue_delayed_work(lpi->lp_wq, &report_work, lpi->polling_delay);
-#endif
-	lpi->als_enable = 1;
-	mutex_unlock(&als_enable_mutex);
-	
-	return ret;
+	char rgbReg[128]="";
+	rgbSensor_setEnable(true);
+	rgbRegDump(rgbReg, 128);
+	rgbSensor_setEnable(false);
+	return seq_printf(buf, "%s\n", rgbReg);
 }
-
-static int lightsensor_disable(struct cm3323e_info *lpi)
+static int rgbSensor_dump_proc_open(struct inode *inode, struct  file *file)
 {
-	int ret = 0;
+    return single_open(file, rgbSensor_dump_proc_read, NULL);
+}
+static void create_rgbSensor_dump_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_dump_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_dump", 0444, NULL, &proc_fops);
 
-	mutex_lock(&als_disable_mutex);
-
-	D("[LS][CM3323E] %s\n", __func__);
-
-    // reset to 40ms, to speed up next detecting cycle.
-    lpi->it_time = CM3323E_CONF_IT_40MS;  // CM3323E_CONF_IT_160MS  CM3323E_CONF_IT_40MS  CM3323E_CONF_IT_640MS
-    lpi->it_setting = CM3323E_CONF_DEFAULT | lpi->it_time << 4;
-	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting | CM3323E_CONF_SD );
-	if (ret < 0){
-		pr_err("[LS][CM3323E error]%s: disable auto light sensor fail\n",
-			__func__);
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
 	}
-#ifdef READ_RGB_TEMP_DATA		  //ASUS_BSP +++, Leong, Create Thread to read RGB Data
-	cancel_delayed_work_sync(&report_work); 	
-#endif
-	lpi->als_enable = 0;
-
-	dev_deinit(lpi);
-
-	mutex_unlock(&als_disable_mutex);
-	
-	return ret;
+	return;
 }
-
-static int lightsensor_open(struct inode *inode, struct file *file)
+/*---BSP David proc rgbSensor_dump Interface---*/
+/*+++BSP David proc rgbSensor_status Interface+++*/
+static int rgbSensor_status_proc_read(struct seq_file *buf, void *v)
 {
-	struct cm3323e_info *lpi = lp_info;
-	int rc = 0;
-
-	D("[LS][CM3323E] %s\n", __func__);
-	if (lpi->lightsensor_opened) {
-		pr_err("[LS][CM3323E error]%s: already opened\n", __func__);
-		rc = -EBUSY;
+	int result = 0;
+	if (rgbSensor_checkI2C()) {
+		result = 1;
+	} else{
+		result = 0;
 	}
-	lpi->lightsensor_opened = 1;
-	rc =  lightsensor_enable(lpi);
-	return rc;
+	RGB_DBG("%s: %d\n", __func__, result);
+	return seq_printf(buf, "%d\n", result);
+}
+static int rgbSensor_status_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_status_proc_read, NULL);
 }
 
-static int lightsensor_release(struct inode *inode, struct file *file)
+static void create_rgbSensor_status_proc_file(void)
 {
-	struct cm3323e_info *lpi = lp_info;
-	int rc = 0;
-
-	D("[LS][CM3323E] %s\n", __func__);
-	lpi->lightsensor_opened = 0;
-	rc = lightsensor_disable(lpi);
-	return 0;
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_status_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_status", 0444, NULL, &proc_fops);
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_status Interface---*/
+/*+++BSP David proc asusRgbCalibEnable Interface+++*/
+static int asusRgbCalibEnable_proc_read(struct seq_file *buf, void *v)
+{
+	int result = 0;
+	if (cm_lp_info->using_calib) {
+		result = 1;
+	} else{
+		result = 0;
+	}
+	return seq_printf(buf, "%d\n", result);
+}
+static int asusRgbCalibEnable_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, asusRgbCalibEnable_proc_read, NULL);
 }
 
-static long lightsensor_ioctl(struct file *file, unsigned int cmd,
-		unsigned long arg)
+static ssize_t asusRgbCalibEnable_proc_write(struct file *filp, const char __user *buff,
+		size_t len, loff_t *data)
 {
-	int rc, val;
-	struct cm3323e_info *lpi = lp_info;
-#if 1  //dit
-	int m_ioctlData[ASUS_RGB_SENSOR_DATA_SIZE];
-	char module_name[ASUS_RGB_SENSOR_NAME_SIZE] = CM3323E_I2C_NAME;
-#endif
-
-	switch (cmd) {
-#if 1		  // for dit interface
-		case ASUS_RGB_SENSOR_IOCTL_DATA_READ:
-
-			lightsensor_checkStatus();
-
-#ifndef READ_RGB_TEMP_DATA			  //ASUS_BSP +++, Leong, Create Thread to read RGB Data
-			report_lsensor_input_event(lpi, 1);
-#endif
-
-			m_ioctlData[0] = cm3323e_adc_red;
-			m_ioctlData[1] = cm3323e_adc_green;
-			m_ioctlData[2] = cm3323e_adc_blue;
-			m_ioctlData[3] = cm3323e_adc_white;
-			m_ioctlData[4] = 0;
-          //  printk("%s@\t ASUS_RGB_SENSOR_IOCTL_DATA_READ R = %d , G = %d , B = %d , W = %d  \n"
-          //  	,__func__, m_ioctlData[0], m_ioctlData[1], m_ioctlData[2], m_ioctlData[3]);
-            if( copy_to_user((int *)arg, &m_ioctlData, sizeof(int) * ASUS_RGB_SENSOR_DATA_SIZE) ) {
-				printk("%s@\t commond fail !!\n", __func__);
-				return -EFAULT;
-			}
-            return 0;
-        case ASUS_RGB_SENSOR_IOCTL_IT_SET:
-            //printk("%s@\t ASUS_RGB_SENSOR_IOCTL_IT_SET \n",__func__);
-            if( copy_from_user(&val, (int *)arg, sizeof(int)) ) {
-				printk("%s@\t commond fail !!\n", __func__);
-				return -EFAULT;
-			}
-      //      printk("%s@\t ASUS_RGB_SENSOR_IOCTL_IT_SET - %d  \n",__func__,val);
-            lightsensor_itSet_ms(val);
-
-     //       lpi->it_setting = CM3323E_CONF_DEFAULT | cm3323e_it_mapping(val);
-		//	if (lpi->als_enable) {
-		//		_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting);
-		//	}
-            return 0;
-        case ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE:
-            printk("%s@\t ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE \n",__func__);
-            val = (g_debugMode) ? 1 : 0;
-            if( copy_to_user((int*)arg, &val, sizeof(int)) ) {
-				printk("%s@\t commond fail !!\n", __func__);
-				return -EFAULT;
-			}
-            printk("%s@\t %d  \n",__func__,val);
-            return 0;
-        case ASUS_RGB_SENSOR_IOCTL_MODULE_NAME:
-            printk("%s@\t ASUS_RGB_SENSOR_IOCTL_MODULE_NAME \n",__func__);
-            if( copy_to_user((char *)arg, &module_name, sizeof(char) * ASUS_RGB_SENSOR_NAME_SIZE) ) {
-				printk("%s@\t commond fail !!\n", __func__);
-				return -EFAULT;
-			}
-            return 0;
-#endif 
-		case LIGHTSENSOR_IOCTL_ENABLE:
-			if (get_user(val, (unsigned long __user *)arg)) {
-				rc = -EFAULT;
-				break;
-			}
-			D("[LS][CM3323E] %s LIGHTSENSOR_IOCTL_ENABLE, value = %d\n",
-				__func__, val);
-			rc = val ? lightsensor_enable(lpi) : lightsensor_disable(lpi);
-			break;
-		case LIGHTSENSOR_IOCTL_GET_ENABLED:
-			val = lpi->als_enable;
-			D("[LS][CM3323E] %s LIGHTSENSOR_IOCTL_GET_ENABLED, enabled %d\n",
-				__func__, val);
-			rc = put_user(val, (unsigned long __user *)arg);
-			break;
-		default:
-			pr_err("[LS][CM3323E error]%s: invalid cmd %d\n",
-				__func__, _IOC_NR(cmd));
-			rc = -EINVAL;
+	int val;
+	char messages[256];
+	if (len > 256) {
+		len = 256;
+	}
+	if (copy_from_user(messages, buff, len)) {
+		return -EFAULT;
 	}
 
-	return rc;
+	val = (int)simple_strtol(messages, NULL, 10);
+	if (val == 0) {
+		cm_lp_info->using_calib = false;
+	} else{
+		cm_lp_info->using_calib = true;
+	}
+	RGB_DBG("%s: %d\n", __func__, val);
+	return len;
 }
+static void create_asusRgbCalibEnable_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  asusRgbCalibEnable_proc_open,
+		.write = asusRgbCalibEnable_proc_write,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/asusRgbCalibEnable", 0664, NULL, &proc_fops);
 
-static const struct file_operations lightsensor_fops = {
-	.owner = THIS_MODULE,
-	.open = lightsensor_open,
-	.release = lightsensor_release,
-	.unlocked_ioctl = lightsensor_ioctl,
-	.compat_ioctl = lightsensor_ioctl
-};
-
-static struct miscdevice lightsensor_misc = {
-	.minor = MISC_DYNAMIC_MINOR,
-	.name = CM3323E_I2C_NAME,
-	.fops = &lightsensor_fops
-};
-
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc asusRgbCalibEnable Interface---*/
+/*+++BSP David proc asusRgbDebug Interface+++*/
 static int asusRgbDebug_proc_read(struct seq_file *buf, void *v)
 {
-    int result = 0;
-    if (g_debugMode) {
-        result = 1;
-    } else{
-        result = 0;
-    }
-    return seq_printf(buf, "%d\n", result);
+	int result = 0;
+	if (g_debugMode) {
+		result = 1;
+	} else{
+		result = 0;
+	}
+	return seq_printf(buf, "%d\n", result);
 }
-
 static int asusRgbDebug_proc_open(struct inode *inode, struct  file *file)
 {
     return single_open(file, asusRgbDebug_proc_read, NULL);
 }
 
-static ssize_t asusRgbDebug_proc_write(struct file *filp, const char __user *buff, size_t len, loff_t *data)
+static ssize_t asusRgbDebug_proc_write(struct file *filp, const char __user *buff,
+		size_t len, loff_t *data)
 {
-    int val;
-    char messages[256];
-    if (len > 256) {
-        len = 256;
-    }
-    if (copy_from_user(messages, buff, len)) {
-        return -EFAULT;
-    }
-
-    val = (int)simple_strtol(messages, NULL, 10);
-    if (val == 0) {
-        g_debugMode = false;
-    } else{
-        g_debugMode = true;
-    }
-    printk("%s: debug_value:%d\n",__func__, val);
-    return len;
-}
-
-static const struct file_operations asus_rgb_debug_fops = {
-    .owner = THIS_MODULE,
-    .open =  asusRgbDebug_proc_open,
-    .write = asusRgbDebug_proc_write,
-    .read = seq_read,
-};
-
-static ssize_t ls_enable_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
-{
-	int ret = 0;
-	struct cm3323e_info *lpi = lp_info;
-
-	ret = sprintf(buf, "Light sensor Auto Enable = %d\n",
-			lpi->als_enable);
-
-	return ret;
-}
-
-static ssize_t ls_enable_store(struct device *dev,
-				   struct device_attribute *attr,
-				   const char *buf, size_t count)
-{
-	int ret = 0;
-	int ls_auto;
-	struct cm3323e_info *lpi = lp_info;
-
-	ls_auto = -1;
-	sscanf(buf, "%d", &ls_auto);
-
-	if (ls_auto != 0 && ls_auto != 1)
-		return -EINVAL;
-
-	if (ls_auto) {
-		ret = lightsensor_enable(lpi);
-	} else {
-		ret = lightsensor_disable(lpi);
+	int val;
+	char messages[256];
+	if (len > 256) {
+		len = 256;
+	}
+	if (copy_from_user(messages, buff, len)) {
+		return -EFAULT;
 	}
 
-	D("[LS][CM3323E] %s: lpi->als_enable = %d, ls_auto = %d\n",
-		__func__, lpi->als_enable, ls_auto);
+	val = (int)simple_strtol(messages, NULL, 10);
+	if (val == 0) {
+		g_debugMode = false;
+	} else{
+		g_debugMode = true;
+	}
+	RGB_DBG("%s: %d\n", __func__, val);
+	return len;
+}
+static void create_asusRgbDebug_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  asusRgbDebug_proc_open,
+		.write = asusRgbDebug_proc_write,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/asusRgbDebug", 0664, NULL, &proc_fops);
 
-	if (ret < 0)
-		pr_err(
-		"[LS][CM3323E error]%s: set auto light sensor fail\n",
-		__func__);
-
-	return count;
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc asusRgbDebug Interface---*/
+/*+++BSP David proc asusRgbSetIT Interface+++*/
+static int asusRgbSetIT_proc_read(struct seq_file *buf, void *v)
+{
+	int result = 0;
+	result = 40 << cm_lp_info->it_time;
+	return seq_printf(buf, "%d\n", result);
+}
+static int asusRgbSetIT_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, asusRgbSetIT_proc_read, NULL);
 }
 
-static ssize_t ls_poll_delay_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+static ssize_t asusRgbSetIT_proc_write(struct file *filp, const char __user *buff,
+		size_t len, loff_t *data)
 {
-	int ret = 0;
-	struct cm3323e_info *lpi = lp_info;
+	int val;
+	char messages[256]={'\0'};
+	if (len > 256) {
+		len = 256;
+	}
+	if (copy_from_user(messages, buff, len)) {
+		return -EFAULT;
+	}
+        RGB_DBG("%s: messages : %s\n", __func__, messages);
+	val = (int)simple_strtol(messages, NULL, 10);
+        RGB_DBG("%s: val : %d\n", __func__, val);
 
-	ret = sprintf(buf, "Light sensor Poll Delay = %d ms\n",
-			jiffies_to_msecs(lpi->polling_delay));
-
-	return ret;
+	rgbSensor_itSet_ms(val);
+	RGB_DBG("%s: %d\n", __func__, val);
+	return len;
 }
-
-static ssize_t ls_poll_delay_store(struct device *dev,
-				   struct device_attribute *attr,
-				   const char *buf, size_t count)
+static void create_asusRgbSetIT_proc_file(void)
 {
-	int new_delay;
-	struct cm3323e_info *lpi = lp_info;
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  asusRgbSetIT_proc_open,
+		.write = asusRgbSetIT_proc_write,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/asusRgbSetIT", 0664, NULL, &proc_fops);
 
-	sscanf(buf, "%d", &new_delay);
-  
-	D("new delay = %d ms, old delay = %d ms\n", 
-		new_delay, jiffies_to_msecs(lpi->polling_delay));
-
-	lpi->polling_delay = msecs_to_jiffies(new_delay);
-
-	if( lpi->als_enable ){
-		lightsensor_disable(lpi); 
-		lightsensor_enable(lpi);
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc asusRgbSetIT Interface---*/
+#if 0
+/*+++BSP David proc rgbSensor_enable Interface+++*/
+static ssize_t rgbSensor_enable_proc_write(struct file *filp, const char __user *buff,
+		size_t len, loff_t *data)
+{
+	char messages[256];
+	if (len > 256) {
+		len = 256;
+	}
+	if (copy_from_user(messages, buff, len)) {
+		return -EFAULT;
+	}
+	if (messages[0] == '1') {
+		rgbSensor_setEnable(true);
+	} else{
+		rgbSensor_setEnable(false);
 	}
 
-	return count;
+	RGB_DBG("%s: %s\n", __func__, messages);
+	return len;
+}
+static int rgbSensor_enable_proc_read(struct seq_file *buf, void *v)
+{
+	char tempString[16];
+	if (rgbSensor_getEnable()) {
+		snprintf(tempString, 16, "%s", "enabled");
+	} else{
+		snprintf(tempString, 16, "%s", "disabled");
+	}
+	RGB_DBG("%s: %s\n", __func__, tempString);
+	return seq_printf(buf, "%s\n", tempString);
+}
+static int rgbSensor_enable_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_enable_proc_read, NULL);
+}
+static void create_rgbSensor_enable_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_enable_proc_open,
+		.write = rgbSensor_enable_proc_write,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_enable", 0664, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_enable Interface---*/
+/*+++BSP David proc rgbSensor_update_calibration_data Interface+++*/
+static int rgbSensor_update_calibration_data_proc_read(struct seq_file *buf, void *v)
+{
+	int result = 1;
+	rgbSensor_updateCalibrationData();
+	RGB_DBG("%s: %d\n", __func__, result);
+	return seq_printf(buf, "%d\n", result);
+}
+static int rgbSensor_update_calibration_data_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_update_calibration_data_proc_read, NULL);
 }
 
-static uint16_t CONF_SETTING = 0;
-static ssize_t ls_conf_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+static void create_rgbSensor_update_calibration_data_proc_file(void)
 {
-	return sprintf(buf, "CONF_SETTING = %x\n", CONF_SETTING);
-}
-static ssize_t ls_conf_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
-{
-	int value = 0;
-	sscanf(buf, "0x%x", &value);
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_update_calibration_data_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_update_calibration_data", 0440, NULL, &proc_fops);
 
-	CONF_SETTING = value;
-	printk(KERN_INFO "[LS]set CM3323E_CONF = %x\n", CONF_SETTING);
-	_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, CONF_SETTING);
-	return count;
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
 }
-
-static ssize_t ls_red_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+/*---BSP David proc rgbSensor_update_calibration_data Interface---*/
+/*+++BSP David proc rgbSensor_itTime Interface+++*/
+static int rgbSensor_itTime_proc_read(struct seq_file *buf, void *v)
 {
-	return sprintf(buf, "%x\n", cm3323e_adc_red);
+	int result = -1;
+	if (cm_lp_info != NULL) {
+		result = cm_lp_info->it_time;
+	}
+	RGB_DBG("%s: %d\n", __func__, result);
+	return seq_printf(buf, "%d\n", result);
 }
-
-static ssize_t ls_green_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+static int rgbSensor_itTime_proc_open(struct inode *inode, struct  file *file)
 {
-	return sprintf(buf, "%x\n", cm3323e_adc_green);
-}
-
-static ssize_t ls_blue_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%x\n", cm3323e_adc_blue);
+    return single_open(file, rgbSensor_itTime_proc_read, NULL);
 }
 
-static ssize_t ls_white_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+static ssize_t rgbSensor_itTime_proc_write(struct file *filp, const char __user *buff,
+		size_t len, loff_t *data)
 {
-	return sprintf(buf, "%x\n", cm3323e_adc_white);
+	int val;
+	char messages[256];
+	if (len > 256) {
+		len = 256;
+	}
+	if (copy_from_user(messages, buff, len)) {
+		return -EFAULT;
+	}
+
+	val = (int)simple_strtol(messages, NULL, 10);
+	if (val >= 0 && val <= 5) {
+		cm_lp_info->it_time = val;
+		if (cm_lp_info != NULL && cm_lp_info->als_enable == 1) {
+			RGB_DBG("%s: %d => %x\n", __func__, val, val << 4);
+			_cm3323e_I2C_Mask_Write_Word(CM3323E_ADDR, CM3323E_CONF, CFG_IT_MASK, val << 4);
+		} else{
+			RGB_DBG_E("%s: als not enabled yet, val = %d\n", __func__, val);
+		}
+	} else{
+		RGB_DBG_E("%s : parameter out of range(%d)\n", __func__, val);
+	}
+
+	return len;
+}
+static void create_rgbSensor_itTime_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_itTime_proc_open,
+		.write = rgbSensor_itTime_proc_write,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_itTime", 0664, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_itTime Interface---*/
+/*+++BSP David proc rgbSensor_raw_r Interface+++*/
+static int rgbSensor_raw_r_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_R, false, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_raw_r_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_raw_r_proc_read, NULL);
 }
 
-static struct device_attribute dev_attr_light_enable =
-__ATTR(enable, S_IRUGO | S_IWUSR | S_IWGRP, ls_enable_show, ls_enable_store);
-
-static struct device_attribute dev_attr_light_poll_delay =
-__ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP, ls_poll_delay_show, ls_poll_delay_store);
-
-static struct device_attribute dev_attr_light_conf =
-__ATTR(conf, S_IRUGO | S_IWUSR | S_IWGRP, ls_conf_show, ls_conf_store);
-
-static struct device_attribute dev_attr_light_red =
-__ATTR(in_intensity_red, S_IRUGO | S_IRUSR | S_IRGRP, ls_red_show, NULL);
-
-static struct device_attribute dev_attr_light_green =
-__ATTR(in_intensity_green, S_IRUGO | S_IRUSR | S_IRGRP, ls_green_show, NULL);
-
-static struct device_attribute dev_attr_light_blue =
-__ATTR(in_intensity_blue, S_IRUGO | S_IRUSR | S_IRGRP, ls_blue_show, NULL);
-
-static struct device_attribute dev_attr_light_white =
-__ATTR(in_intensity_white, S_IRUGO | S_IRUSR | S_IRGRP, ls_white_show, NULL);
-
-static struct attribute *light_sysfs_attrs[] = {
-&dev_attr_light_enable.attr,
-&dev_attr_light_poll_delay.attr,
-&dev_attr_light_conf.attr,
-&dev_attr_light_red.attr,
-&dev_attr_light_green.attr,
-&dev_attr_light_blue.attr,
-&dev_attr_light_white.attr,
-NULL
-};
-
-static struct attribute_group light_attribute_group = {
-.attrs = light_sysfs_attrs,
-};
-
-static int ATD_I2C_status_check_proc_read(struct seq_file *buf, void *v)
+static void create_rgbSensor_raw_r_proc_file(void)
 {
-	int ret = 0;
-	uint16_t conf_data;
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_raw_r_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_r", 0444, NULL, &proc_fops);
 
-	dev_init(lp_info);
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_raw_r Interface---*/
+/*+++BSP David proc rgbSensor_raw_g Interface+++*/
+static int rgbSensor_raw_g_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
 
-	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_CONF, &conf_data);
-	seq_printf(buf, "%d\n", ret < 0 ? 0 : 1);
+	get_rgb_data(RGB_DATA_G, false, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_raw_g_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_raw_g_proc_read, NULL);
+}
 
-	dev_deinit(lp_info);
+static void create_rgbSensor_raw_g_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_raw_g_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_g", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_raw_g Interface---*/
+/*+++BSP David proc rgbSensor_raw_b Interface+++*/
+static int rgbSensor_raw_b_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_B, false, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_raw_b_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_raw_b_proc_read, NULL);
+}
+
+static void create_rgbSensor_raw_b_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_raw_b_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_b", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_raw_b Interface---*/
+/*+++BSP David proc rgbSensor_raw_w Interface+++*/
+static int rgbSensor_raw_w_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_W, false, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_raw_w_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_raw_w_proc_read, NULL);
+}
+
+static void create_rgbSensor_raw_w_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_raw_w_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_w", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_raw_w Interface---*/
+/*+++BSP David proc rgbSensor_r Interface+++*/
+static int rgbSensor_r_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_R, true, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_r_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_r_proc_read, NULL);
+}
+
+static void create_rgbSensor_r_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_r_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_r", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_r Interface---*/
+/*+++BSP David proc rgbSensor_g Interface+++*/
+static int rgbSensor_g_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_G, true, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_g_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_g_proc_read, NULL);
+}
+
+static void create_rgbSensor_g_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_g_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_g", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_g Interface---*/
+/*+++BSP David proc rgbSensor_b Interface+++*/
+static int rgbSensor_b_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_B, true, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_b_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_b_proc_read, NULL);
+}
+
+static void create_rgbSensor_b_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_b_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_b", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_b Interface---*/
+/*+++BSP David proc rgbSensor_w Interface+++*/
+static int rgbSensor_w_proc_read(struct seq_file *buf, void *v)
+{
+	u16 adc_data = 0;
+
+	get_rgb_data(RGB_DATA_W, true, &adc_data);
+	RGB_DBG("%s: %u\n", __func__, adc_data);
+	return seq_printf(buf, "%u\n", adc_data);
+}
+static int rgbSensor_w_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, rgbSensor_w_proc_read, NULL);
+}
+
+static void create_rgbSensor_w_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  rgbSensor_w_proc_open,
+		.read = seq_read,
+		.llseek = seq_lseek,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_w", 0444, NULL, &proc_fops);
+
+	if (!proc_file) {
+		RGB_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc rgbSensor_w Interface---*/
+#endif
+/*---BSP David ASUS Interface---*/
+
+
+static int rgbSensor_miscOpen(struct inode *inode, struct file *file)
+{
+	RGB_DBG("%s\n", __func__);
+	rgbSensor_setEnable(true);
 	return 0;
 }
 
-static int ATD_I2C_status_check_proc_open(struct inode *inode, struct  file *file)
+static int rgbSensor_miscRelease(struct inode *inode, struct file *file)
 {
-	return single_open(file, ATD_I2C_status_check_proc_read, NULL);
+	RGB_DBG("%s\n", __func__);
+	rgbSensor_setEnable(false);
+	return 0;
 }
-
-static const struct file_operations ATD_I2C_status_check_fops = {
-    .owner = THIS_MODULE,
-    .open = ATD_I2C_status_check_proc_open,
-    .read = seq_read,
-    .llseek = seq_lseek,
-    .release = single_release,
- };
-
-static void create_proc_file( void )
+static long rgbSensor_miscIoctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-    proc_create(STATUS_PROC_FILE, 0664, NULL, &ATD_I2C_status_check_fops);
-    proc_create(RGBDEBUG_PROC_FILE, 0664, NULL, &asus_rgb_debug_fops);
-}
-
-static int lightsensor_setup(struct cm3323e_info *lpi)
-{
-	int ret;
-
-	lpi->ls_input_dev = input_allocate_device();
-	if (!lpi->ls_input_dev) {
-		pr_err(
-			"[LS][CM3323E error]%s: could not allocate ls input device\n",
-			__func__);
-		return -ENOMEM;
-	}
-	lpi->ls_input_dev->name = "cm3323e-ls";
-	
-	input_set_capability(lpi->ls_input_dev, EV_REL, REL_RED);
-	input_set_capability(lpi->ls_input_dev, EV_REL, REL_GREEN);
-	input_set_capability(lpi->ls_input_dev, EV_REL, REL_BLUE);
-	input_set_capability(lpi->ls_input_dev, EV_REL, REL_WHITE);
-	
-	ret = input_register_device(lpi->ls_input_dev);
-	if (ret < 0) {
-		pr_err("[LS][CM3323E error]%s: can not register ls input device\n",
-				__func__);
-		goto err_free_ls_input_device;
-	}
-
-	return ret;
-
-err_free_ls_input_device:
-	input_free_device(lpi->ls_input_dev);
-	return ret;
-}
-
-static int cm3323e_setup(struct cm3323e_info *lpi)
-{
+	int it_time = 0;
 	int ret = 0;
+	int dataI[ASUS_RGB_SENSOR_DATA_SIZE];
+	char dataS[ASUS_RGB_SENSOR_NAME_SIZE];
  	uint16_t adc_data;
-
-	als_power(1);
-	msleep(5);
-
-	// Shut down CM3323E
-	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting | CM3323E_CONF_SD);
-	if(ret < 0)
-		return ret;
-		
-	// Enable CM3323E
-	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, lpi->it_setting);
-	if(ret < 0)
-		return ret;
-
-	msleep(200);
-	
-	// Get initial RED light data
-	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_R_DATA, &adc_data);
-	if (ret < 0) {
-		pr_err(
-			"[LS][CM3323E error]%s: _cm3323e_I2C_Read_Word for RED fail\n",
-			__func__);
-		return -EIO;
+	int l_debug_mode = 0;
+	switch (cmd) {
+		case ASUS_RGB_SENSOR_IOCTL_IT_SET:
+			if (cm_lp_info->als_enable == 1) {
+				ret = copy_from_user(&it_time, (int __user*)arg, sizeof(it_time));
+				rgbSensor_itSet_ms(it_time);
+				if (cm_lp_info->it_time >= 0 && cm_lp_info->it_time <= 5) {
+					RGB_DBG_API("%s: cmd = IT_SET, time = %dms\n", __func__, 40 << cm_lp_info->it_time);
+				} else{
+					RGB_DBG_E("%s: cmd = IT_SET, time error(%d)\n", __func__, cm_lp_info->it_time);
+				}
+			} else{
+				RGB_DBG_E("%s: als not enabled yet!\n", __func__);
+			}
+			break;
+		case ASUS_RGB_SENSOR_IOCTL_DATA_READ:
+			get_rgb_data(RGB_DATA_R, &adc_data, true);
+			dataI[0] = adc_data;
+			get_rgb_data(RGB_DATA_G, &adc_data, true);
+			dataI[1] = adc_data;
+			get_rgb_data(RGB_DATA_B, &adc_data, true);
+			dataI[2] = adc_data;
+			get_rgb_data(RGB_DATA_W, &adc_data, true);
+			dataI[3] = adc_data;
+			dataI[4] = 1;
+			RGB_DBG_API("%s: cmd = DATA_READ, data[0] = %d, data[1] = %d, data[2] = %d, data[3] = %d, data[4] = %d\n"
+				, __func__, dataI[0], dataI[1], dataI[2], dataI[3], dataI[4]);
+			ret = copy_to_user((int __user*)arg, &dataI, sizeof(dataI));
+			break;
+		case ASUS_RGB_SENSOR_IOCTL_MODULE_NAME:
+			snprintf(dataS, sizeof(dataS), "%s", CM3323E_I2C_NAME);
+			RGB_DBG_API("%s: cmd = MODULE_NAME, name = %s\n", __func__, dataS);
+			ret = copy_to_user((int __user*)arg, &dataS, sizeof(dataS));
+			break;
+		case ASUS_RGB_SENSOR_IOCTL_DEBUG_MODE:
+			if (g_debugMode) {
+				l_debug_mode = 1;
+			} else{
+				l_debug_mode = 0;
+			}
+			RGB_DBG_API("%s: cmd = DEBUG_MODE, result = %d\n", __func__, l_debug_mode);
+			ret = copy_to_user((int __user*)arg, &l_debug_mode, sizeof(l_debug_mode));
+			break;
+		default:
+			RGB_DBG_E("%s: default\n", __func__);
 	}
-	
-	// Get initial GREEN light data
-	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_G_DATA, &adc_data);
-	if (ret < 0) {
-		pr_err(
-			"[LS][CM3323E error]%s: _cm3323e_I2C_Read_Word for GREEN fail\n",
-			__func__);
-		return -EIO;
-	}	
-
-	// Get initial BLUE light data
-	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_B_DATA, &adc_data);
-	if (ret < 0) {
-		pr_err(
-			"[LS][CM3323E error]%s: _cm3323e_I2C_Read_Word for BLUE fail\n",
-			__func__);
-		return -EIO;
+	return 0;
+}
+static struct file_operations cm3323e_fops = {
+  .owner = THIS_MODULE,
+  .open = rgbSensor_miscOpen,
+  .release = rgbSensor_miscRelease,
+  .unlocked_ioctl = rgbSensor_miscIoctl,
+  .compat_ioctl = rgbSensor_miscIoctl
+};
+struct miscdevice cm3323e_misc = {
+  .minor = MISC_DYNAMIC_MINOR,
+  .name = "asusRgbSensor",
+  .fops = &cm3323e_fops
+};
+static int rgbSensor_miscRegister(void)
+{
+	int rtn = 0;
+	rtn = misc_register(&cm3323e_misc);
+	if (rtn < 0) {
+		RGB_DBG_E("[%s] Unable to register misc deive\n", __func__);
+		misc_deregister(&cm3323e_misc);
 	}
-
-	// Get initial WHITE light data
-	ret = _cm3323e_I2C_Read_Word(CM3323E_ADDR, CM3323E_W_DATA, &adc_data);
-	if (ret < 0) {
-		pr_err(
-			"[LS][CM3323E error]%s: _cm3323e_I2C_Read_Word for WHITE fail\n",
-			__func__);
-		return -EIO;
-	}
-
-	// Shut down CM3323E
-	ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, CM3323E_CONF_DEFAULT | CM3323E_CONF_IT_160MS | CM3323E_CONF_SD);
-
-	return ret;
+	return rtn;
 }
 
+static int32_t rgbSensor_getDt(struct device_node *of_node,
+		struct cm3323e_info *fctrl)
+{
+	struct msm_rgb_sensor_vreg *vreg_cfg = NULL;
+	int rc;
+
+	if (of_find_property(of_node,
+			"qcom,cam-vreg-name", NULL)) {
+		vreg_cfg = &fctrl->vreg_cfg;
+		rc = msm_camera_get_dt_vreg_data(of_node,
+			&vreg_cfg->cam_vreg, &vreg_cfg->num_vreg);
+		if (rc < 0) {
+			RGB_DBG_E("%s: failed rc %d\n", __func__, rc);
+		}
+	} else{
+		RGB_DBG_E("%s: can't find regulator\n", __func__);
+		rc = -1;
+	}
+	return rc;
+}
 static int cm3323e_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
 	int ret = 0;
 	struct cm3323e_info *lpi;
 
-	D("[CM3323E] %s: Probe start\n", __func__);
+	RGB_DBG("%s start\n", __func__);
 
 	lpi = kzalloc(sizeof(struct cm3323e_info), GFP_KERNEL);
-	if (!lpi) {
-		pr_err("%s:%d failed no memory\n", __func__, __LINE__);
+	if (!lpi)
 		return -ENOMEM;
-	}
-
-	lpi->reg_vdd = devm_regulator_get(&client->dev, "vdd");
-	lpi->reg_vdd_i2c = devm_regulator_get(&client->dev, "vdd_i2c");
-
-	switch (asus_HW_ID) {
-		case HW_ID_EVB:
-		case HW_ID_EVB2:
-		case HW_ID_SR1:
-		case HW_ID_SR2:
-			// for stage before ER2, vdd should be always enabled.
-			ret = regulator_enable(lpi->reg_vdd);
-			if (ret){
-				pr_err("%s:%d failed to enable vdd\n", __func__, __LINE__);
-			}
-			break;
-
-		default:
-			break;
-	}
-
-    g_debugMode = false;
-
-	dev_init(lpi);
 
 	lpi->i2c_client = client;
 
@@ -940,92 +1377,58 @@ static int cm3323e_probe(struct i2c_client *client,
 	lpi->power = NULL; //if necessary, add power function here for sensor chip
 
 	lpi->polling_delay = msecs_to_jiffies(LS_POLLING_DELAY);
-	lp_info = lpi;
-	lpi->it_setting = CM3323E_CONF_DEFAULT | CM3323E_CONF_IT_160MS;
-
+	lpi->using_calib = true;
+	cm_lp_info = lpi;
+	g_debugMode = false;
+	rgbSensor_getDt(client->dev.of_node, lpi);
 	mutex_init(&als_enable_mutex);
-	mutex_init(&als_disable_mutex);
-	mutex_init(&als_get_adc_mutex);
-
-	ret = lightsensor_setup(lpi);
+	ret = rgbSensor_setup(lpi);
 	if (ret < 0) {
-		pr_err("[LS][CM3323E error]%s: lightsensor_setup error!!\n",
-			__func__);
-		goto err_lightsensor_setup;
+		RGB_DBG_E("%s: rgbSensor_setup error!\n", __func__);
+		goto err_rgbSensor_setup;
 	}
-
-	lpi->lp_wq = create_singlethread_workqueue("cm3323e_wq");
-	if (!lpi->lp_wq) {
-		pr_err("[CM3323E error]%s: can't create workqueue\n", __func__);
-		ret = -ENOMEM;
-		goto err_create_singlethread_workqueue;
-	}
-
-	ret = cm3323e_setup(lpi);
+	ret = rgbSensor_miscRegister();
 	if (ret < 0) {
-		pr_err("[ERR][CM3323E error]%s: cm3323e_setup error!\n", __func__);
-		goto err_cm3323e_setup;
+		goto err_rgbSensor_miscRegister;
 	}
 
-	// create /dev node
-	ret = misc_register(&lightsensor_misc);
-    if (ret != 0) {
-        pr_err("[ERR][CM3323E error]%s: cannot register miscdev on minor=11 (err=%d)\n", __func__,ret);
-        goto err_create_misc;
-    }
+	create_rgbSensor_dump_proc_file();
+	create_rgbSensor_status_proc_file();
+	create_asusRgbCalibEnable_proc_file();
+	create_asusRgbDebug_proc_file();
+	create_asusRgbSetIT_proc_file();
 
-	lpi->cm3323e_class = class_create(THIS_MODULE, "optical_sensors");
-	if (IS_ERR(lpi->cm3323e_class)) {
-		ret = PTR_ERR(lpi->cm3323e_class);
-		lpi->cm3323e_class = NULL;
-		goto err_create_class;
-	}
+#if 0
+	create_rgbSensor_enable_proc_file();
+	create_rgbSensor_itTime_proc_file();
+	create_rgbSensor_update_calibration_data_proc_file();
+	create_rgbSensor_r_proc_file();
+	create_rgbSensor_g_proc_file();
+	create_rgbSensor_b_proc_file();
+	create_rgbSensor_w_proc_file();
+	create_rgbSensor_raw_r_proc_file();
+	create_rgbSensor_raw_g_proc_file();
+	create_rgbSensor_raw_b_proc_file();
+	create_rgbSensor_raw_w_proc_file();
+#endif
 
-	lpi->ls_dev = device_create(lpi->cm3323e_class,
-				NULL, 0, "%s", "lightsensor");
-	if (unlikely(IS_ERR(lpi->ls_dev))) {
-		ret = PTR_ERR(lpi->ls_dev);
-		lpi->ls_dev = NULL;
-		goto err_create_ls_device;
-	}
-	/* register the attributes */
-	ret = sysfs_create_group(&lpi->ls_input_dev->dev.kobj,
-	&light_attribute_group);
-	if (ret) {
-		pr_err("[LS][CM3323E error]%s: could not create sysfs group\n", __func__);
-		goto err_sysfs_create_group_light;
-	}
-
-	create_proc_file();
-
-	lpi->als_enable = 0;
-	dev_deinit(lpi);
-	D("[CM3323E] %s: Probe success!\n", __func__);
+	RGB_DBG("%s: Probe success!\n", __func__);
 
 	return ret;
 
-err_sysfs_create_group_light:
-	device_unregister(lpi->ls_dev);
-err_create_ls_device:
-	class_destroy(lpi->cm3323e_class);
-err_create_class:
-	misc_deregister(&lightsensor_misc);
-err_create_misc:
-err_cm3323e_setup:
-	destroy_workqueue(lpi->lp_wq);
-err_create_singlethread_workqueue:
-	input_unregister_device(lpi->ls_input_dev);
-	input_free_device(lpi->ls_input_dev);
-err_lightsensor_setup:
+err_rgbSensor_miscRegister:
+err_rgbSensor_setup:
+	rgbSensor_setEnable(false);
 	mutex_destroy(&als_enable_mutex);
-	mutex_destroy(&als_disable_mutex);
-	mutex_destroy(&als_get_adc_mutex);
-	dev_deinit(lpi);
 	kfree(lpi);
-	regulator_disable(lpi->reg_vdd);
 	return ret;
 }
 
+static int cm3323e_remove(struct i2c_client *client)
+{
+	misc_deregister(&cm3323e_misc);
+	return 0;
+}
 static const struct i2c_device_id cm3323e_i2c_id[] = {
 	{CM3323E_I2C_NAME, 0},
 	{}
@@ -1043,10 +1446,11 @@ static const struct i2c_device_id cm3323e_i2c_id[] = {
 static struct i2c_driver cm3323e_driver = {
 	.id_table = cm3323e_i2c_id,
 	.probe = cm3323e_probe,
+	.remove = cm3323e_remove,
 	.driver = {
 		.name = CM3323E_I2C_NAME,
 		.owner = THIS_MODULE,
- 		.of_match_table = of_match_ptr(cm3323e_match_table),
+		.of_match_table = of_match_ptr(cm3323e_match_table),
 	},
 };
 

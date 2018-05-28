@@ -2,6 +2,7 @@
 #define __LINUX_MSM_CAM_SENSOR_H
 
 #include <uapi/media/msm_cam_sensor.h>
+#include <uapi/media/msm_camsensor_sdk.h>
 
 #include <linux/compat.h>
 
@@ -40,6 +41,7 @@ struct msm_camera_sensor_slave_info32 {
 	uint8_t  is_init_params_valid;
 	struct msm_sensor_init_params sensor_init_params;
 	enum msm_sensor_output_format_t output_format;
+	uint8_t bypass_video_node_creation;
 };
 
 struct msm_camera_csid_lut_params32 {
@@ -72,6 +74,16 @@ struct csid_cfg_data32 {
 	} cfg;
 };
 
+struct msm_ir_led_cfg_data_t32 {
+	enum msm_ir_led_cfg_type_t cfg_type;
+	int32_t pwm_duty_on_ns;
+	int32_t pwm_period_ns;
+};
+
+struct msm_ir_cut_cfg_data_t32 {
+	enum msm_ir_cut_cfg_type_t cfg_type;
+};
+
 struct eeprom_read_t32 {
 	compat_uptr_t dbuffer;
 	uint32_t num_bytes;
@@ -88,14 +100,6 @@ struct msm_eeprom_info_t32 {
 	compat_uptr_t mem_map_array;
 };
 
-struct msm_eeprom_data_info_t32 {
-	uint8_t af_module_info_cs;
-	uint8_t pdaf_cs;
-	uint8_t eis_cs;
-	uint8_t dlc_cs;
-	uint8_t ois_cs;
-};
-
 struct msm_eeprom_cfg_data32 {
 	enum eeprom_cfg_type_t cfgtype;
 	uint8_t is_supported;
@@ -105,7 +109,6 @@ struct msm_eeprom_cfg_data32 {
 		struct eeprom_read_t32 read_data;
 		struct eeprom_write_t32 write_data;
 		struct msm_eeprom_info_t32 eeprom_info;
-		struct msm_eeprom_data_info_t32 eeprom_data_info;
 	} cfg;
 };
 
@@ -143,10 +146,6 @@ struct msm_actuator_params_t32 {
 	uint16_t data_size;
 	uint16_t init_setting_size;
 	uint32_t i2c_addr;
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	uint32_t imx318_i2c_addr;
-	uint32_t i2c_cmd_pass_thru_imx318;
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	enum i2c_freq_mode_t i2c_freq_mode;
 	enum msm_camera_i2c_reg_addr_type i2c_addr_type;
 	enum msm_camera_i2c_data_type i2c_data_type;
@@ -227,7 +226,6 @@ struct msm_ois_cfg_data32 {
 	union {
 		struct msm_ois_set_info_t32 set_info;
 		compat_uptr_t settings;
-		int32_t data;
 	} cfg;
 };
 
@@ -272,6 +270,12 @@ struct msm_flash_cfg_data_t32 {
 
 #define VIDIOC_MSM_FLASH_CFG32 \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 13, struct msm_flash_cfg_data_t32)
+
+#define VIDIOC_MSM_IR_LED_CFG32 \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 14, struct msm_ir_led_cfg_data_t32)
+
+#define VIDIOC_MSM_IR_CUT_CFG32 \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 15, struct msm_ir_cut_cfg_data_t32)
 #endif
 
 #endif

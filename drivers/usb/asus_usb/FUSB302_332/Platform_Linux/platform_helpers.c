@@ -3151,12 +3151,21 @@ static ssize_t _fusb_Sysfs_TypeC_Status_show(struct device* dev, struct device_a
     }
 }
 
+static ssize_t _fusb_IsDeviceValid(struct device* dev, struct device_attribute* attr, char* buf)
+{
+    if (fusb_IsDeviceValid())
+      return sprintf(buf, "1\n");
+    else
+      return sprintf(buf, "0\n");
+}
+
 // Define our device attributes to export them to sysfs
 static DEVICE_ATTR(fusb30x_hostcomm, S_IRWXU | S_IRWXG | S_IROTH, _fusb_Sysfs_Hostcomm_show, _fusb_Sysfs_Hostcomm_store);
 static DEVICE_ATTR(pd_state_log, S_IRUSR | S_IRGRP | S_IROTH, _fusb_Sysfs_PDStateLog_show, NULL);
 static DEVICE_ATTR(typec_state_log, S_IRUSR | S_IRGRP | S_IROTH, _fusb_Sysfs_TypeCStateLog_show, NULL);
 static DEVICE_ATTR(reinitialize, S_IRUSR | S_IRGRP | S_IROTH, _fusb_Sysfs_Reinitialize_fusb302, NULL);
 static DEVICE_ATTR(typec_status, S_IRUSR | S_IRGRP | S_IROTH, _fusb_Sysfs_TypeC_Status_show, NULL);
+static DEVICE_ATTR(isDeviceValid, S_IRUSR | S_IRGRP | S_IROTH, _fusb_IsDeviceValid, NULL);
 
 static struct attribute *fusb302_sysfs_attrs[] = {
     &dev_attr_fusb30x_hostcomm.attr,
@@ -3164,6 +3173,7 @@ static struct attribute *fusb302_sysfs_attrs[] = {
     &dev_attr_typec_state_log.attr,
     &dev_attr_reinitialize.attr,
     &dev_attr_typec_status.attr,
+    &dev_attr_isDeviceValid.attr,
     NULL
 };
 

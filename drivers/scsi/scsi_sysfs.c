@@ -19,7 +19,8 @@
 #include <scsi/scsi_tcq.h>
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_driver.h>
-
+#include "ufs/ufs.h"
+#include "ufs/ufshcd.h"
 #include "scsi_priv.h"
 #include "scsi_logging.h"
 
@@ -234,6 +235,69 @@ show_shost_supported_mode(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR(supported_mode, S_IRUGO | S_IWUSR, show_shost_supported_mode, NULL);
 
 static ssize_t
+show_shost_health_PreEolInfo(struct device *dev, struct device_attribute *attr,
+                          char *buf)
+{
+        int err;
+        struct Scsi_Host *shost = class_to_shost(dev);
+        struct ufs_hba *hba = shost_priv(shost);
+
+        int buff_len = QUERY_DESC_HEALTH_MAX_SIZE;
+        u8 desc_buf[QUERY_DESC_HEALTH_MAX_SIZE];
+
+        pm_runtime_get_sync(hba->dev);
+        err = ufshcd_read_health_desc(hba, desc_buf, buff_len);
+        pm_runtime_put_sync(hba->dev);
+
+        return snprintf(buf, 20, "0x%02x\n", (u8)desc_buf[2]);
+
+}
+
+static DEVICE_ATTR(PreEolInfo, S_IRUGO | S_IWUSR, show_shost_health_PreEolInfo, NULL);
+
+static ssize_t
+show_shost_health_life_time_A(struct device *dev, struct device_attribute *attr,
+                          char *buf)
+{
+	int err;
+        struct Scsi_Host *shost = class_to_shost(dev);
+	struct ufs_hba *hba = shost_priv(shost);
+
+	int buff_len = QUERY_DESC_HEALTH_MAX_SIZE;
+	u8 desc_buf[QUERY_DESC_HEALTH_MAX_SIZE];
+
+	pm_runtime_get_sync(hba->dev);
+	err = ufshcd_read_health_desc(hba, desc_buf, buff_len);
+	pm_runtime_put_sync(hba->dev);
+
+	return snprintf(buf, 20, "0x%02x\n", (u8)desc_buf[3]);
+}
+
+static DEVICE_ATTR(life_time_A, S_IRUGO | S_IWUSR, show_shost_health_life_time_A, NULL);
+
+
+static ssize_t
+show_shost_health_life_time_B(struct device *dev, struct device_attribute *attr,
+                          char *buf)
+{
+        int err;
+        struct Scsi_Host *shost = class_to_shost(dev);
+        struct ufs_hba *hba = shost_priv(shost);
+
+        int buff_len = QUERY_DESC_HEALTH_MAX_SIZE;
+        u8 desc_buf[QUERY_DESC_HEALTH_MAX_SIZE];
+
+        pm_runtime_get_sync(hba->dev);
+        err = ufshcd_read_health_desc(hba, desc_buf, buff_len);
+        pm_runtime_put_sync(hba->dev);
+
+        return snprintf(buf, 20, "0x%02x\n", (u8)desc_buf[4]);
+
+}
+
+static DEVICE_ATTR(life_time_B, S_IRUGO | S_IWUSR, show_shost_health_life_time_B, NULL);
+
+static ssize_t
 show_shost_active_mode(struct device *dev,
 		       struct device_attribute *attr, char *buf)
 {
@@ -370,6 +434,9 @@ static struct attribute *scsi_sysfs_shost_attrs[] = {
 	&dev_attr_prot_guard_type.attr,
 	&dev_attr_host_reset.attr,
 	&dev_attr_eh_deadline.attr,
+	&dev_attr_PreEolInfo.attr,
+	&dev_attr_life_time_A.attr,
+	&dev_attr_life_time_B.attr,
 	NULL
 };
 
@@ -1026,10 +1093,6 @@ int scsi_sysfs_add_sdev(struct scsi_device *sdev)
 	int error, i;
 	struct request_queue *rq = sdev->request_queue;
 	struct scsi_target *starget = sdev->sdev_target;
-
-	error = scsi_device_set_state(sdev, SDEV_RUNNING);
-	if (error)
-		return error;
 
 	error = scsi_target_add(starget);
 	if (error)

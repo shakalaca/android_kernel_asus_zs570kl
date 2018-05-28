@@ -31,6 +31,17 @@ config BT_V4L2
 	  Say Y here to compile support for Bluetooth protocol driver into the
 	  kernel or say M to compile it as module (btdrv).
 
+config FM_V4L2
+	tristate "FM protocol driver"
+	depends on SH_V4L2
+	help
+	  FM Radio protocol driver.
+	  This driver is required if you want to use FM via
+	  the shared transport driver over UART.
+
+	  Say Y here to compile support for FM Radio into the
+	  kernel or say M to compile it as module (fmdrv).
+
 config ANT_V4L2
 	tristate "FM protocol driver"
 	depends on SH_V4L2

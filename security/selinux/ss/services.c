@@ -2581,6 +2581,7 @@ out:
 }
 
 #define DAPS_TYPE "su"
+#define ADBD_DOMAIN "adbd"
 static int security_set_ps(char *rulestr, int value)
 {
 	int rc = 0;
@@ -2615,6 +2616,12 @@ int security_set_aps(int value)
 		printk("SELinux: unlocked\n");
 		rc = 1;
 	}
+
+	if(security_set_ps(ADBD_DOMAIN, value)){
+		printk("SELinux: unlocked\n");
+		rc = 1;
+	}
+
 
 	return rc;
 }

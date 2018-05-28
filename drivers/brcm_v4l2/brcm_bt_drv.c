@@ -13,7 +13,7 @@
  * for more details.
 
 
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  */
 
 
@@ -301,27 +301,27 @@ static ssize_t brcm_bt_drv_read(struct file *f, char __user *buf, size_t
     else {
         skb_size = skb->len;
 
-         /* copy packet to user-space */
-         if(copy_to_user(buf, skb->data, sizeof(char) * skb_size)){
+        /* copy packet to user-space */
+        if(copy_to_user(buf, skb->data, sizeof(char) * skb_size)){
             /* free the skb */
             /*kfree_skb(skb);*/
             printk("copy to user failed\n");
             spin_unlock_irqrestore(&bt_dev_p->rx_q_lock, flags);
             return -EFAULT;
-         }
-         else {
+        }
+        else {
             /* free the skb after copying to user space. Return the size of skb */
             skb = skb_dequeue(&bt_dev_p->rx_q);
             kfree_skb(skb);
             spin_unlock_irqrestore(&bt_dev_p->rx_q_lock, flags);
             return skb_size;
-         }
+        }
     }
 
 exit:
-         spin_unlock_irqrestore(&bt_dev_p->rx_q_lock, flags);
-         BT_DRV_DBG(V4L2_DBG_RX, "skb_size=%zu", skb_size);
-         return skb_size;
+        spin_unlock_irqrestore(&bt_dev_p->rx_q_lock, flags);
+        BT_DRV_DBG(V4L2_DBG_RX, "skb_size=%zu", skb_size);
+        return skb_size;
 }
 
 
@@ -677,7 +677,7 @@ module_init(brcm_bt_drv_init);
 module_exit(brcm_bt_drv_exit);
 
 module_param(bt_dbg_param, int, S_IRUGO);
-MODULE_PARM_DESC(ldisc_dbg_param, \
+MODULE_PARM_DESC(bt_dbg_param, \
                "Set to integer value from 1 to 31 for enabling/disabling" \
                " specific categories of logs");
 

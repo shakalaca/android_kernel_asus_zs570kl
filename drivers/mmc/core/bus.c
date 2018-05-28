@@ -16,6 +16,7 @@
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
+#include <linux/of.h>
 #include <linux/pm_runtime.h>
 
 #include <linux/mmc/card.h>
@@ -24,9 +25,9 @@
 #include "core.h"
 #include "sdio_cis.h"
 #include "bus.h"
+#include <linux/wakelock.h>
 
 #define to_mmc_driver(d)	container_of(d, struct mmc_driver, drv)
-
 int sdcard_status = 0;
 EXPORT_SYMBOL(sdcard_status);
 
@@ -172,6 +173,20 @@ static int mmc_bus_suspend(struct device *dev)
 	if (mmc_bus_needs_resume(host))
 		return 0;
 	ret = host->bus_ops->suspend(host);
+
+	/*
+	 * bus_ops->suspend may fail due to some reason
+	 * In such cases if we return error to PM framework
+	 * from here without calling drv->resume then mmc
+	 * request may get stuck since PM framework will assume
+	 * that mmc bus is not suspended (because of error) and
+	 * it won't call resume again.
+	 *
+	 * So in case of error call drv->resume.
+	 */
+	if (ret && dev->driver && drv->resume)
+		drv->resume(card);
+
 	return ret;
 }
 
@@ -389,6 +404,9 @@ int mmc_add_card(struct mmc_card *card)
 			pr_err("%s: %s: failed to init wakeup: %d\n",
 			       mmc_hostname(card->host), __func__, ret);
 	}
+
+	card->dev.of_node = mmc_of_find_child_device(card->host, 0);
+
 	ret = device_add(&card->dev);
 	if(!strcmp(mmc_hostname(card->host), "mmc0"))
 		sdcard_status = 1;
@@ -396,6 +414,7 @@ int mmc_add_card(struct mmc_card *card)
 		return ret;
 
 	mmc_card_set_present(card);
+	device_enable_async_suspend(&card->dev);
 
 	return 0;
 }
@@ -417,10 +436,12 @@ void mmc_remove_card(struct mmc_card *card)
 		} else {
 			pr_info("%s: card %04x removed\n",
 				mmc_hostname(card->host), card->rca);
+			wake_lock_timeout(&sd_remove_wake_lock, 2*HZ);
 		}
 		if(!strcmp(mmc_hostname(card->host), "mmc0"))
 			sdcard_status = 0;
 		device_del(&card->dev);
+		of_node_put(card->dev.of_node);
 	}
 
 	kfree(card->wr_pack_stats.packing_events);

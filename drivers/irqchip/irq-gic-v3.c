@@ -28,7 +28,7 @@
 
 #include <linux/irqchip/arm-gic-v3.h>
 #include <linux/syscore_ops.h>
-#include <linux/wakeup_reason.h>
+
 #include <asm/cputype.h>
 #include <asm/exception.h>
 #include <asm/smp_plat.h>
@@ -36,28 +36,8 @@
 #include "irq-gic-common.h"
 #include "irqchip.h"
 
-//[Power] +++ Add for wakeup debug
-int gic_irq_cnt,gic_resume_irq[8];
-int msm_gpio_chip_irq = 240;
-bool gpio_wakeup_device = false;
-//[Power] --- Add for wakeup debug
-
-int ipc_router_log_flag = 0;
-
-int set_ipc_router_log_flag(int enable)
-{
-        ipc_router_log_flag = enable;
-        return 0;
-}
-EXPORT_SYMBOL(set_ipc_router_log_flag);
-
-int check_ipc_router_log_flag(void)
-{
-        return ipc_router_log_flag;
-}
-EXPORT_SYMBOL(check_ipc_router_log_flag);
-
-extern int get_modem_smd_irq_number(void);
+int gic_irq_cnt;
+struct gic_resume_irq_data gic_resume_irq[8];
 
 struct redist_region {
 	void __iomem		*redist_base;
@@ -222,7 +202,7 @@ static void gic_enable_redist(bool enable)
 			return;	/* No PM support in this redistributor */
 	}
 
-	while (count--) {
+	while (--count) {
 		val = readl_relaxed(rbase + GICR_WAKER);
 		if (enable ^ (val & GICR_WAKER_ChildrenAsleep))
 			break;
@@ -380,14 +360,44 @@ static int gic_suspend(void)
 	return 0;
 }
 
+//ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
+static int rmnet_irq_flag_rx = 0;
+int rmnet_irq_flag_function_rx(void)
+{
+    if( rmnet_irq_flag_rx == 1 ) {
+        rmnet_irq_flag_rx = 0;
+        return 1;
+    }
+
+    return 0;
+}
+EXPORT_SYMBOL(rmnet_irq_flag_function_rx);
+
+static int rmnet_irq_flag_rx_260 = 0; 
+int rmnet_irq_flag_function_rx_260(void)
+{
+    if( rmnet_irq_flag_rx_260 == 1 ) {
+        rmnet_irq_flag_rx_260 = 0; 
+        return 1;
+    }    
+
+    return 0;
+}
+EXPORT_SYMBOL(rmnet_irq_flag_function_rx_260);
+//ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
 static void gic_show_resume_irq(struct gic_chip_data *gic)
 {
 	unsigned int i;
 	u32 enabled;
 	u32 pending[32];
 	void __iomem *base = gic_data_dist_base(gic);
+	int j;
 
-	gic_irq_cnt=0;	//[Power] Add for wakeup debug
+	for (j = 0;j < 8; j++) {
+		gic_resume_irq[j].gic_resume_irq_num = 0;
+		memset(gic_resume_irq[j].gic_resume_irq_name, 0, sizeof(gic_resume_irq[j].gic_resume_irq_name));
+	}
+	gic_irq_cnt = 0;
 
 	if (!msm_show_resume_irq_mask)
 		return;
@@ -410,30 +420,27 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
 
-		//[Power] +++ Add for wakeup debug
-		if (!strcmp(name,"null") && irq==msm_gpio_chip_irq)
-		{
-			name = "msm_gpio";
-			gpio_wakeup_device = true;
-		}
-		//[Power] --- Add for wakeup debug
-
-		pr_warn("[PM]%s: %d triggered %s\n", __func__, irq, name);
-		log_wakeup_reason(irq);
-		//[Power] +++ Add for wakeup debug
-		if (gic_irq_cnt < 8) {
-			gic_resume_irq[gic_irq_cnt]=irq;
-			gic_irq_cnt++;
-		}
-		//[Power] --- Add for wakeup debug
-	        if(get_modem_smd_irq_number() != 0)
-                {
-                        if (irq == get_modem_smd_irq_number())
-                        {
-                                set_ipc_router_log_flag(true);
-                        }
+		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+                //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+                if(i == 57){
+                    rmnet_irq_flag_rx = 1;
+                    //printk("%s: [data] Johnny test\n", __func__);
                 }
-        }
+                //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+                //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
+                if(irq == 167){
+                    rmnet_irq_flag_rx_260 = 1;
+                    //printk("%s: [data] Johnny test\n", __func__);
+                }
+                //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
+		if (gic_irq_cnt < 8) {
+			gic_resume_irq[gic_irq_cnt].gic_resume_irq_num = irq;
+			strncpy(gic_resume_irq[gic_irq_cnt].gic_resume_irq_name, name, sizeof(gic_resume_irq[gic_irq_cnt].gic_resume_irq_name));
+		}
+		gic_irq_cnt++;
+	}
+	if (gic_irq_cnt >= 8)
+		gic_irq_cnt = 7;
 }
 
 static void gic_resume_one(struct gic_chip_data *gic)
@@ -504,6 +511,13 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 			gic_write_eoir(irqnr);
 #ifdef CONFIG_SMP
+			/*
+			 * Unlike GICv2, we don't need an smp_rmb() here.
+			 * The control dependency from gic_read_iar to
+			 * the ISB in gic_write_eoir is enough to ensure
+			 * that any shared data read by handle_IPI will
+			 * be read after the ACK.
+			 */
 			handle_IPI(irqnr, regs);
 #else
 			WARN_ONCE(true, "Unexpected SGI received!\n");
@@ -701,15 +715,19 @@ out:
 	return tlist;
 }
 
+#define MPIDR_TO_SGI_AFFINITY(cluster_id, level) \
+	(MPIDR_AFFINITY_LEVEL(cluster_id, level) \
+		<< ICC_SGI1R_AFFINITY_## level ##_SHIFT)
+
 static void gic_send_sgi(u64 cluster_id, u16 tlist, unsigned int irq)
 {
 	u64 val;
 
-	val = (MPIDR_AFFINITY_LEVEL(cluster_id, 3) << 48	|
-	       MPIDR_AFFINITY_LEVEL(cluster_id, 2) << 32	|
-	       irq << 24			    		|
-	       MPIDR_AFFINITY_LEVEL(cluster_id, 1) << 16	|
-	       tlist);
+	val = (MPIDR_TO_SGI_AFFINITY(cluster_id, 3)	|
+	       MPIDR_TO_SGI_AFFINITY(cluster_id, 2)	|
+	       irq << ICC_SGI1R_SGI_ID_SHIFT		|
+	       MPIDR_TO_SGI_AFFINITY(cluster_id, 1)	|
+	       tlist << ICC_SGI1R_TARGET_LIST_SHIFT);
 
 	pr_debug("CPU%d: ICC_SGI1R_EL1 %llx\n", smp_processor_id(), val);
 	gic_write_sgi1r(val);
@@ -753,6 +771,9 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 	void __iomem *reg;
 	int enabled;
 	u64 val;
+
+	if (cpu >= nr_cpu_ids)
+		return -EINVAL;
 
 	if (gic_irq_in_rdist(d))
 		return -EINVAL;

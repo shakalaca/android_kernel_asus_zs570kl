@@ -170,8 +170,6 @@ struct ipc_rtr_log_ctx {
 	char log_ctx_name[LOG_CTX_NAME_LEN];
 	void *log_ctx;
 };
-extern int set_ipc_router_log_flag(int enable);
-extern int check_ipc_router_log_flag(void);
 
 static struct list_head routing_table[RT_HASH_SIZE];
 static DECLARE_RWSEM(routing_table_lock_lha3);
@@ -378,28 +376,6 @@ static void ipc_router_log_msg(void *log_ctx, uint32_t xchng_type,
 			svcId, svcIns, hdr->src_node_id, hdr->src_port_id,
 			hdr->dst_node_id, hdr->dst_port_id,
 			(unsigned int)pl_buf, (unsigned int)(pl_buf>>32));
-
-                if(check_ipc_router_log_flag() == true ){
-                        printk("[mdm_wakeup_reason] : "
-                                "%s %s %s Len:0x%x T:0x%x CF:0x%x SVC:<0x%x:0x%x> SRC:<0x%x:0x%x> DST:<0x%x:0x%x> DATA: %08x %08x",
-                                (xchng_type == IPC_ROUTER_LOG_EVENT_RX ? "" :
-			        (xchng_type == IPC_ROUTER_LOG_EVENT_TX ?
-                                current->comm : "")),
-		                (port_type == CLIENT_PORT ? "CLI" : "SRV"),
-		                (xchng_type == IPC_ROUTER_LOG_EVENT_RX ? "RX" :
-	                        (xchng_type == IPC_ROUTER_LOG_EVENT_TX ? "TX" :
-	                        (xchng_type == IPC_ROUTER_LOG_EVENT_TX_ERR ? "TX_ERR" :
-	                        (xchng_type == IPC_ROUTER_LOG_EVENT_RX_ERR ? "RX_ERR" :
-	                        "UNKNOWN")))),
-	                        hdr->size, hdr->type, hdr->control_flag,
-	                        svcId, svcIns, hdr->src_node_id, hdr->src_port_id,
-	                        hdr->dst_node_id, hdr->dst_port_id,
-	                        (unsigned int)pl_buf, (unsigned int)(pl_buf>>32));
-                                set_ipc_router_log_flag(false);
-                }
-
-
-
 
 	} else {
 		msg = (union rr_control_msg *)data;
@@ -2200,7 +2176,6 @@ static void cleanup_rmt_server(struct msm_ipc_router_xprt_info *xprt_info,
 {
 	union rr_control_msg ctl;
 
-	ipc_router_reset_conn(rport_ptr);
 	memset(&ctl, 0, sizeof(ctl));
 	ctl.cmd = IPC_ROUTER_CTRL_CMD_REMOVE_SERVER;
 	ctl.srv.service = server->name.service;
@@ -2231,6 +2206,7 @@ static void cleanup_rmt_ports(struct msm_ipc_router_xprt_info *xprt_info,
 			server = rport_ptr->server;
 			rport_ptr->server = NULL;
 			mutex_unlock(&rport_ptr->rport_lock_lhb2);
+			ipc_router_reset_conn(rport_ptr);
 			if (server) {
 				cleanup_rmt_server(xprt_info, rport_ptr,
 						   server);
@@ -2385,13 +2361,13 @@ static void ipc_router_reset_conn(struct msm_ipc_router_remote_port *rport_ptr)
 	list_for_each_entry_safe(conn_info, tmp_conn_info,
 				&rport_ptr->conn_info_list, list) {
 		port_ptr = ipc_router_get_port_ref(conn_info->port_id);
-		if (!port_ptr)
-			continue;
-		mutex_lock(&port_ptr->port_lock_lhc3);
-		port_ptr->conn_status = CONNECTION_RESET;
-		mutex_unlock(&port_ptr->port_lock_lhc3);
-		wake_up(&port_ptr->port_rx_wait_q);
-		kref_put(&port_ptr->ref, ipc_router_release_port);
+		if (port_ptr) {
+			mutex_lock(&port_ptr->port_lock_lhc3);
+			port_ptr->conn_status = CONNECTION_RESET;
+			mutex_unlock(&port_ptr->port_lock_lhc3);
+			wake_up(&port_ptr->port_rx_wait_q);
+			kref_put(&port_ptr->ref, ipc_router_release_port);
+		}
 
 		list_del(&conn_info->list);
 		kfree(conn_info);
@@ -2675,6 +2651,7 @@ static int process_rmv_client_msg(struct msm_ipc_router_xprt_info *xprt_info,
 		server = rport_ptr->server;
 		rport_ptr->server = NULL;
 		mutex_unlock(&rport_ptr->rport_lock_lhb2);
+		ipc_router_reset_conn(rport_ptr);
 		down_write(&server_list_lock_lha2);
 		if (server)
 			cleanup_rmt_server(NULL, rport_ptr, server);

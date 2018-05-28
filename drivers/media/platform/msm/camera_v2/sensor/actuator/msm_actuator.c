@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,25 +11,15 @@
  */
 
 #define pr_fmt(fmt) "%s:%d " fmt, __func__, __LINE__
-#include <linux/proc_fs.h> //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
+
 #include <linux/module.h>
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-#include <linux/kthread.h>
-#endif
 #include "msm_sd.h"
 #include "msm_actuator.h"
 #include "msm_cci.h"
-
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-static struct task_struct *brook_tsk;
-uint16_t vcm_data_g = 0xA000;
-#define SERVO_OFF_COUNT 3
-#define SERVO_ON SERVO_OFF_COUNT+1
-int vcm_servo_status = SERVO_ON;	/* 4: servo on, 0~3:server off */
-#endif
+#include "../debugfs/msm_debugfs.h"
 
 DEFINE_MSM_MUTEX(msm_actuator_mutex);
-struct mutex *msm_sensor_global_mutex; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
+struct mutex *msm_cci0_sensor_mutex;
 
 #undef CDBG
 #ifdef MSM_ACTUATOR_DEBUG
@@ -52,128 +42,6 @@ static struct msm_actuator msm_piezo_actuator_table;
 static struct msm_actuator msm_hvcm_actuator_table;
 static struct msm_actuator msm_bivcm_actuator_table;
 
-//ASUS_BSP +++, jungchi for Pass vcm's cmd through imx318
-static uint16_t actuator_data_Z1 = 0;
-static uint16_t actuator_data_Z2 = 0;
-
-#define VCM_PROC_FILE                "driver/vcm"
-#define VCM_SERVO_OFF_PROC_FILE      "driver/vcm_servo_off"
-
-struct msm_actuator_ctrl_t *actuator_ctrl_g = NULL;
-
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-static int kbrook(void *arg)
-{
-	uint16_t vcm_data = 0;
-	int trigger_count = 0;
-	unsigned int timeout;
-
-	/* this thread is checking if vcm posiztion under Z1-20um. if yes, set vcm servo off to reduce vcm noise */
-	for(;;) {
-		if (kthread_should_stop()) break;
-
-		if (vcm_servo_status != SERVO_ON || trigger_count == 5){
-			mutex_lock(msm_sensor_global_mutex);
-			trigger_count = 0;
-			actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-			actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_read(&actuator_ctrl_g->i2c_client,0x3C,&vcm_data,MSM_CAMERA_I2C_WORD_DATA);
-			vcm_data = ((vcm_data + 0x8000)&0xffff) >> 4;
-			//pr_err("[vcm] z1:%d z2:%d cur_position %d vcm_servo_status %d \n",actuator_data_Z1,actuator_data_Z2,vcm_data,vcm_servo_status);
-			if (vcm_data >= actuator_data_Z1 && vcm_servo_status < SERVO_OFF_COUNT) {
-				vcm_servo_status = vcm_servo_status + 1;
-			} else if (vcm_data < actuator_data_Z1 && vcm_servo_status < SERVO_OFF_COUNT) {
-				vcm_servo_status = 0;
-			} else if (vcm_data >= actuator_data_Z1 && vcm_servo_status == SERVO_OFF_COUNT) {
-				pr_err("[vcm] servo on, z1:%d z2:%d cur_position %d then set to %d\n",actuator_data_Z1,actuator_data_Z2,vcm_data,vcm_data_g>>4);
-				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x87,0x9D,MSM_CAMERA_I2C_BYTE_DATA);
-				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0xA0,vcm_data_g,MSM_CAMERA_I2C_WORD_DATA);
-				vcm_servo_status = SERVO_ON;
-			} else if (vcm_data < (actuator_data_Z1 - ((actuator_data_Z2 - actuator_data_Z1)*20/300)) && vcm_servo_status == SERVO_ON){
-				pr_err("[vcm] servo off, z1:%d z2:%d cur_position %d \n",actuator_data_Z1,actuator_data_Z2,vcm_data);
-				vcm_servo_status = 0;
-				actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x87,0x1D,MSM_CAMERA_I2C_BYTE_DATA);
-				actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x02,0x0000,MSM_CAMERA_I2C_WORD_DATA);
-			}
-			mutex_unlock(msm_sensor_global_mutex);
-		}
-		do {
-			set_current_state(TASK_INTERRUPTIBLE);
-			timeout = schedule_timeout(HZ/10);
-		} while(timeout);
-		trigger_count = trigger_count + 1;
-	}
-	brook_tsk = NULL;
-	return 0;
-}
-
-
-static int ATD_vcm_servo_off_proc_read(struct seq_file *buf, void *v)
-{
-	mutex_lock(msm_sensor_global_mutex);
-	if (vcm_servo_status == SERVO_ON){
-		pr_err("[vcm] servo off by G sensor \n");
-		vcm_servo_status = 0;
-		actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-		actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x87,0x1D,MSM_CAMERA_I2C_BYTE_DATA);
-		actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0x02,0x0000,MSM_CAMERA_I2C_WORD_DATA);
-	}
-	mutex_unlock(msm_sensor_global_mutex);
-	seq_printf(buf, "[vcm]servo off\n");
-
-	return 0;
-}
-
-static int ATD_vcm_servo_off_proc_open(struct inode *inode, struct  file *file)
-{
-	return single_open(file, ATD_vcm_servo_off_proc_read, NULL);
-}
-
-static const struct file_operations ATD_vcm_servo_off_fops = {
-    .owner = THIS_MODULE,
-    .open = ATD_vcm_servo_off_proc_open,
-    .read = seq_read,
-    .llseek = seq_lseek,
-    .release = single_release,
- };
-
-static void create_vcm_servo_off_proc_file( void )
-{
-    proc_create(VCM_SERVO_OFF_PROC_FILE, 0664, NULL, &ATD_vcm_servo_off_fops);
-}
-#endif
-static int ATD_I2C_position_check_proc_read(struct seq_file *buf, void *v)
-{
-	uint16_t vcm_data = 0;
-	mutex_lock(msm_sensor_global_mutex);
-	actuator_ctrl_g->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-	actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_read(&actuator_ctrl_g->i2c_client,0x3C,&vcm_data,MSM_CAMERA_I2C_WORD_DATA);
-	mutex_unlock(msm_sensor_global_mutex);
-	vcm_data = ((vcm_data + 0x8000)&0xffff) >> 4;
-	seq_printf(buf, "%d\n", vcm_data);
-
-	return 0;
-}
-
-static int ATD_I2C_position_check_proc_open(struct inode *inode, struct  file *file)
-{
-	return single_open(file, ATD_I2C_position_check_proc_read, NULL);
-}
-
-static const struct file_operations ATD_I2C_position_check_fops = {
-    .owner = THIS_MODULE,
-    .open = ATD_I2C_position_check_proc_open,
-    .read = seq_read,
-    .llseek = seq_lseek,
-    .release = single_release,
- };
-
-static void create_vcm_proc_file( void )
-{
-    proc_create(VCM_PROC_FILE, 0664, NULL, &ATD_I2C_position_check_fops);
-}
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
-
 static struct i2c_driver msm_actuator_i2c_driver;
 static struct msm_actuator *actuators[] = {
 	&msm_vcm_actuator_table,
@@ -181,22 +49,6 @@ static struct msm_actuator *actuators[] = {
 	&msm_hvcm_actuator_table,
 	&msm_bivcm_actuator_table,
 };
-
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-static struct msm_camera_i2c_fn_t msm_sensor_cci_thru_imx318_func_tbl = {
-	.i2c_read = msm_camera_cci_i2c_thru_imx318_read,///////////Used
-	.i2c_read_seq = msm_camera_cci_i2c_read_seq,
-	.i2c_write = msm_camera_cci_i2c_thru_imx318_write,/////////Used
-	.i2c_write_table = msm_camera_cci_i2c_write_table,
-	.i2c_write_seq_table = msm_camera_cci_i2c_write_seq_table,
-	.i2c_write_table_w_microdelay =////////////////Used
-		msm_camera_cci_i2c_write_table_w_thru_imx318_microdelay,
-	.i2c_util = msm_sensor_cci_i2c_util,///////////Used
-	.i2c_poll =  msm_camera_cci_i2c_thru_imx318_poll,//////////Used
-	.msm_i2c_agent_master_addr = 0,///////////Used
-	.msm_i2c_agent_slave_addr = 0,///////////Used
-};
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 static int32_t msm_actuator_piezo_set_default_focus(
 	struct msm_actuator_ctrl_t *a_ctrl,
@@ -243,6 +95,11 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 
 	if (a_ctrl == NULL) {
 		pr_err("failed. actuator ctrl is NULL");
+		return;
+	}
+
+	if (a_ctrl->i2c_reg_tbl == NULL) {
+		pr_err("failed. i2c reg tabl is NULL");
 		return;
 	}
 
@@ -312,23 +169,30 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 	uint16_t value = 0, reg_data = 0;
 	uint32_t size = a_ctrl->reg_tbl_size, i = 0;
 	int32_t rc = 0;
-#if 0 //ASUS_BSP, jungchi for vcm little current feature
-	static uint16_t pre_position = 0x8000;
-	static int current_status = 0; /* 0:default 1: little current */
-#endif
+	uint32_t value_temp = 0;
 	struct msm_camera_i2c_reg_array i2c_tbl;
 	struct msm_camera_i2c_reg_setting reg_setting;
 	enum msm_camera_i2c_reg_addr_type save_addr_type =
 		a_ctrl->i2c_client.addr_type;
-
 	for (i = 0; i < size; i++) {
 		reg_setting.size = 1;
 		switch (write_arr[i].reg_write_type) {
 		case MSM_ACTUATOR_WRITE_DAC:
-			value = (next_lens_position <<
-			write_arr[i].data_shift) |
-			((hw_dword & write_arr[i].hw_mask) >>
-			write_arr[i].hw_shift);
+			if (write_arr[i].reg_addr == 0x337a) { /* for lc898214xd 2's complement */
+				if (next_lens_position - 2048 >= 0)
+					value = (next_lens_position - 2048) << 4;
+				else {
+					value_temp = (0x1000 - (2047 - next_lens_position)) << 4;
+					value = (uint16_t) value_temp;
+				}
+
+			} else {
+				value = (next_lens_position <<
+				write_arr[i].data_shift) |
+				((hw_dword & write_arr[i].hw_mask) >>
+				write_arr[i].hw_shift);
+			}
+
 			if (write_arr[i].reg_addr != 0xFFFF) {
 				i2c_byte1 = write_arr[i].reg_addr;
 				i2c_byte2 = value;
@@ -340,42 +204,8 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 			i2c_tbl.reg_data = i2c_byte2;
 			i2c_tbl.delay = delay;
 			a_ctrl->i2c_tbl_index++;
-
 			reg_setting.reg_setting = &i2c_tbl;
 			reg_setting.data_type = a_ctrl->i2c_data_type;
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-			//pr_err("[vcm] MSM_ACTUATOR_WRITE_DAC, set 0x%x to %x (%d)\n",i2c_byte1,i2c_byte2,i2c_byte2>>4);
-			vcm_data_g = reg_setting.reg_setting[reg_setting.size-1].reg_data;
-			if (vcm_servo_status == SERVO_ON){
-#if 0 // little current feature
-				if ((((pre_position > reg_setting.reg_setting[reg_setting.size-1].reg_data &&
-					(pre_position - reg_setting.reg_setting[reg_setting.size-1].reg_data)) > 0x600) ||
-					((reg_setting.reg_setting[reg_setting.size-1].reg_data > pre_position &&
-					(reg_setting.reg_setting[reg_setting.size-1].reg_data - pre_position) > 0x600))) && current_status == 0) {
-					//pr_err("[vcm] little current, pre=0x%x cur=0x%x\n",pre_position,reg_setting.reg_setting[reg_setting.size-1].reg_data);
-					actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0xAB,0x20,MSM_CAMERA_I2C_BYTE_DATA);
-					current_status = 1;
-				} else if ((((pre_position > reg_setting.reg_setting[reg_setting.size-1].reg_data &&
-					(pre_position - reg_setting.reg_setting[reg_setting.size-1].reg_data)) <= 0x600)||
-					((reg_setting.reg_setting[reg_setting.size-1].reg_data > pre_position &&
-					(reg_setting.reg_setting[reg_setting.size-1].reg_data - pre_position) <= 0x600)))&& current_status == 1){
-					//pr_err("[vcm] default current, pre=0x%x cur=0x%x\n",pre_position,reg_setting.reg_setting[reg_setting.size-1].reg_data);
-					actuator_ctrl_g->i2c_client.i2c_func_tbl->i2c_write(&actuator_ctrl_g->i2c_client,0xAB,0x24,MSM_CAMERA_I2C_BYTE_DATA);
-					current_status = 0;
-				}
-#endif
-				rc = a_ctrl->i2c_client.
-					i2c_func_tbl->i2c_write_table_w_microdelay(
-					&a_ctrl->i2c_client, &reg_setting);
-				if (rc < 0) {
-					pr_err("i2c write error:%d\n", rc);
-					return rc;
-				}
-#if 0 // little current feature
-				pre_position = reg_setting.reg_setting[reg_setting.size-1].reg_data;
-#endif
-			}
-#else
 			rc = a_ctrl->i2c_client.
 				i2c_func_tbl->i2c_write_table_w_microdelay(
 				&a_ctrl->i2c_client, &reg_setting);
@@ -383,7 +213,6 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 				pr_err("i2c write error:%d\n", rc);
 				return rc;
 			}
-#endif
 			break;
 		case MSM_ACTUATOR_WRITE:
 			i2c_tbl.reg_data = write_arr[i].reg_data;
@@ -713,6 +542,12 @@ static int32_t msm_actuator_piezo_move_focus(
 	if (num_steps <= 0 || num_steps > MAX_NUMBER_OF_STEPS) {
 		pr_err("num_steps out of range = %d\n",
 			num_steps);
+		return -EFAULT;
+	}
+
+	if (dest_step_position > a_ctrl->total_steps) {
+		pr_err("Step pos greater than total steps = %d\n",
+			dest_step_position);
 		return -EFAULT;
 	}
 
@@ -1266,12 +1101,6 @@ static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl)
 	enum msm_sensor_power_seq_gpio_t gpio;
 
 	CDBG("Enter\n");
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-	if (brook_tsk){
-		kthread_stop(brook_tsk);
-		brook_tsk = NULL;
-	}
-#endif
 	if (a_ctrl->actuator_state != ACT_DISABLE_STATE) {
 
 		if (a_ctrl->func_tbl && a_ctrl->func_tbl->actuator_park_lens) {
@@ -1428,237 +1257,13 @@ static int32_t msm_actuator_bivcm_set_position(
 	return rc;
 }
 
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-static void vcm_eeprom_write(struct msm_actuator_ctrl_t *a_ctrl,uint32_t reg,uint16_t data)
-{
-	uint16_t vcm_data = 0;
-	int retry_count = 0;
-
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,reg,data,MSM_CAMERA_I2C_BYTE_DATA);
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0xED,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	while( vcm_data != 0 && retry_count <= 10)
-	{
-		msleep(1);
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0xED,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-		retry_count = retry_count + 1;
-	}
-
-	if (vcm_data != 0)
-		pr_err("[vcm] vcm_eeprom_write error !!!");
-}
-
-static int vcm_eeprom_check(struct msm_actuator_ctrl_t *a_ctrl)
-{
-	uint16_t vcm_data = 0;
-
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x20,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x1f) {pr_err("[vcm] check error1 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x21,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x00) {pr_err("[vcm] check error2 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x22,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x19) {pr_err("[vcm] check error3 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x23,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x8B) {pr_err("[vcm] check error4 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x24,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x40) {pr_err("[vcm] check error5 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x25,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xFF) {pr_err("[vcm] check error6 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x26,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x40) {pr_err("[vcm] check error7 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x27,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x0E) {pr_err("[vcm] check error8 \n"); goto update_again;}
-
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x48,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x47) {pr_err("[vcm] check error11 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x49,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xF0) {pr_err("[vcm] check error22 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x4A,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x7F) {pr_err("[vcm] check error33 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x4B,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xF0) {pr_err("[vcm] check error44 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x4C,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x8E) {pr_err("[vcm] check error55 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x4D,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xC0) {pr_err("[vcm] check error66 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x4E,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x71) {pr_err("[vcm] check error77 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x4F,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xD0) {pr_err("[vcm] check error88 \n"); goto update_again;}
-
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x50,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x63) {pr_err("[vcm] check error111 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x51,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x10) {pr_err("[vcm] check error222 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x52,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x41) {pr_err("[vcm] check error333 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x53,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xB0) {pr_err("[vcm] check error444 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x54,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x28) {pr_err("[vcm] check error555 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x55,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x00) {pr_err("[vcm] check error666 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x56,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x00) {pr_err("[vcm] check error777 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x57,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x00) {pr_err("[vcm] check error888 \n"); goto update_again;}
-
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x58,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x50) {pr_err("[vcm] check error1111 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x59,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xC0) {pr_err("[vcm] check error2222 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x5A,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xC6) {pr_err("[vcm] check error3333 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x5B,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xD0) {pr_err("[vcm] check error4444 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x5C,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x7F) {pr_err("[vcm] check error5555 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x5D,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xF0) {pr_err("[vcm] check error6666 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x5E,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x06) {pr_err("[vcm] check error7777 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x5F,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x20) {pr_err("[vcm] check error8888 \n"); goto update_again;}
-
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x60,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x04) {pr_err("[vcm] check error11111 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x61,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xA0) {pr_err("[vcm] check error22222 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x62,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x76) {pr_err("[vcm] check error33333 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x63,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xB0) {pr_err("[vcm] check error44444 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x64,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x7F) {pr_err("[vcm] check error55555 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x65,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xF0) {pr_err("[vcm] check error66666 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x66,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0xA8) {pr_err("[vcm] check error77777 \n"); goto update_again;}
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x67,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-	if (vcm_data != 0x00) {pr_err("[vcm] check error88888 \n"); goto update_again;}
-	return 0;
-
-update_again:
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x84,0,MSM_CAMERA_I2C_BYTE_DATA);
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x87,0,MSM_CAMERA_I2C_BYTE_DATA);
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x8E,0,MSM_CAMERA_I2C_BYTE_DATA);
-
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x9C,0xAF,MSM_CAMERA_I2C_BYTE_DATA);
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x9D,0x80,MSM_CAMERA_I2C_BYTE_DATA);
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
-	vcm_eeprom_write(a_ctrl,0x48,0x40);
-	vcm_eeprom_write(a_ctrl,0x49,0xF0);
-	vcm_eeprom_write(a_ctrl,0x4A,0x7F);
-	vcm_eeprom_write(a_ctrl,0x4B,0xF0);
-	vcm_eeprom_write(a_ctrl,0x4C,0x8E);
-	vcm_eeprom_write(a_ctrl,0x4D,0xC0);
-	vcm_eeprom_write(a_ctrl,0x4E,0x71);
-	vcm_eeprom_write(a_ctrl,0x4F,0xD0);
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-	return 1;
-}
-
-static void msm_actuator_updatefw(struct msm_actuator_ctrl_t *a_ctrl)
-{
-	uint16_t vcm_data = 0;
-
-	if (a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr == 0xE4){ /* check if vcm i2c slave addr */
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x84,0,MSM_CAMERA_I2C_BYTE_DATA);
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x87,0,MSM_CAMERA_I2C_BYTE_DATA);
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x8E,0,MSM_CAMERA_I2C_BYTE_DATA);
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x48,&vcm_data,MSM_CAMERA_I2C_BYTE_DATA);
-		printk("[vcm] vcm version = %x \n",vcm_data);
-
-		if (vcm_data == 0x40){	/* check fw version if need to update */
-			pr_info("[vcm] update fw \n");
-			/* EEPROM write enable */
-			a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-			a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x9C,0xAF,MSM_CAMERA_I2C_BYTE_DATA);
-			a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x9D,0x80,MSM_CAMERA_I2C_BYTE_DATA);
-			/* update fw */
-			a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
-			vcm_eeprom_write(a_ctrl,0x20,0x1F);
-			vcm_eeprom_write(a_ctrl,0x21,0x00);
-			vcm_eeprom_write(a_ctrl,0x22,0x19);
-			vcm_eeprom_write(a_ctrl,0x23,0x8B);
-			vcm_eeprom_write(a_ctrl,0x24,0x40);
-			vcm_eeprom_write(a_ctrl,0x25,0xFF);
-			vcm_eeprom_write(a_ctrl,0x26,0x40);
-			vcm_eeprom_write(a_ctrl,0x27,0x0E);
-
-			vcm_eeprom_write(a_ctrl,0x48,0x47);
-			vcm_eeprom_write(a_ctrl,0x49,0xF0);
-			vcm_eeprom_write(a_ctrl,0x4A,0x7F);
-			vcm_eeprom_write(a_ctrl,0x4B,0xF0);
-			vcm_eeprom_write(a_ctrl,0x4C,0x8E);
-			vcm_eeprom_write(a_ctrl,0x4D,0xC0);
-			vcm_eeprom_write(a_ctrl,0x4E,0x71);
-			vcm_eeprom_write(a_ctrl,0x4F,0xD0);
-
-			vcm_eeprom_write(a_ctrl,0x50,0x63);
-			vcm_eeprom_write(a_ctrl,0x51,0x10);
-			vcm_eeprom_write(a_ctrl,0x52,0x41);
-			vcm_eeprom_write(a_ctrl,0x53,0xB0);
-			vcm_eeprom_write(a_ctrl,0x54,0x28);
-			vcm_eeprom_write(a_ctrl,0x55,0x00);
-			vcm_eeprom_write(a_ctrl,0x56,0x00);
-			vcm_eeprom_write(a_ctrl,0x57,0x00);
-
-			vcm_eeprom_write(a_ctrl,0x58,0x50);
-			vcm_eeprom_write(a_ctrl,0x59,0xC0);
-			vcm_eeprom_write(a_ctrl,0x5A,0xC6);
-			vcm_eeprom_write(a_ctrl,0x5B,0xD0);
-			vcm_eeprom_write(a_ctrl,0x5C,0x7F);
-			vcm_eeprom_write(a_ctrl,0x5D,0xF0);
-			vcm_eeprom_write(a_ctrl,0x5E,0x06);
-			vcm_eeprom_write(a_ctrl,0x5F,0x20);
-
-			vcm_eeprom_write(a_ctrl,0x60,0x04);
-			vcm_eeprom_write(a_ctrl,0x61,0xA0);
-			vcm_eeprom_write(a_ctrl,0x62,0x76);
-			vcm_eeprom_write(a_ctrl,0x63,0xB0);
-			vcm_eeprom_write(a_ctrl,0x64,0x7F);
-			vcm_eeprom_write(a_ctrl,0x65,0xF0);
-			vcm_eeprom_write(a_ctrl,0x66,0xA8);
-			vcm_eeprom_write(a_ctrl,0x67,0x00);
-			if(vcm_eeprom_check(a_ctrl)){
-				pr_err("[vcm] update fw error !!! \n");
-			} else {
-				pr_info("[vcm] update fw ok \n");
-			}
-			/* EEPROM write disable */
-			a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x9C,0x00,MSM_CAMERA_I2C_BYTE_DATA);
-			a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client,0x9D,0x00,MSM_CAMERA_I2C_BYTE_DATA);
-		}
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-	}
-}
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
-
 static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_set_info_t *set_info) {
 	struct reg_settings_t *init_settings = NULL;
 	int32_t rc = -EFAULT;
 	uint16_t i = 0;
-	uint32_t actuator_thru_imx318 = 0; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	struct msm_camera_cci_client *cci_client = NULL;
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	static int workaround_skip = 1;
-	static int update_fw = 0;
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	CDBG("Enter\n");
-
-	//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	if(set_info->actuator_params.i2c_cmd_pass_thru_imx318 == 1) {
-	    CDBG("@%s, actuator is connected through imx318!\n", __func__);
-	    actuator_thru_imx318 = set_info->actuator_params.i2c_cmd_pass_thru_imx318;
-	}
-	//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 	for (i = 0; i < ARRAY_SIZE(actuators); i++) {
 		if (set_info->actuator_params.act_type ==
@@ -1690,39 +1295,23 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 
 	if (copy_from_user(&a_ctrl->region_params,
 		(void *)set_info->af_tuning_params.region_params,
-		a_ctrl->region_size * sizeof(struct region_params_t)))
+		a_ctrl->region_size * sizeof(struct region_params_t))) {
+		a_ctrl->total_steps = 0;
+		pr_err("Error copying region_params\n");
 		return -EFAULT;
-	//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	if(actuator_thru_imx318 == 1) {
-	    a_ctrl->i2c_client.i2c_func_tbl = &msm_sensor_cci_thru_imx318_func_tbl;
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_master_addr = set_info->actuator_params.imx318_i2c_addr;
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = set_info->actuator_params.i2c_addr;
 	}
-	//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		cci_client = a_ctrl->i2c_client.cci_client;
-#if 1 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
-		cci_client->sid = (actuator_thru_imx318 == 1)?
-		    set_info->actuator_params.imx318_i2c_addr >> 1:
-			set_info->actuator_params.i2c_addr >> 1;
-#else
 		cci_client->sid =
 			set_info->actuator_params.i2c_addr >> 1;
-#endif
 		cci_client->retries = 3;
 		cci_client->id_map = 0;
 		cci_client->cci_i2c_master = a_ctrl->cci_master;
 		cci_client->i2c_freq_mode =
 			set_info->actuator_params.i2c_freq_mode;
 	} else {
-#if 1 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
-		a_ctrl->i2c_client.client->addr = (actuator_thru_imx318 == 1)?
-		    set_info->actuator_params.imx318_i2c_addr:
-			set_info->actuator_params.i2c_addr;
-#else
 		a_ctrl->i2c_client.client->addr =
 			set_info->actuator_params.i2c_addr;
-#endif
 	}
 
 	a_ctrl->i2c_data_type = set_info->actuator_params.i2c_data_type;
@@ -1757,15 +1346,10 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 		a_ctrl->i2c_reg_tbl = NULL;
 		return -EFAULT;
 	}
-#if 1 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
-	if (set_info->actuator_params.init_setting_size &&
-		set_info->actuator_params.init_setting_size
-		<= MAX_ACTUATOR_INIT_SET && workaround_skip == 0) {
-#else
+	msm_set_actuator_ctrl(a_ctrl);
 	if (set_info->actuator_params.init_setting_size &&
 		set_info->actuator_params.init_setting_size
 		<= MAX_ACTUATOR_INIT_SET) {
-#endif
 		if (a_ctrl->func_tbl->actuator_init_focus) {
 			init_settings = kmalloc(sizeof(struct reg_settings_t) *
 				(set_info->actuator_params.init_setting_size),
@@ -1798,7 +1382,6 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 			}
 		}
 	}
-	workaround_skip = 0; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 
 	/* Park lens data */
 	a_ctrl->park_lens = set_info->actuator_params.park_lens;
@@ -1809,12 +1392,6 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 
 	a_ctrl->curr_step_pos = 0;
 	a_ctrl->curr_region_index = 0;
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	if (update_fw == 0){
-		msm_actuator_updatefw(a_ctrl);
-	}
-	update_fw = 1;
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	CDBG("Exit\n");
 
 	return rc;
@@ -1823,39 +1400,11 @@ static int32_t msm_actuator_set_param(struct msm_actuator_ctrl_t *a_ctrl,
 static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 {
 	int rc = 0;
-	uint16_t actuator_status = 0; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	CDBG("Enter\n");
 	if (!a_ctrl) {
 		pr_err("failed\n");
 		return -EINVAL;
 	}
-//ASUS_BSP +++, jungchi for Pass vcm's cmd through imx318
-	actuator_data_Z1 = 0;
-	actuator_data_Z2 = 0;
-	a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-	a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0xF0,&actuator_status,MSM_CAMERA_I2C_BYTE_DATA);
-	/* check vcm status wether is working */
-	if (actuator_status == 0x42) {
-		/* read Z1 and Z2 */
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE6;
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x2E,&actuator_data_Z1,MSM_CAMERA_I2C_WORD_DATA);
-		actuator_data_Z1 = (((actuator_data_Z1 << 4)+ 0x8000)&0xffff) >> 4;
-		a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client,0x30,&actuator_data_Z2,MSM_CAMERA_I2C_WORD_DATA);
-		actuator_data_Z2 = (((actuator_data_Z2 << 4)+ 0x8000)&0xffff) >> 4;
-		a_ctrl->i2c_client.i2c_func_tbl->msm_i2c_agent_slave_addr = 0xE4;
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-		/* create thread for monitor vcm position if under Z1-20um */
-		if (brook_tsk == NULL) {
-			brook_tsk = kthread_create(kbrook, NULL, "brook");
-			if (IS_ERR(brook_tsk)) {
-				brook_tsk = NULL;
-			} else {
-				wake_up_process(brook_tsk);
-			}
-		}
-#endif
-	}
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
 		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
 			&a_ctrl->i2c_client, MSM_CCI_INIT);
@@ -1872,7 +1421,7 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 {
 	struct msm_actuator_cfg_data *cdata =
 		(struct msm_actuator_cfg_data *)argp;
-	int32_t rc = 0;
+	int32_t rc = -EINVAL;
 	mutex_lock(a_ctrl->actuator_mutex);
 	CDBG("Enter\n");
 	CDBG("%s type %d\n", __func__, cdata->cfgtype);
@@ -1882,7 +1431,7 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		a_ctrl->actuator_state == ACT_DISABLE_STATE) {
 		pr_err("actuator disabled %d\n", rc);
 		mutex_unlock(a_ctrl->actuator_mutex);
-		return -EINVAL;
+		return rc;
 	}
 
 	switch (cdata->cfgtype) {
@@ -1894,6 +1443,7 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 	case CFG_GET_ACTUATOR_INFO:
 		cdata->is_af_supported = 1;
 		cdata->cfg.cam_name = a_ctrl->cam_name;
+		rc = 0;
 		break;
 
 	case CFG_SET_ACTUATOR_INFO:
@@ -1903,15 +1453,19 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		break;
 
 	case CFG_SET_DEFAULT_FOCUS:
-		rc = a_ctrl->func_tbl->actuator_set_default_focus(a_ctrl,
-			&cdata->cfg.move);
+		if (a_ctrl->func_tbl &&
+			a_ctrl->func_tbl->actuator_set_default_focus)
+			rc = a_ctrl->func_tbl->actuator_set_default_focus(
+				a_ctrl, &cdata->cfg.move);
 		if (rc < 0)
 			pr_err("move focus failed %d\n", rc);
 		break;
 
 	case CFG_MOVE_FOCUS:
-		rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl,
-			&cdata->cfg.move);
+		if (a_ctrl->func_tbl &&
+			a_ctrl->func_tbl->actuator_move_focus)
+			rc = a_ctrl->func_tbl->actuator_move_focus(a_ctrl,
+				&cdata->cfg.move);
 		if (rc < 0)
 			pr_err("move focus failed %d\n", rc);
 		break;
@@ -1922,8 +1476,10 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		break;
 
 	case CFG_SET_POSITION:
-		rc = a_ctrl->func_tbl->actuator_set_position(a_ctrl,
-			&cdata->cfg.setpos);
+		if (a_ctrl->func_tbl &&
+			a_ctrl->func_tbl->actuator_set_position)
+			rc = a_ctrl->func_tbl->actuator_set_position(a_ctrl,
+				&cdata->cfg.setpos);
 		if (rc < 0)
 			pr_err("actuator_set_position failed %d\n", rc);
 		break;
@@ -2084,13 +1640,7 @@ static long msm_actuator_subdev_do_ioctl(
 
 			actuator_data.cfg.set_info.actuator_params.i2c_addr =
 				u32->cfg.set_info.actuator_params.i2c_addr;
-//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-			actuator_data.cfg.set_info.actuator_params.imx318_i2c_addr =
-				u32->cfg.set_info.actuator_params.imx318_i2c_addr;
 
-			actuator_data.cfg.set_info.actuator_params.i2c_cmd_pass_thru_imx318 =
-				u32->cfg.set_info.actuator_params.i2c_cmd_pass_thru_imx318;
-//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 			actuator_data.cfg.set_info.actuator_params.
 				i2c_freq_mode =
 				u32->cfg.set_info.actuator_params.i2c_freq_mode;
@@ -2173,6 +1723,10 @@ static long msm_actuator_subdev_do_ioctl(
 			parg = &actuator_data;
 			break;
 		}
+		break;
+	case VIDIOC_MSM_ACTUATOR_CFG:
+		pr_err("%s: invalid cmd 0x%x received\n", __func__, cmd);
+		return -EINVAL;
 	}
 
 	rc = msm_actuator_subdev_ioctl(sd, cmd, parg);
@@ -2403,26 +1957,25 @@ static int32_t msm_actuator_platform_probe(struct platform_device *pdev)
 			return rc;
 		}
 	}
-#if 0 //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
 	rc = msm_sensor_driver_get_gpio_data(&(msm_actuator_t->gconf),
 		(&pdev->dev)->of_node);
-	if (rc < 0) {
-		pr_err("%s: No/Error Actuator GPIOs\n", __func__);
+	if (-ENODEV == rc) {
+		pr_notice("No valid actuator GPIOs data\n");
+	} else if (rc < 0) {
+		pr_err("Error Actuator GPIOs\n");
 	} else {
 		msm_actuator_t->cam_pinctrl_status = 1;
 		rc = msm_camera_pinctrl_init(
 			&(msm_actuator_t->pinctrl_info), &(pdev->dev));
 		if (rc < 0) {
-			pr_err("ERR:%s: Error in reading actuator pinctrl\n",
-				__func__);
+			pr_err("ERR: Error in reading actuator pinctrl\n");
 			msm_actuator_t->cam_pinctrl_status = 0;
 		}
 	}
-#endif
 
 	msm_actuator_t->act_v4l2_subdev_ops = &msm_actuator_subdev_ops;
 	msm_actuator_t->actuator_mutex = &msm_actuator_mutex;
-	msm_sensor_global_mutex = msm_actuator_t->actuator_mutex; //ASUS_BSP, jungchi for Pass vcm's cmd through imx318
+	msm_cci0_sensor_mutex = msm_actuator_t->actuator_mutex;
 	msm_actuator_t->cam_name = pdev->id;
 
 	/* Set platform device handle */
@@ -2462,13 +2015,6 @@ static int32_t msm_actuator_platform_probe(struct platform_device *pdev)
 #endif
 	msm_actuator_t->msm_sd.sd.devnode->fops =
 		&msm_actuator_v4l2_subdev_fops;
-	//ASUS_BSP+++, jungchi for Pass vcm's cmd through imx318
-	create_vcm_proc_file();
-#if 0 //ASUS_BSP, jungchi for fix vcm noise
-	create_vcm_servo_off_proc_file();
-#endif
-	actuator_ctrl_g = msm_actuator_t;
-	//ASUS_BSP---, jungchi for Pass vcm's cmd through imx318
 
 	CDBG("Exit\n");
 	return rc;
@@ -2513,8 +2059,6 @@ static int __init msm_actuator_init_module(void)
 	int32_t rc = 0;
 	CDBG("Enter\n");
 	rc = platform_driver_register(&msm_actuator_platform_driver);
-	if (!rc)
-		return rc;
 
 	CDBG("%s:%d rc %d\n", __func__, __LINE__, rc);
 	return i2c_add_driver(&msm_actuator_i2c_driver);

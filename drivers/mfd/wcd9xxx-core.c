@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -69,6 +69,13 @@
 #define REG_BYTES 2
 #define VAL_BYTES 1
 #define WCD9XXX_PAGE_NUM(reg)    (((reg) >> 8) & 0xff)
+
+#ifdef CONFIG_SERIAL_MSM_HSL
+/* This parameter indicating the uart console on/off */
+/* Shouldn't let uart switch gpio be high if this unset */
+extern unsigned uart_info;
+#endif
+static unsigned uart_info_codec;
 
 struct wcd9xxx_i2c {
 	struct i2c_client *client;
@@ -805,7 +812,7 @@ static int __wcd9xxx_slim_write_repeat(struct wcd9xxx *wcd9xxx,
 }
 
 /*
- * wcd9xxx_slim_write_repeat: Write the same register with multiple values
+ * wcd9xxx_bus_write_repeat: Write the same register with multiple values
  * @wcd9xxx: handle to wcd core
  * @reg: register to be written
  * @bytes: number of bytes to be written to reg
@@ -813,7 +820,7 @@ static int __wcd9xxx_slim_write_repeat(struct wcd9xxx *wcd9xxx,
  * This API will write reg with bytes from src in a single slimbus
  * transaction. All values from 1 to 16 are supported by this API.
  */
-int wcd9xxx_slim_write_repeat(struct wcd9xxx *wcd9xxx, unsigned short reg,
+int wcd9xxx_bus_write_repeat(struct wcd9xxx *wcd9xxx, unsigned short reg,
 			      int bytes, void *src)
 {
 	int ret = 0;
@@ -824,11 +831,21 @@ int wcd9xxx_slim_write_repeat(struct wcd9xxx *wcd9xxx, unsigned short reg,
 		if (ret)
 			goto err;
 
-		ret = __wcd9xxx_slim_write_repeat(wcd9xxx, reg, bytes, src);
-		if (ret < 0)
-			dev_err(wcd9xxx->dev,
-				"%s: Codec repeat write failed (%d)\n",
-				__func__, ret);
+		if (wcd9xxx_get_intf_type() == WCD9XXX_INTERFACE_TYPE_I2C) {
+			ret = wcd9xxx->write_dev(wcd9xxx, reg, bytes, src,
+						false);
+			if (ret < 0)
+				dev_err(wcd9xxx->dev,
+					"%s: Codec repeat write failed (%d)\n",
+					__func__, ret);
+		} else {
+			ret = __wcd9xxx_slim_write_repeat(wcd9xxx, reg, bytes,
+							src);
+			if (ret < 0)
+				dev_err(wcd9xxx->dev,
+					"%s: Codec repeat write failed (%d)\n",
+					__func__, ret);
+		}
 	} else {
 		ret = __wcd9xxx_slim_write_repeat(wcd9xxx, reg, bytes, src);
 	}
@@ -836,7 +853,7 @@ err:
 	mutex_unlock(&wcd9xxx->io_lock);
 	return ret;
 }
-EXPORT_SYMBOL(wcd9xxx_slim_write_repeat);
+EXPORT_SYMBOL(wcd9xxx_bus_write_repeat);
 
 /*
  * wcd9xxx_slim_reserve_bw: API to reserve the slimbus bandwidth
@@ -1706,6 +1723,7 @@ static struct dentry *debugfs_peek;
 static struct dentry *debugfs_poke;
 static struct dentry *debugfs_power_state;
 static struct dentry *debugfs_reg_dump;
+static struct dentry *debugfs_uart_status;
 
 static unsigned char read_data;
 
@@ -1772,6 +1790,7 @@ static ssize_t codec_debug_read(struct file *file, char __user *ubuf,
 	char lbuf[8];
 	char *access_str = file->private_data;
 	ssize_t ret_cnt;
+	struct wcd9xxx_pdata *pdata= NULL;
 
 	if (*ppos < 0 || !count)
 		return -EINVAL;
@@ -1782,6 +1801,12 @@ static ssize_t codec_debug_read(struct file *file, char __user *ubuf,
 					       strnlen(lbuf, 7));
 	} else if (!strcmp(access_str, "slimslave_reg_dump")) {
 		ret_cnt = wcd9xxx_slimslave_reg_show(ubuf, count, ppos);
+	} else if (!strcmp(access_str, "slimslave_uart_status")) {
+		pdata = debugCodec->slim->dev.platform_data;
+		snprintf(lbuf, sizeof(lbuf), "%s\n",
+				gpio_get_value(pdata->uart_control)? "hp": "uart");
+		ret_cnt = simple_read_from_buffer(ubuf, count, ppos, lbuf,
+					strnlen(lbuf, sizeof(lbuf)));
 	} else {
 		pr_err("%s: %s not permitted to read\n", __func__, access_str);
 		ret_cnt = -EPERM;
@@ -1863,6 +1888,7 @@ static ssize_t codec_debug_write(struct file *filp,
 	char lbuf[32];
 	int rc;
 	long int param[5];
+	struct wcd9xxx_pdata *pdata = NULL;
 
 	if (cnt > sizeof(lbuf) - 1)
 		return -EINVAL;
@@ -1890,6 +1916,12 @@ static ssize_t codec_debug_write(struct file *filp,
 				param[0]);
 		else
 			rc = -EINVAL;
+	} else if (!strcmp(access_str, "slimslave_uart_status")) {
+		rc = get_parameters(lbuf, param, 1);
+		pdata = debugCodec->slim->dev.platform_data;
+		pr_info("param %ld uart_info_codec %u\n", param[0], uart_info_codec);
+		/* if fastboot uart was off, never switch to uart */
+		gpio_set_value(pdata->uart_control, (uart_info_codec && !param[0]) ? 0 : 1);
 	} else if (!strcmp(access_str, "power_state")) {
 		rc = codec_debug_process_cdc_power(lbuf);
 	}
@@ -2088,6 +2120,7 @@ static int wcd9xxx_i2c_write_device(struct wcd9xxx *wcd9xxx, u16 reg, u8 *value,
 	u8 reg_addr = 0;
 	u8 data[bytes + 1];
 	struct wcd9xxx_i2c *wcd9xxx_i2c;
+	int i;
 
 	wcd9xxx_i2c = wcd9xxx_i2c_get_device_info(wcd9xxx, reg);
 	if (wcd9xxx_i2c == NULL || wcd9xxx_i2c->client == NULL) {
@@ -2100,7 +2133,8 @@ static int wcd9xxx_i2c_write_device(struct wcd9xxx *wcd9xxx, u16 reg, u8 *value,
 	msg->len = bytes + 1;
 	msg->flags = 0;
 	data[0] = reg;
-	data[1] = *value;
+	for (i = 0; i < bytes; i++)
+		data[i + 1] = value[i];
 	msg->buf = data;
 	ret = i2c_transfer(wcd9xxx_i2c->client->adapter,
 			   wcd9xxx_i2c->xfer_msg, 1);
@@ -2691,6 +2725,7 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	u32 mad_dmic_sample_rate = 0;
 	u32 ecpp_dmic_sample_rate = 0;
 	u32 dmic_clk_drive;
+	u32 mic_unmute_delay = 0;
 	const char *static_prop_name = "qcom,cdc-static-supplies";
 	const char *ond_prop_name = "qcom,cdc-on-demand-supplies";
 	const char *cp_supplies_name = "qcom,cdc-cp-supplies";
@@ -2844,6 +2879,16 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	else
 		pdata->dmic_clk_drv = dmic_clk_drive;
 
+	ret = of_property_read_u32(dev->of_node,
+				"qcom,cdc-mic-unmute-delay",
+				&mic_unmute_delay);
+	if (ret) {
+		dev_err(dev, "Looking up %s property in node %s failed",
+			"qcom,cdc-mic-unmute-delay",
+			dev->of_node->full_name);
+	}
+	pdata->mic_unmute_delay = mic_unmute_delay;
+
 	ret = of_property_read_string(dev->of_node,
 				"qcom,cdc-variant",
 				&cdc_name);
@@ -2858,6 +2903,26 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 		else
 			pdata->cdc_variant = WCD9XXX;
 	}
+
+	/* set default uart gpio status.
+	 * GPIOF_OUT_INIT_LOW  = uart
+	 * GPIOF_OUT_INIT_HIGH = hp
+	 */
+	pdata->uart_control = of_get_named_gpio_flags(dev->of_node,
+				"asus,uart-sw-control", 0, NULL);
+
+#ifdef CONFIG_SERIAL_MSM_HSL
+	uart_info_codec = uart_info;
+#else
+	uart_info_codec = 0;
+#endif
+
+	if (pdata->uart_control) {
+		ret = gpio_request_one(pdata->uart_control,
+					uart_info_codec ? GPIOF_OUT_INIT_LOW : GPIOF_OUT_INIT_HIGH,
+					"uart-sw-control");
+	}
+	pr_info("init uart control %d %d\n", pdata->uart_control, ret);
 
 	return pdata;
 err:
@@ -3107,20 +3172,25 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 		("wcd9xxx_core", 0);
 	if (!IS_ERR(debugfs_wcd9xxx_dent)) {
 		debugfs_peek = debugfs_create_file("slimslave_peek",
-		S_IFREG | S_IRUGO, debugfs_wcd9xxx_dent,
+		S_IFREG | S_IRUSR, debugfs_wcd9xxx_dent,
 		(void *) "slimslave_peek", &codec_debug_ops);
 
 		debugfs_poke = debugfs_create_file("slimslave_poke",
-		S_IFREG | S_IRUGO, debugfs_wcd9xxx_dent,
+		S_IFREG | S_IRUSR, debugfs_wcd9xxx_dent,
 		(void *) "slimslave_poke", &codec_debug_ops);
 
 		debugfs_power_state = debugfs_create_file("power_state",
-		S_IFREG | S_IRUGO, debugfs_wcd9xxx_dent,
+		S_IFREG | S_IRUSR, debugfs_wcd9xxx_dent,
 		(void *) "power_state", &codec_debug_ops);
 
 		debugfs_reg_dump = debugfs_create_file("slimslave_reg_dump",
-		S_IFREG | S_IRUGO, debugfs_wcd9xxx_dent,
+		S_IFREG | S_IRUSR, debugfs_wcd9xxx_dent,
 		(void *) "slimslave_reg_dump", &codec_debug_ops);
+
+		debugfs_uart_status = debugfs_create_file("slimslave_uart_status",
+		S_IFREG | S_IRUGO, debugfs_wcd9xxx_dent,
+		(void *) "slimslave_uart_status", &codec_debug_ops);
+
 	}
 #endif
 
@@ -3224,9 +3294,9 @@ static int wcd9xxx_slim_device_down(struct slim_device *sldev)
 		return 0;
 
 	wcd9xxx->dev_up = false;
-	wcd9xxx_irq_exit(&wcd9xxx->core_res);
 	if (wcd9xxx->dev_down)
 		wcd9xxx->dev_down(wcd9xxx);
+	wcd9xxx_irq_exit(&wcd9xxx->core_res);
 	return 0;
 }
 

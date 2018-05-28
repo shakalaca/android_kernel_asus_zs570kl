@@ -459,6 +459,7 @@ static int hall_sensor_probe(struct platform_device *pdev)
 	struct proc_dir_entry* proc_sleep_data = NULL;
 	dbg("Probe \n");
 
+	printk("[Angel HallSensor] start\n");
 #ifdef CONFIG_SENSOR_ENG_CMD
 	proc_hall_data = proc_create("hall_sensor_cmd", 0666, NULL, &proc_hall_send);
 	proc_debounce_data = proc_create("hall_sensor_debounce", 0666, NULL, &proc_debounce_send);

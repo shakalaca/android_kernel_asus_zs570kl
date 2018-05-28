@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,13 +27,46 @@
 #include <linux/io.h>
 #include <asm-generic/sizes.h>
 #include <linux/msm_rtb.h>
+#include <asm/timex.h>
 
 #define SENTINEL_BYTE_1 0xFF
 #define SENTINEL_BYTE_2 0xAA
 #define SENTINEL_BYTE_3 0xFF
 
 #define RTB_COMPAT_STR	"qcom,msm-rtb"
-extern int g_saving_rtb_log;
+
+/* Write
+ * 1) 3 bytes sentinel
+ * 2) 1 bytes of log type
+ * 3) 8 bytes of where the caller came from
+ * 4) 4 bytes index
+ * 4) 8 bytes extra data from the caller
+ * 5) 8 bytes of timestamp
+ * 6) 8 bytes of cyclecount
+ *
+ * Total = 40 bytes.
+ */
+struct msm_rtb_layout {
+	unsigned char sentinel[3];
+	unsigned char log_type;
+	uint32_t idx;
+	uint64_t caller;
+	uint64_t data;
+	uint64_t timestamp;
+	uint64_t cycle_count;
+} __attribute__ ((__packed__));
+
+
+struct msm_rtb_state {
+	struct msm_rtb_layout *rtb;
+	phys_addr_t phys;
+	int nentries;
+	int size;
+	int enabled;
+	int initialized;
+	uint32_t filter;
+	int step_size;
+};
 
 #if defined(CONFIG_MSM_RTB_SEPARATE_CPUS)
 DEFINE_PER_CPU(atomic_t, msm_rtb_idx_cpu);
@@ -41,9 +74,9 @@ DEFINE_PER_CPU(atomic_t, msm_rtb_idx_cpu);
 static atomic_t msm_rtb_idx;
 #endif
 
-struct msm_rtb_state msm_rtb = {
+static struct msm_rtb_state msm_rtb = {
 	.filter = 1 << LOGK_LOGBUF,
-	.enabled = 0,
+	.enabled = 1,
 };
 
 module_param_named(filter, msm_rtb.filter, uint, 0644);
@@ -63,7 +96,7 @@ static struct notifier_block msm_rtb_panic_blk = {
 
 int notrace msm_rtb_event_should_log(enum logk_event_type log_type)
 {
-	return msm_rtb.initialized && msm_rtb.enabled && !g_saving_rtb_log &&
+	return msm_rtb.initialized && msm_rtb.enabled &&
 		((1 << (log_type & ~LOGTYPE_NOPC)) & msm_rtb.filter);
 }
 EXPORT_SYMBOL(msm_rtb_event_should_log);
@@ -102,6 +135,11 @@ static void msm_rtb_write_timestamp(struct msm_rtb_layout *start)
 	start->timestamp = sched_clock();
 }
 
+static void msm_rtb_write_cyclecount(struct msm_rtb_layout *start)
+{
+	start->cycle_count = get_cycles();
+}
+
 static void uncached_logk_pc_idx(enum logk_event_type log_type, uint64_t caller,
 				 uint64_t data, int idx)
 {
@@ -115,6 +153,7 @@ static void uncached_logk_pc_idx(enum logk_event_type log_type, uint64_t caller,
 	msm_rtb_write_idx(idx, start);
 	msm_rtb_write_data(data, start);
 	msm_rtb_write_timestamp(start);
+	msm_rtb_write_cyclecount(start);
 	mb();
 
 	return;
@@ -240,12 +279,10 @@ static int msm_rtb_probe(struct platform_device *pdev)
 
 	if (msm_rtb.size <= 0 || msm_rtb.size > SZ_1M)
 		return -EINVAL;
-        
-        msm_rtb.phys = RTB_BUFFER_PA;
-        if (!msm_rtb.phys)
-                return -ENOMEM;
-        
-        msm_rtb.rtb = ioremap(msm_rtb.phys, msm_rtb.size);
+
+	msm_rtb.rtb = dma_alloc_coherent(&pdev->dev, msm_rtb.size,
+						&msm_rtb.phys,
+						GFP_KERNEL);
 
 	if (!msm_rtb.rtb)
 		return -ENOMEM;
@@ -255,9 +292,8 @@ static int msm_rtb_probe(struct platform_device *pdev)
 	/* Round this down to a power of 2 */
 	msm_rtb.nentries = __rounddown_pow_of_two(msm_rtb.nentries);
 
-        // don't set the content to 0
-        // we need the last rtb log before reset
-        //~ memset(msm_rtb.rtb, 0, msm_rtb.size);
+	memset(msm_rtb.rtb, 0, msm_rtb.size);
+
 
 #if defined(CONFIG_MSM_RTB_SEPARATE_CPUS)
 	for_each_possible_cpu(cpu) {

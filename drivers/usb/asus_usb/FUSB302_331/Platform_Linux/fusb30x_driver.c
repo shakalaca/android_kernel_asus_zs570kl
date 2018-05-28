@@ -627,7 +627,7 @@ static int fusb30x_probe (struct i2c_client* client,
         if (!usb_psy) {
                 USB_FUSB302_331_INFO("USB supply not found, deferring probe\n");
         }
-	usb_parallel_psy= power_supply_get_by_name("usb-parallel");
+	usb_parallel_psy= power_supply_get_by_name("parallel");
         if (!usb_parallel_psy) {
                 USB_FUSB302_331_INFO("USB(parallel) supply not found, deferring probe\n");
         }

@@ -23,12 +23,13 @@
 #include <media/v4l2-subdev.h>
 #include <media/msmb_camera.h>
 #include "msm_camera_i2c.h"
-//#include "msm_camera_dt_util.h"
-//#include <common/msm_camera_io_util.h>
+#include "msm_camera_dt_util.h"
+#include <common/msm_camera_io_util.h>
+//#include "msm_camera_io_util.h"
 #include "msm_sd.h"
-//#include "msm_cci.h"
-#include <linux/unistd.h>
-#include <linux/workqueue.h> 
+#include "msm_cci.h"
+
+#include <linux/workqueue.h>
 
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
@@ -85,30 +86,29 @@ struct msm_laser_focus_vreg {
 
 /* Laser focus controller */
 struct msm_laser_focus_ctrl_t {
-	struct i2c_client *blsp_i2c_client;
+	struct i2c_driver *i2c_driver;
 	struct platform_driver *pdriver;
 	struct platform_device *pdev;
 	struct msm_camera_i2c_client *i2c_client;
 	enum msm_camera_device_type_t act_device_type;
 	struct msm_sd_subdev msm_sd;
 	struct msm_camera_sensor_board_info *sensordata;
-	
+
 	struct mutex *laser_focus_mutex;
 	enum msm_laser_focus_data_type i2c_data_type;
 	struct v4l2_subdev sdev;
 	struct v4l2_subdev_ops *act_v4l2_subdev_ops;
 
 	int16_t device_state;
-	
+
 	/* For calibration */
 	int32_t laser_focus_offset_value;
 	uint32_t laser_focus_cross_talk_offset_value;
 
-	
 	uint16_t reg_tbl_size;
-	
+
 	void *user_data;
-	
+
 	uint16_t initial_code;
 	struct msm_camera_i2c_reg_array *i2c_reg_tbl;
 	uint16_t i2c_tbl_index;
@@ -116,9 +116,9 @@ struct msm_laser_focus_ctrl_t {
 	uint32_t subdev_id;
 	enum msm_laser_focus_state_t laser_focus_state;
 	struct msm_laser_focus_vreg vreg_cfg;
-	
+
 	uint32_t max_code_size;
-	
+
 	//enum af_camera_name cam_name;
 	//struct msm_laser_focus_func_tbl *func_tbl;
 	//int16_t curr_step_pos;
@@ -177,10 +177,6 @@ struct msm_laser_focus {
 #define VL6180_OFFSET_CAL_RANGE			100	/* 100mm */
 #define STMVL6180_RUNTIMES_OFFSET_CAL		20	/* Times of calibration collect range data */
 
-#define REF_K_DATA_NUMBER	4
-#define	DMAX_K_DATA_NUMBER 3
-
-
 /* Laser focus control file path */
 #define	STATUS_PROC_FILE		"driver/LaserFocus_Status"	/* Status */
 #define	STATUS_PROC_FILE_FOR_CAMERA	"driver/LaserFocus_Status_For_Camera"	/* Status (check on prob only) */
@@ -198,14 +194,9 @@ struct msm_laser_focus {
 #define DEVICE_DEBUG_VALUE4	"driver/LaserFocus_log_value4" /* Debug value for CE collect data */
 #define DEVICE_DEBUG_VALUE5	"driver/LaserFocus_log_value5" /* Debug value for CE collect data */
 #define DEVICE_DEBUG_VALUE6	"driver/LaserFocus_log_value6"
-#define DEVICE_DEBUG_VALUE7	"driver/LaserFocus_log_value7"
-#define DEVICE_DEBUG_VALUE8	"driver/LaserFocus_log_value8"
-#define DEVICE_DEBUG_VALUE9	"driver/LaserFocus_log_value9"
-#define DEVICE_DEBUG_VALUE10	"driver/LaserFocus_log_value10"
 #define DEVICE_VALUE_CHECK	"driver/LaserFocus_value_check" /* Check sensor value */
 #define DEVICE_IOCTL_SET_K	"driver/LaserFocus_setK"
 #define DEVICE_IOCTL_PRODUCT_FAMILY	"driver/LaserFocus_ProductFamily"
-#define DEVICE_CSC_MODE	"driver/LaserFocus_CSCmode"
 
 /* Right of laser focus control file*/
 #ifdef ASUS_FACTORY_BUILD

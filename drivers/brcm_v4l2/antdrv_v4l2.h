@@ -4,7 +4,7 @@
  *  ANT+ V4L2 module header.
  *
  *  Copyright (C) 2009 Texas Instruments
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as

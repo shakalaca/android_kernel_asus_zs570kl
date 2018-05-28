@@ -22,6 +22,13 @@
 
 #include "blk.h"
 
+static unsigned r_tick_pre_data = 0;
+static unsigned w_tick_pre_data = 0;
+static unsigned io_tick_pre_data = 0;
+static unsigned r_tick_pre_system = 0;
+static unsigned w_tick_pre_system = 0;
+static unsigned io_tick_pre_system= 0;
+
 static DEFINE_MUTEX(block_class_lock);
 struct kobject *block_depr;
 
@@ -730,6 +737,58 @@ struct block_device *bdget_disk(struct gendisk *disk, int partno)
 	return bdev;
 }
 EXPORT_SYMBOL(bdget_disk);
+
+void asus_get_disk_stat(void)
+{
+	struct class_dev_iter iter;
+	struct device *dev;
+	char buf[BDEVNAME_SIZE];
+	int cpu;
+	unsigned int  r_tick, w_tick, io_tick, in_flight;
+	r_tick = w_tick = io_tick = in_flight = 0;
+
+        class_dev_iter_init(&iter, &block_class, NULL, &disk_type);
+        while ((dev = class_dev_iter_next(&iter))) {
+                struct gendisk *disk = dev_to_disk(dev);
+                struct disk_part_iter piter;
+                struct hd_struct *part;
+
+		if (get_capacity(disk) == 0 ||
+                    (disk->flags & GENHD_FL_SUPPRESS_PARTITION_INFO))
+                        continue;
+		disk_part_iter_init(&piter, disk, DISK_PITER_INCL_EMPTY_PART0);
+		while ((part = disk_part_iter_next(&piter))) {
+			if(!(strcmp("dm-0",disk_name(disk, part->partno, buf))) || !(strcmp("sde18",disk_name(disk, part->partno, buf)))){
+				cpu = part_stat_lock();
+				part_round_stats(cpu, part);
+				part_stat_unlock();
+				r_tick = jiffies_to_msecs(part_stat_read(part, ticks[READ]));
+				w_tick = jiffies_to_msecs(part_stat_read(part, ticks[WRITE]));
+				in_flight = part_in_flight(part);
+				io_tick = jiffies_to_msecs(part_stat_read(part, io_ticks));
+
+				if(!strcmp("dm-0", disk_name(disk,part->partno,buf))){
+					printk("[IO_STATS]: %9s\t%u\t%u\t%u\t\t%u\n",disk_name(disk, part->partno, buf),
+						r_tick-r_tick_pre_data,w_tick-w_tick_pre_data,io_tick-io_tick_pre_data,in_flight);
+					r_tick_pre_data = r_tick;
+					w_tick_pre_data = w_tick;
+					io_tick_pre_data = io_tick;
+				}
+				else {
+					printk("[IO_STATS]: DISK_NAME\tR_TICK\tW_TICK\tIO_TICK\tUNIT:ms\tCurrent IN_FLIGHT\n");
+                                                printk("[IO_STATS]: %9s\t%u\t%u\t%u\t\t%u\n",disk_name(disk, part->partno, buf),
+							r_tick-r_tick_pre_system,w_tick-w_tick_pre_system,io_tick-io_tick_pre_system,in_flight);
+					r_tick_pre_system = r_tick;
+					w_tick_pre_system = w_tick;
+					io_tick_pre_system = io_tick;
+				}
+			}
+		}
+		disk_part_iter_exit(&piter);
+	}
+	class_dev_iter_exit(&iter);
+}
+
 
 /*
  * print a full list of all partitions - intended for places where the root

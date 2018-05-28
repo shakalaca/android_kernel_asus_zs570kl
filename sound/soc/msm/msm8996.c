@@ -37,6 +37,7 @@
 #include "../codecs/wcd9330.h"
 #include "../codecs/wcd9335.h"
 #include "../codecs/wsa881x.h"
+#include <linux/switch.h>
 
 #define DRV_NAME "msm8996-asoc-snd"
 
@@ -344,6 +345,22 @@ static struct wcd_mbhc_config wcd_mbhc_cfg = {
 	.anc_micbias = MIC_BIAS_2,
 	.enable_anc_mic_detect = false,
 };
+
+/* ASUS: Notify AudioWizard by uevent */
+static struct switch_dev audiowizard_sdev;
+
+void set_audiowizard_state(int state)
+{
+	if (audiowizard_sdev.dev)
+		switch_set_state(&audiowizard_sdev, state);
+}
+EXPORT_SYMBOL(set_audiowizard_state);
+
+int get_audiowizard_state(void)
+{
+	return (audiowizard_sdev.dev) ? switch_get_state(&audiowizard_sdev) : -ENODEV;
+}
+EXPORT_SYMBOL(get_audiowizard_state);
 
 static ssize_t gpio_test_tool_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -5174,6 +5191,11 @@ static int msm8996_asoc_machine_probe(struct platform_device *pdev)
 		device_unregister(gpio_userCtrl_dev);
 		printk("%s: gpio_userCtrl_dev register failed\n", __func__);
 	}
+
+	audiowizard_sdev.name = "audiowizard_notify";
+	ret = switch_dev_register(&audiowizard_sdev);
+	if (ret < 0)
+		pr_err("%s: failed to register audiowizrd switch device", __func__);
 
 	return 0;
 err:

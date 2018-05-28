@@ -17,11 +17,7 @@
 #define TAG "LASER_FOCUS"
 
 /* Debug log flag */
-#ifdef ASUS_FACTORY_BUILD
-#define DEBUG_LOG_FLAG 1
-#else
 #define DEBUG_LOG_FLAG 0
-#endif
 
 /* Log contorller */
 enum log_ctl{
@@ -33,7 +29,7 @@ enum log_ctl{
 	API_DBG_DISABEL = 04,	/* API debug log */
 	FUN_DBG_DISABLE = 05,	/* Function debug log */
 	ERR_DBG_DISABLE = 06,	/* Error debug log ERR_DBG_ENABLE*/
-	
+
 	/* Log enable */
 	ALL_ENABLE = 10,	/* All debug log */
 	CDBG_ENABLE = 11,	/* Major debug log */

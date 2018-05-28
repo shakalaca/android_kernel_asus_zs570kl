@@ -7,15 +7,6 @@
 
 #include "show_log.h"
 
-//#ifdef ASUS_FACTORY_BUILD
-#if 0
-static bool DEBUG_CDEB = true;	/* Major debug log */
-static bool DEBUG_DBG = true;	/* General debug log */
-static bool DEBUG_REG = true;	/* I2C register debug log */
-static bool DEBUG_API = true;	/* API debug log */
-static bool DEBUG_FUN = true;	/* Function debug log */
-static bool DEBUG_ERR = true;	/* Error debug log */
-#else
 /* Log status */
 static bool DEBUG_CDEB = true;	/* Major debug log */
 static bool DEBUG_DBG = false;	/* General debug log */
@@ -23,10 +14,9 @@ static bool DEBUG_REG = false;	/* I2C register debug log */
 static bool DEBUG_API = false;	/* API debug log */
 static bool DEBUG_FUN = false;	/* Function debug log */
 static bool DEBUG_ERR = true;	/* Error debug log */
-#endif
 
 /** @brief Display log
-*	
+*
 *	@param tag The tag which you want to show before log
 *	@param fmt
 *	@param args
@@ -38,17 +28,17 @@ void display_log(const char* tag, const char* fmt, va_list args){
 	char *log;
 
 	//printk("%s: Enter\n", __func__);
-	
+
 	/* Compute log size */
 	len = vsnprintf(NULL, 0, fmt, args);
-	
+
 	/* Allocate memory */
 	log = (char *)kzalloc((sizeof(char)*len)+2, GFP_KERNEL);
 	if(!log){
 		pr_err("%s: failed %d\n", __func__, __LINE__);
 		return;
 	}
-	
+
 	/* Copy log */
 	vsnprintf(log, len+1, fmt, args);
 
@@ -57,11 +47,11 @@ void display_log(const char* tag, const char* fmt, va_list args){
 	kfree(log);
 
 	//printk("%s: Exit\n", __func__);
-	
-}	
+
+}
 
 /** @brief Handle log
-*	
+*
 *	@param log_type The type of log
 *	@param fmt
 *	@param ...
@@ -70,9 +60,8 @@ void display_log(const char* tag, const char* fmt, va_list args){
 void LOG_Handler(int log_type, const char* fmt, ...){
 
 	va_list args;
-	
 	va_start(args, fmt);
-
+	//return;
 	switch(log_type){
 		case LOG_CDBG:
 			/* Major debug log */
@@ -116,11 +105,11 @@ void LOG_Handler(int log_type, const char* fmt, ...){
 	}
 
 	va_end(args);
-	
+
 }
 
 /** @brief Log control
-*	
+*
 *	@param num the number of log action
 *	@param len the size of log number
 *

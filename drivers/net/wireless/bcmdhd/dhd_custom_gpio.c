@@ -110,19 +110,14 @@ int wifi_get_mac_addr_qcom(unsigned char *buf){
 	struct file *fp = NULL;
 	unsigned char c_mac[MAC_ADDRESS_LEN];
 	char fname[]="/factory/wifimac.txt";
-    int count = 0;
 
-	WL_ERROR(("%s Enter\n", __FUNCTION__));
+	WL_TRACE(("%s Enter\n", __FUNCTION__));
 
-	while ((fp = dhd_os_open_image(fname)) == NULL && count <5){
-        WL_ERROR(("%s: unable to open %s, try %d time(s), at most 5 times\n",__FUNCTION__, fname, count+1));
-        msleep(500);
-        count++;
-    }
-    if (fp == NULL){
-        WL_ERROR(("%s: still unable to open %s\n",__FUNCTION__, fname));
-        return 1;
-    }
+	fp = dhd_os_open_image(fname);
+	if (fp== NULL){
+		WL_ERROR(("%s: unable to open %s\n",__FUNCTION__, fname));
+		return 1;
+	}
 
 	if ( dhd_os_get_image_block(c_mac, MAC_ADDRESS_LEN, fp) != MAC_ADDRESS_LEN ){
 		WL_ERROR(("%s: Error on reading mac address from %s \n",__FUNCTION__, fname));

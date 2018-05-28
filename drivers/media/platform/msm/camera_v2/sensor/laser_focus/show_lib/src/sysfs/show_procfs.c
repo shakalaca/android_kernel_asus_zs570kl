@@ -9,11 +9,11 @@
 #include "show_log.h"
 
 /** @brief Create proc file
-*	
+*
 *	@param file_name the file name which you want to create
 *	@param mode the access right for owner of the file (e.g. 0776)
 *	@param parent the proc entry
-*	@param proc_fops the pointer which points to file_operations struct. It will be a entry point of system call after the driver register it for kernel. 
+*	@param proc_fops the pointer which points to file_operations struct. It will be a entry point of system call after the driver register it for kernel.
 *
 */
 int create_proc_file(const char *file_name, umode_t mode, struct proc_dir_entry *parent, const struct file_operations *proc_fops){

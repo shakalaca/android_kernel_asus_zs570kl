@@ -9,7 +9,7 @@
 #include "show_log.h"
 
 /** @brief Dump register value from min to max (Word)
-*	
+*
 *	@param vfile virtual file which provide information to the user or system administrator
 *	@param dev_t the laser focus controller
 *	@param min the least number of register
@@ -20,7 +20,7 @@ int dump_register(struct seq_file *vfile, struct msm_laser_focus_ctrl_t *dev_t, 
 	int status, i = 0;
 	uint16_t register_value = 0;
 
-	//LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
+	LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
 
 	if (dev_t->device_state == MSM_LASER_FOCUS_DEVICE_OFF ||
 		dev_t->device_state == MSM_LASER_FOCUS_DEVICE_DEINIT_CCI) {
@@ -42,16 +42,16 @@ int dump_register(struct seq_file *vfile, struct msm_laser_focus_ctrl_t *dev_t, 
 	}
 
 	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+
 	return 0;
 }
 
 /** @brief Make laser driver return a fake value (0: return real range, others: return fake value)
-*	
+*
 *	@param dev_t the laser focus controller
 *	@param num the fake number
 *	@param len the size of fake number
-*	@param LF_enforce_ctrl the internal enforce controller 
+*	@param LF_enforce_ctrl the internal enforce controller
 *
 */
 ssize_t Laser_Focus_enforce(struct msm_laser_focus_ctrl_t *dev_t, const char __user *num, size_t len, int *LF_enforce_ctrl){

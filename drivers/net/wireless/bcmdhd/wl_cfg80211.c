@@ -2773,7 +2773,7 @@ wl_run_escan(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 					err = -EINVAL;
 					goto exit;
 				}
-				
+			
 				for (i = 0; i < num_chans; i++)
 				{
 #ifdef WL_HOST_BAND_MGMT
@@ -8148,7 +8148,6 @@ wl_cfg80211_bcn_bringup_ap(
 
 		/* Device role SoftAP */
 		WL_DBG(("Creating AP bssidx:%d dev_role:%d\n", bssidx, dev_role));
-
 		/* Clear the status bit after use */
 		wl_clr_drv_status(cfg, AP_CREATING, dev);
 
@@ -8178,7 +8177,6 @@ wl_cfg80211_bcn_bringup_ap(
 					WL_ERR(("setting AP mode failed %d \n", err));
 					goto exit;
 				}
-
 			}
 
 			pm = 0;
@@ -8194,11 +8192,17 @@ wl_cfg80211_bcn_bringup_ap(
 			}
 		} else if (cfg->cfgdev_bssidx && (bssidx == cfg->cfgdev_bssidx)) {
 
-			WL_DBG(("Bringup SoftAP on virtual Interface bssidx:%d \n", bssidx));
+			WL_ERR(("Bringup SoftAP on virtual Interface bssidx:%d \n", bssidx));
 
 			if ((err = wl_cfg80211_add_del_bss(cfg, dev,
 				bssidx, NL80211_IFTYPE_AP, 0, NULL)) < 0) {
 				WL_ERR(("wl bss ap returned error:%d\n", err));
+				goto exit;
+			}
+
+			if ((err = wldev_ioctl_set(dev,
+				WLC_SET_AP, &ap, sizeof(s32))) < 0) {
+				WL_ERR(("setting AP mode failed %d \n", err));
 				goto exit;
 			}
 
@@ -8944,7 +8948,6 @@ wl_cfg80211_stop_ap(
 	if ((err = wl_cfgp2p_bss(cfg, dev, bssidx, 0)) < 0) {
 		WL_ERR(("bss down error %d\n", err));
 	}
-
 	if (dev_role == NL80211_IFTYPE_AP) {
 		if (cfg->revert_ndo_disable == true) {
 			err = dhd_ndo_enable(dhd, TRUE);
@@ -8975,16 +8978,15 @@ wl_cfg80211_stop_ap(
 		 * Don't do a down or "WLC_SET_AP 0" since the shared
 		 * interface may be still running
 		 */
-		if (is_rsdb_supported) {
-			if ((err = wl_cfg80211_add_del_bss(cfg, dev,
-				bssidx, NL80211_IFTYPE_STATION, 0, NULL)) < 0) {
-				if ((err = wldev_ioctl_set(dev, WLC_SET_AP, &ap, sizeof(s32))) < 0) {
-					WL_ERR(("setting AP mode failed %d \n", err));
-					err = -ENOTSUPP;
-					goto exit;
-				}
+		if ((err = wl_cfg80211_add_del_bss(cfg, dev,
+			bssidx, NL80211_IFTYPE_STATION, 0, NULL)) < 0) {
+			if ((err = wldev_ioctl_set(dev, WLC_SET_AP, &ap, sizeof(s32))) < 0) {
+				WL_ERR(("setting AP mode failed %d \n", err));
+				err = -ENOTSUPP;
+				goto exit;
 			}
-		} else if (is_rsdb_supported == 0) {
+		}
+		if (is_rsdb_supported == 0) {
 			err = wldev_ioctl_set(dev, WLC_SET_INFRA, &infra, sizeof(s32));
 			if (err < 0) {
 				WL_ERR(("SET INFRA error %d\n", err));
@@ -9796,6 +9798,9 @@ static s32 wl_setup_wiphy(struct wireless_dev *wdev, struct device *sdiofunc_dev
 	wdev->wiphy->max_match_sets = MAX_PFN_LIST_COUNT;
 	wdev->wiphy->max_sched_scan_ie_len = WL_SCAN_IE_LEN_MAX;
 	wdev->wiphy->flags |= WIPHY_FLAG_SUPPORTS_SCHED_SCAN;
+	wdev->wiphy->max_sched_scan_plans = 2;
+	wdev->wiphy->max_sched_scan_plan_iterations = 10;
+
 #endif /* WL_SCHED_SCAN */
 	wdev->wiphy->interface_modes =
 		BIT(NL80211_IFTYPE_STATION)
@@ -11323,6 +11328,32 @@ static s32 wl_get_assoc_ies(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 	assoc_info.req_len = htod32(assoc_info.req_len);
 	assoc_info.resp_len = htod32(assoc_info.resp_len);
 	assoc_info.flags = htod32(assoc_info.flags);
+
+	if (assoc_info.req_len >
+		(MAX_REQ_LINE + sizeof(struct dot11_assoc_req) +
+		((assoc_info.flags & WLC_ASSOC_REQ_IS_REASSOC) ?
+		ETHER_ADDR_LEN : 0))) {
+		err = BCME_BADLEN;
+		goto exit;
+	}
+	if ((assoc_info.req_len > 0) &&
+	    (assoc_info.req_len < (sizeof(struct dot11_assoc_req) +
+		((assoc_info.flags & WLC_ASSOC_REQ_IS_REASSOC) ?
+		ETHER_ADDR_LEN : 0)))) {
+		err = BCME_BADLEN;
+		goto exit;
+	}
+	if (assoc_info.resp_len >
+		(MAX_REQ_LINE + sizeof(struct dot11_assoc_resp))) {
+		err = BCME_BADLEN;
+		goto exit;
+	}
+	if ((assoc_info.resp_len > 0) &&
+		(assoc_info.resp_len < sizeof(struct dot11_assoc_resp))) {
+		err = BCME_BADLEN;
+		goto exit;
+	}
+
 	if (conn_info->req_ie_len) {
 		conn_info->req_ie_len = 0;
 		bzero(conn_info->req_ie, sizeof(conn_info->req_ie));
@@ -11342,30 +11373,17 @@ static s32 wl_get_assoc_ies(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 		if (assoc_info.flags & WLC_ASSOC_REQ_IS_REASSOC) {
 			conn_info->req_ie_len -= ETHER_ADDR_LEN;
 		}
-		if (conn_info->req_ie_len <= MAX_REQ_LINE)
-			memcpy(conn_info->req_ie, cfg->extra_buf, conn_info->req_ie_len);
-		else {
-			WL_ERR(("IE size %d above max %d size \n",
-				conn_info->req_ie_len, MAX_REQ_LINE));
-			return err;
-		}
-	} else {
-		conn_info->req_ie_len = 0;
+
+		memcpy(conn_info->req_ie, cfg->extra_buf,
+			conn_info->req_ie_len);
 	}
+
 	if (assoc_info.resp_len) {
 		err = wldev_iovar_getbuf(ndev, "assoc_resp_ies", NULL, 0, cfg->extra_buf,
 			WL_ASSOC_INFO_MAX, NULL);
 		if (unlikely(err)) {
 			WL_ERR(("could not get assoc resp (%d)\n", err));
-			return err;
-		}
-		conn_info->resp_ie_len = assoc_info.resp_len -sizeof(struct dot11_assoc_resp);
-		if (conn_info->resp_ie_len <= MAX_REQ_LINE) {
-			memcpy(conn_info->resp_ie, cfg->extra_buf, conn_info->resp_ie_len);
-		} else {
-			WL_ERR(("IE size %d above max %d size \n",
-				conn_info->resp_ie_len, MAX_REQ_LINE));
-			return err;
+			goto exit;
 		}
 
 #ifdef QOS_MAP_SET
@@ -11382,12 +11400,19 @@ static s32 wl_get_assoc_ies(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 			cfg->up_table = NULL;
 		}
 #endif /* QOS_MAP_SET */
-	} else {
-		conn_info->resp_ie_len = 0;
-	}
-	WL_DBG(("req len (%d) resp len (%d)\n", conn_info->req_ie_len,
-		conn_info->resp_ie_len));
 
+		conn_info->resp_ie_len =
+			assoc_info.resp_len - sizeof(struct dot11_assoc_resp);
+		memcpy(conn_info->resp_ie, cfg->extra_buf,
+				conn_info->resp_ie_len);
+	}
+
+exit:
+	if (err) {
+		WL_ERR(("err:%d assoc-req:%u,resp:%u conn-req:%u,resp:%u\n",
+			err, assoc_info.req_len, assoc_info.resp_len,
+			conn_info->req_ie_len, conn_info->resp_ie_len));
+	}
 	return err;
 }
 
@@ -11740,7 +11765,7 @@ wl_notify_pfn_status(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		WL_ERR(("Data is NULL!\n"));
 		return 0;
 	}
- 
+
 	WL_DBG((">>> PNO Event\n"));
 	ndev = cfgdev_to_wlc_ndev(cfgdev, cfg);
 

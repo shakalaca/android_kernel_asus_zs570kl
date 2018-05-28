@@ -4,12 +4,12 @@
 *	Time:	2015-05
 *
 */
-#if 0
+
 #include "show_gpio.h"
 #include "show_log.h"
 
 /** @brief Set GPIO to high
-*	
+*
 *	@param power_info power controller for camera
 *	@param gpio_num the number of gpio
 *
@@ -24,7 +24,7 @@ int GPIO_UP(struct msm_camera_power_ctrl_t *power_info, int gpio_num){
 		LOG_Handler(LOG_ERR, "%s: request gpio failed\n", __func__);
 		return rc;
 	}
-		
+
 	gpio_set_value_cansleep(
 		power_info->gpio_conf->gpio_num_info->gpio_num[gpio_num],
 		GPIO_OUT_HIGH
@@ -59,26 +59,26 @@ int GPIO_DOWN(struct msm_camera_power_ctrl_t *power_info, int gpio_num){
 }
 
 /** @brief Handle GPIO
-*	
+*
 *	@param dev_t the laser focus controller
 *	@param gpio_num the number of gpio
-*	@param ctrl the action of gpio 
+*	@param ctrl the action of gpio
 *			GPIO_HIGH	:	set GPIO to high
 *			GPIO_LOW	:	set GPIO to ligh
 */
 int GPIO_Handler(struct msm_laser_focus_ctrl_t *dev_t, int gpio_num, int ctrl){
 	int rc = 0;
-	
+
 	struct msm_camera_sensor_board_info *sensordata = NULL;
 	struct msm_camera_power_ctrl_t *power_info = NULL;
-	
+
 	LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
 
 	if (!dev_t) {
 		LOG_Handler(LOG_ERR, "%s: failed\n", __func__);
 		return -EINVAL;
 	}
-	
+
 	sensordata = dev_t->sensordata;
 	power_info = &sensordata->power_info;
 
@@ -108,9 +108,8 @@ int GPIO_Handler(struct msm_laser_focus_ctrl_t *dev_t, int gpio_num, int ctrl){
 			return -EINVAL;
 	}
 
-	LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
+
 	return rc;
 }
-#endif
 

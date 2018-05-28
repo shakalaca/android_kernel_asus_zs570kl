@@ -3252,10 +3252,10 @@ void fsg_common_set_inquiry_string(struct fsg_common *common, const char *vn,
 	/* Prepare inquiryString */
 	i = get_default_bcdDevice();
 	snprintf(common->inquiry_string, sizeof(common->inquiry_string),
-		 "%-16s%-16s%04x", vn ?: "ASUS android",
+		 "%-8s%-16s%04x", vn ?: "Linux",
 		 /* Assume product name dependent on the first LUN */
 		 pn ?: ((*common->luns)->cdrom
-		     ? "Device CD-ROM"
+		     ? "File-CD Gadget"
 		     : "File-Stor Gadget"),
 		 i);
 }
@@ -3323,7 +3323,7 @@ int fsg_sysfs_update(struct fsg_common *common, struct device *dev, bool create)
 	if (create) {
 		for (i = 0; i < common->nluns; i++) {
 			if (i == 0)
-				snprintf(common->name[i], 8, "rom");
+				snprintf(common->name[i], 8, "lun");
 			else
 				snprintf(common->name[i], 8, "lun%d", i-1);
 			ret = sysfs_create_link(&dev->kobj,

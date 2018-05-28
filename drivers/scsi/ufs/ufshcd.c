@@ -3,7 +3,7 @@
  *
  * This code is based on drivers/scsi/ufs/ufshcd.c
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -42,6 +42,8 @@
 #include <linux/devfreq.h>
 #include <linux/nls.h>
 #include <linux/of.h>
+#include <linux/blkdev.h>
+
 #include "ufshcd.h"
 #include "ufshci.h"
 #include "ufs_quirks.h"
@@ -51,6 +53,9 @@
 #include <trace/events/ufs.h>
 
 uint64_t qTotalRawDeviceCapacity;
+static  u8 pre_Pre_EOL;
+static  u8 pre_life_time_A;
+static  u8 pre_life_time_B;
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -245,7 +250,6 @@ static u32 ufs_query_desc_max_size[] = {
 	QUERY_DESC_RFU_MAX_SIZE,
 	QUERY_DESC_GEOMETRY_MAZ_SIZE,
 	QUERY_DESC_POWER_MAX_SIZE,
-	//QUERY_DESC_RFU_MAX_SIZE,
 	QUERY_DESC_HEALTH_MAX_SIZE,
 };
 
@@ -381,6 +385,11 @@ static int ufshcd_devfreq_target(struct device *dev,
 				unsigned long *freq, u32 flags);
 static int ufshcd_devfreq_get_dev_status(struct device *dev,
 		struct devfreq_dev_status *stat);
+
+static int ufshcd_get_total_size(struct ufs_hba *hba);
+static int ufshcd_get_health_report(struct ufs_hba *hba);
+static void _ufs_asusevent_log(struct ufs_hba *hba);
+static int ufs_asusevent_log(struct ufs_hba *hba);
 
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND)
 static struct devfreq_simple_ondemand_data ufshcd_ondemand_data = {
@@ -1276,7 +1285,8 @@ start:
 		hba->clk_gating.state = REQ_CLKS_ON;
 		trace_ufshcd_clk_gating(dev_name(hba->dev),
 			hba->clk_gating.state);
-		schedule_work(&hba->clk_gating.ungate_work);
+		queue_work(hba->clk_gating.ungating_workq,
+				&hba->clk_gating.ungate_work);
 		/*
 		 * fall through to check if we should wait for this
 		 * work to be done or not.
@@ -1525,6 +1535,7 @@ out:
 static void ufshcd_init_clk_gating(struct ufs_hba *hba)
 {
 	struct ufs_clk_gating *gating = &hba->clk_gating;
+	char wq_name[sizeof("ufs_clk_ungating_00")];
 
 	hba->clk_gating.state = CLKS_ON;
 
@@ -1533,6 +1544,10 @@ static void ufshcd_init_clk_gating(struct ufs_hba *hba)
 
 	INIT_DELAYED_WORK(&gating->gate_work, ufshcd_gate_work);
 	INIT_WORK(&gating->ungate_work, ufshcd_ungate_work);
+
+	snprintf(wq_name, ARRAY_SIZE(wq_name), "ufs_clk_ungating_%d",
+			hba->host->host_no);
+	hba->clk_gating.ungating_workq = create_singlethread_workqueue(wq_name);
 
 	gating->is_enabled = true;
 
@@ -1610,6 +1625,7 @@ static void ufshcd_exit_clk_gating(struct ufs_hba *hba)
 	device_remove_file(hba->dev, &hba->clk_gating.enable_attr);
 	cancel_work_sync(&hba->clk_gating.ungate_work);
 	cancel_delayed_work_sync(&hba->clk_gating.gate_work);
+	destroy_workqueue(hba->clk_gating.ungating_workq);
 }
 
 /**
@@ -2641,6 +2657,18 @@ static int ufshcd_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 	/* Vote PM QoS for the request */
 	ufshcd_vops_pm_qos_req_start(hba, cmd->request);
 
+	/* IO svc time latency histogram */
+	if (hba != NULL && cmd->request != NULL) {
+		if (hba->latency_hist_enabled &&
+		    (cmd->request->cmd_type == REQ_TYPE_FS)) {
+			cmd->request->lat_hist_io_start = ktime_get();
+			cmd->request->lat_hist_enabled = 1;
+		} else
+			cmd->request->lat_hist_enabled = 0;
+	}
+
+	WARN_ON(hba->clk_gating.state != CLKS_ON);
+
 	lrbp = &hba->lrb[tag];
 
 	WARN_ON(lrbp->cmd);
@@ -3281,11 +3309,15 @@ static int ufshcd_read_desc_param(struct ufs_hba *hba,
 	/* safety checks */
 	if (desc_id >= QUERY_DESC_IDN_MAX)
 		return -EINVAL;
-	if(((hba->ufs_spec_version == UFSHCI_VERSION_21)  || (hba->dev_quirks & UFS_DEVICE_QUIRK_GEOMETRY))
-		&& (desc_id == QUERY_DESC_IDN_GEOMETRY))
+
+	/* ufs2.1 & Toshiba GEOMETRY size is 0x48*/
+	if ((hba->ufs_spec_version == UFSHCI_VERSION_21 ||
+		hba->ufs_vendor == 0x0198) &&
+		(desc_id == QUERY_DESC_IDN_GEOMETRY))
 		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE_21;
 	else
 		buff_len = ufs_query_desc_max_size[desc_id];
+
 	if ((param_offset + param_size) > buff_len)
 		return -EINVAL;
 
@@ -3366,6 +3398,11 @@ static inline int ufshcd_read_power_desc(struct ufs_hba *hba,
 int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size)
 {
 	return ufshcd_read_desc(hba, QUERY_DESC_IDN_DEVICE, 0, buf, size);
+}
+
+int ufshcd_read_health_desc(struct ufs_hba *hba, u8 *buf, u32 size)
+{
+	return ufshcd_read_desc(hba, QUERY_DESC_IDN_HEALTH, 0, buf, size);
 }
 
 /**
@@ -3896,10 +3933,6 @@ int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba, u64 wait_timeout_us)
 
 	ufshcd_hold_all(hba);
 	spin_lock_irqsave(hba->host->host_lock, flags);
-	if (hba->ufshcd_state != UFSHCD_STATE_OPERATIONAL) {
-		ret = -EBUSY;
-		goto out;
-	}
 
 	/*
 	 * Wait for all the outstanding tasks/transfer requests.
@@ -3907,6 +3940,11 @@ int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba, u64 wait_timeout_us)
 	 */
 	start = ktime_get();
 	do {
+		if (hba->ufshcd_state != UFSHCD_STATE_OPERATIONAL) {
+			ret = -EBUSY;
+			goto out;
+		}
+
 		tm_doorbell = ufshcd_readl(hba, REG_UTP_TASK_REQ_DOOR_BELL);
 		tr_doorbell = ufshcd_readl(hba, REG_UTP_TRANSFER_REQ_DOOR_BELL);
 		if (!tm_doorbell && !tr_doorbell) {
@@ -5083,6 +5121,7 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 	struct scsi_cmnd *cmd;
 	int result;
 	int index;
+	struct request *req;
 
 	for_each_set_bit(index, &completed_reqs, hba->nutrs) {
 		lrbp = &hba->lrb[index];
@@ -5111,7 +5150,23 @@ static void __ufshcd_transfer_req_compl(struct ufs_hba *hba,
 				ufshcd_vops_crypto_engine_cfg_end(hba,
 					lrbp, cmd->request);
 			}
+			clear_bit_unlock(index, &hba->lrb_in_use);
+			req = cmd->request;
+			if (req) {
+				/* Update IO svc time latency histogram */
+				if (req->lat_hist_enabled) {
+					ktime_t completion;
+					u_int64_t delta_us;
 
+					completion = ktime_get();
+					delta_us = ktime_us_delta(completion,
+						  req->lat_hist_io_start);
+					/* rq_data_dir() => true if WRITE */
+					blk_update_latency_hist(&hba->io_lat_s,
+						(rq_data_dir(req) == READ),
+						delta_us);
+				}
+			}
 			/* Do not touch lrbp after scsi done */
 			cmd->scsi_done(cmd);
 		} else if (lrbp->command_type == UTP_CMD_TYPE_DEV_MANAGE) {
@@ -6798,61 +6853,119 @@ static void ufshcd_apply_pm_quirks(struct ufs_hba *hba)
 	}
 }
 
-int ufshcd_get_health(struct ufs_hba *hba)
+static ssize_t
+ufs_pre_eol_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
 {
-	int ret;//buff_len;
-	uint8_t buffer[QUERY_DESC_HEALTH_MAX_SIZE];
+	struct ufs_hba *hba = dev_get_drvdata(dev);
 
-	ret = ufshcd_read_desc(hba, QUERY_DESC_IDN_HEALTH, 0, buffer, QUERY_DESC_HEALTH_MAX_SIZE);
-	if (ret) {
-		dev_err(hba->dev,
-			"%s: Failed reading health descriptor, ret = %d",
-			__func__, ret);
-		//return ret;
-		hba->ufs_health_info = 0xff;
-		hba->ufs_health_time_est_A = 0xff;
-		hba->ufs_health_time_est_B = 0xff;
-		return ret;
+	return snprintf(buf, 8, "0x%02x\n", hba->device_pre_eol);
+}
+static DEVICE_ATTR(ufs_pre_eol, 0644, ufs_pre_eol_show, NULL);
+
+static ssize_t
+ufs_life_time_A_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return snprintf(buf, 8, "0x%02x\n", hba->device_life_time_A);
+}
+static DEVICE_ATTR(ufs_life_time_A, 0644, ufs_life_time_A_show, NULL);
+
+static ssize_t
+ufs_life_time_B_show(struct device *dev, struct device_attribute *attr,
+		    char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return snprintf(buf, 8, "0x%02x\n", hba->device_life_time_B);
+}
+static DEVICE_ATTR(ufs_life_time_B, 0644, ufs_life_time_B_show, NULL);
+
+static ssize_t
+ufs_spec_version_show(struct device *dev, struct device_attribute *attr,
+		     char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	char* ufs_version;
+
+	switch (hba->ufs_spec_version) {
+	case 0x0200:
+		ufs_version = "2.0"; break;
+	case 0x0210:
+		ufs_version = "2.1"; break;
+	default:
+		ufs_version = "Unknown_emmc_version"; break;
 	}
 
-	hba->ufs_health_info = buffer[0x02];
-	hba->ufs_health_time_est_A = buffer[0x03];
-	hba->ufs_health_time_est_B = buffer[0x04];
-
-	pr_info("ufs health: 0x%x, 0x%x, 0x%x, ufs version %x \n",
-		hba->ufs_health_info, hba->ufs_health_time_est_A, hba->ufs_health_time_est_B, hba->ufs_spec_version);
-	return 0;
+	return snprintf(buf, 32, "v%s\n", ufs_version);
 }
+static DEVICE_ATTR(ufs_spec_version, 0644, ufs_spec_version_show, NULL);
 
-int ufshcd_get_total_size(struct ufs_hba *hba)
+static ssize_t
+ufs_firmware_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	int ret,buff_len;
-	uint8_t *buffer;//[QUERY_DESC_GEOMETRY_MAZ_SIZE];
+	struct ufs_hba *hba = dev_get_drvdata(dev);
 
-	if((hba->ufs_spec_version == UFSHCI_VERSION_21) || (hba->dev_quirks & UFS_DEVICE_QUIRK_GEOMETRY))
-		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE_21;
-	else
-		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE;
-	buffer = kmalloc(buff_len, GFP_KERNEL);
-	if (!buffer)
-		return -ENOMEM;
-
-	qTotalRawDeviceCapacity = 0;
-	ret = ufshcd_read_desc(hba, QUERY_DESC_IDN_GEOMETRY, 0, buffer, buff_len);
-	if (ret) {
-		dev_err(hba->dev,
-			"%s: Failed reading geometry , ret = %d",
-			__func__, ret);
-		return ret;
-	}
-	qTotalRawDeviceCapacity = (uint64_t)buffer[0x0b] | ((uint64_t)buffer[0x0a] << 8) |
-		((uint64_t)buffer[0x09] << 16) | ((uint64_t)buffer[0x08] << 24) |
-		((uint64_t)buffer[0x07] << 32) | ((uint64_t)buffer[0x06] << 40) |
-		((uint64_t)buffer[0x05] << 48) | ((uint64_t)buffer[0x04] << 56);
-	pr_info("ufs_total_size: %llu kb\n", qTotalRawDeviceCapacity/2);
-	kfree(buffer);
-	return 0;
+	return snprintf(buf, 8, "%s\n", hba->rev);
 }
+static DEVICE_ATTR(ufs_firmware, 0644, ufs_firmware_show, NULL);
+
+static ssize_t
+ufs_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	char *vendor;
+
+	switch (hba->ufs_vendor) {
+	case 0x0198:
+		vendor = "TOSHIBA"; break;
+	case 0x01AD:
+		vendor = "HYNIX"; break;
+	case 0x01CE:
+		vendor = "Samsung"; break;
+	default:
+		vendor = "Unknown_vendor"; break;
+	}
+
+	return snprintf(buf, 8, "%s\n", vendor);
+}
+static DEVICE_ATTR(ufs_vendor, 0644, ufs_vendor_show, NULL);
+
+static ssize_t
+ufs_total_size_show(struct device *dev, struct device_attribute *attr,
+		   char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return snprintf(buf, 8, "%d\n", hba->ufs_total_size);
+}
+static DEVICE_ATTR(ufs_total_size, 0644, ufs_total_size_show, NULL);
+
+static ssize_t
+ufs_sector_count_show(struct device *dev, struct device_attribute *attr,
+		     char *buf)
+{
+	return snprintf(buf, 32, "0x%llx\n", qTotalRawDeviceCapacity);
+}
+static DEVICE_ATTR(ufs_sector_count, 0644, ufs_sector_count_show, NULL);
+
+static struct attribute *UTS_attributes[] = {
+	&dev_attr_ufs_pre_eol.attr,
+	&dev_attr_ufs_life_time_A.attr,
+	&dev_attr_ufs_life_time_B.attr,
+	&dev_attr_ufs_spec_version.attr,
+	&dev_attr_ufs_firmware.attr,
+	&dev_attr_ufs_vendor.attr,
+	&dev_attr_ufs_total_size.attr,
+	&dev_attr_ufs_sector_count.attr,
+	NULL,
+};
+
+static struct attribute_group UTS_attr_group = {
+	.attrs = UTS_attributes
+};
 
 /**
  * ufshcd_probe_hba - probe hba to detect device and initialize
@@ -6862,7 +6975,7 @@ int ufshcd_get_total_size(struct ufs_hba *hba)
  */
 static int ufshcd_probe_hba(struct ufs_hba *hba)
 {
-	int ret;
+	int ret, ret_uts;
 	ktime_t start = ktime_get();
 
 	ret = ufshcd_link_startup(hba);
@@ -6957,20 +7070,28 @@ static int ufshcd_probe_hba(struct ufs_hba *hba)
 		}
 
 		scsi_scan_host(hba->host);
-		ret = ufshcd_get_total_size(hba);
-		if (ret) {
-			dev_err(hba->dev, "ufshcd_get_total_size failed, ret = %d\n", ret);
-		}
-		ret = ufshcd_get_health(hba);
-		if (ret) {
-			dev_err(hba->dev, "ufshcd_get_total_size failed, ret = %d\n", ret);
-			ret = 0;
-		}
 		pm_runtime_put_sync(hba->dev);
 	}
 
 	if (!hba->is_init_prefetch)
 		hba->is_init_prefetch = true;
+
+	ret_uts = ufshcd_get_total_size(hba);
+	if (ret_uts)
+		dev_err(hba->dev, "ufshcd_get_total_size failed, ret = %d\n",
+			ret_uts);
+
+	ret_uts = ufshcd_get_health_report(hba);
+	if (ret_uts)
+		dev_err(hba->dev, "ufshcd_get_health report failed, ret = %d\n",
+			ret_uts);
+
+	ret_uts = sysfs_create_group(&hba->dev->kobj, &UTS_attr_group);
+	if (ret_uts)
+		dev_err(hba->dev, "ufshcd_sysfs_create_fail, ret = %d\n",
+			ret_uts);
+
+	_ufs_asusevent_log(hba);
 
 out:
 	/*
@@ -8358,6 +8479,7 @@ EXPORT_SYMBOL(ufshcd_system_suspend);
 int ufshcd_system_resume(struct ufs_hba *hba)
 {
 	int ret = 0;
+	int ret_uts = 0;
 	ktime_t start = ktime_get();
 
 	if (!hba)
@@ -8371,6 +8493,11 @@ int ufshcd_system_resume(struct ufs_hba *hba)
 		goto out;
 	else
 		ret = ufshcd_resume(hba, UFS_SYSTEM_PM);
+
+	ret_uts = ufs_asusevent_log(hba);
+	if (ret_uts)
+		dev_err(hba->dev, "%s: ufs_asusevent_log ret = %d\n", __func__,
+			ret_uts);
 out:
 	trace_ufshcd_system_resume(dev_name(hba->dev), ret,
 		ktime_to_us(ktime_sub(ktime_get(), start)),
@@ -8573,115 +8700,10 @@ static void ufshcd_add_spm_lvl_sysfs_nodes(struct ufs_hba *hba)
 		dev_err(hba->dev, "Failed to create sysfs for spm_lvl\n");
 }
 
-static ssize_t ufshcd_total_size_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int curr_len;
-	curr_len = snprintf(buf, PAGE_SIZE,"%llu\n", qTotalRawDeviceCapacity/2);
-	return curr_len;
-}
-
-static void ufshcd_add_total_size_sysfs_nodes(struct ufs_hba *hba)
-{
-	hba->total_size_attr.show = ufshcd_total_size_show;
-	hba->total_size_attr.store = NULL;
-	sysfs_attr_init(&hba->total_size_attr.attr);
-	hba->total_size_attr.attr.name = "total_size";
-	hba->total_size_attr.attr.mode = S_IRUGO;
-	if (device_create_file(hba->dev, &hba->total_size_attr))
-		dev_err(hba->dev, "Failed to create sysfs for total_size\n");
-}
-
-static ssize_t ufshcd_ufs_total_size_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int i;
-	i = fls(qTotalRawDeviceCapacity);
-	if (i > 21) {
-		/* 4GB or above */
-		return snprintf(buf, PAGE_SIZE, "%d\n", (int)(qTotalRawDeviceCapacity >> (i - 1)) << (i - 21));
-	} else {
-		pr_err("wrong sector count");
-		return 0;
-	}
-}
-
-static void ufshcd_add_ufs_total_size_sysfs_nodes(struct ufs_hba *hba)
-{
-	hba->ufs_total_size_attr.show = ufshcd_ufs_total_size_show;
-	hba->ufs_total_size_attr.store = NULL;
-	sysfs_attr_init(&hba->ufs_total_size_attr.attr);
-	hba->ufs_total_size_attr.attr.name = "ufs_total_size";
-	hba->ufs_total_size_attr.attr.mode = S_IRUGO;
-	if (device_create_file(hba->dev, &hba->ufs_total_size_attr))
-		dev_err(hba->dev, "Failed to create sysfs for ufs_total_size\n");
-}
-
-static ssize_t ufshcd_ufs_spec_ver_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "0x%x\n", hba->ufs_spec_version);
-}
-
-static void ufshcd_add_ufs_spec_ver_sysfs_nodes(struct ufs_hba *hba)
-{
-	hba->ufs_spec_ver_attr.show = ufshcd_ufs_spec_ver_show;
-	hba->ufs_spec_ver_attr.store = NULL;
-	sysfs_attr_init(&hba->ufs_spec_ver_attr.attr);
-	hba->ufs_spec_ver_attr.attr.name = "ufs_spec_ver";
-	hba->ufs_spec_ver_attr.attr.mode = S_IRUGO;
-	if (device_create_file(hba->dev, &hba->ufs_spec_ver_attr))
-		dev_err(hba->dev, "Failed to create sysfs for ufs_spec_ver\n");
-}
-
-
-static ssize_t ufshcd_ufs_health_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "0x%x, 0x%x, 0x%x\n",
-		hba->ufs_health_info, hba->ufs_health_time_est_A, hba->ufs_health_time_est_B);
-}
-
-static void ufshcd_add_ufs_health_sysfs_nodes(struct ufs_hba *hba)
-{
-	hba->ufs_health_attr.show = ufshcd_ufs_health_show;
-	hba->ufs_health_attr.store = NULL;
-	sysfs_attr_init(&hba->ufs_health_attr.attr);
-	hba->ufs_health_attr.attr.name = "ufs_health";
-	hba->ufs_health_attr.attr.mode = S_IRUGO;
-	if (device_create_file(hba->dev, &hba->ufs_health_attr))
-		dev_err(hba->dev, "Failed to create sysfs for ufs_health\n");
-}
-
-static ssize_t ufshcd_ufs_manfid_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct ufs_hba *hba = dev_get_drvdata(dev);
-	return snprintf(buf, PAGE_SIZE, "0x%x\n", hba->ufs_manfid);
-}
-
-static void ufshcd_add_ufs_manfid_sysfs_nodes(struct ufs_hba *hba)
-{
-	hba->ufs_manfid_attr.show = ufshcd_ufs_manfid_show;
-	hba->ufs_manfid_attr.store = NULL;
-	sysfs_attr_init(&hba->ufs_manfid_attr.attr);
-	hba->ufs_manfid_attr.attr.name = "ufs_manfid";
-	hba->ufs_manfid_attr.attr.mode = S_IRUGO;
-	if (device_create_file(hba->dev, &hba->ufs_manfid_attr))
-		dev_err(hba->dev, "Failed to create sysfs for ufs_manfid\n");
-}
-
 static inline void ufshcd_add_sysfs_nodes(struct ufs_hba *hba)
 {
 	ufshcd_add_rpm_lvl_sysfs_nodes(hba);
 	ufshcd_add_spm_lvl_sysfs_nodes(hba);
-	ufshcd_add_total_size_sysfs_nodes(hba);
-	ufshcd_add_ufs_total_size_sysfs_nodes(hba);
-	ufshcd_add_ufs_manfid_sysfs_nodes(hba);
-	ufshcd_add_ufs_health_sysfs_nodes(hba);
-	ufshcd_add_ufs_spec_ver_sysfs_nodes(hba);
 }
 
 /**
@@ -8702,6 +8724,54 @@ int ufshcd_shutdown(struct ufs_hba *hba)
 	return 0;
 }
 EXPORT_SYMBOL(ufshcd_shutdown);
+
+/*
+ * Values permitted 0, 1, 2.
+ * 0 -> Disable IO latency histograms (default)
+ * 1 -> Enable IO latency histograms
+ * 2 -> Zero out IO latency histograms
+ */
+static ssize_t
+latency_hist_store(struct device *dev, struct device_attribute *attr,
+		   const char *buf, size_t count)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	long value;
+
+	if (kstrtol(buf, 0, &value))
+		return -EINVAL;
+	if (value == BLK_IO_LAT_HIST_ZERO)
+		blk_zero_latency_hist(&hba->io_lat_s);
+	else if (value == BLK_IO_LAT_HIST_ENABLE ||
+		 value == BLK_IO_LAT_HIST_DISABLE)
+		hba->latency_hist_enabled = value;
+	return count;
+}
+
+ssize_t
+latency_hist_show(struct device *dev, struct device_attribute *attr,
+		  char *buf)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+
+	return blk_latency_hist_show(&hba->io_lat_s, buf);
+}
+
+static DEVICE_ATTR(latency_hist, S_IRUGO | S_IWUSR,
+		   latency_hist_show, latency_hist_store);
+
+static void
+ufshcd_init_latency_hist(struct ufs_hba *hba)
+{
+	if (device_create_file(hba->dev, &dev_attr_latency_hist))
+		dev_err(hba->dev, "Failed to create latency_hist sysfs entry\n");
+}
+
+static void
+ufshcd_exit_latency_hist(struct ufs_hba *hba)
+{
+	device_create_file(hba->dev, &dev_attr_latency_hist);
+}
 
 /**
  * ufshcd_remove - de-allocate SCSI host and host memory space
@@ -9201,6 +9271,155 @@ static void ufshcd_init_lanes_per_dir(struct ufs_hba *hba)
 	}
 }
 
+static int ufshcd_get_total_size(struct ufs_hba *hba)
+{
+	int ret, buff_len;
+	uint8_t *buffer;/*[QUERY_DESC_GEOMETRY_MAZ_SIZE];*/
+	int i;
+
+	/* ufs2.1 & Toshiba GEOMETRY size is 0x48*/
+	if (hba->ufs_spec_version == UFSHCI_VERSION_21 ||
+		hba->ufs_vendor == 0x0198)
+		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE_21;
+	else
+		buff_len = QUERY_DESC_GEOMETRY_MAZ_SIZE;
+
+	buffer = kmalloc(buff_len, GFP_KERNEL);
+
+	if (!buffer)
+		return -ENOMEM;
+
+	qTotalRawDeviceCapacity = 0;
+
+	pm_runtime_get_sync(hba->dev);
+	ret = ufshcd_read_desc(hba,
+				QUERY_DESC_IDN_GEOMETRY, 0, buffer, buff_len);
+	pm_runtime_put_sync(hba->dev);
+	if (ret) {
+		dev_err(hba->dev,
+			"%s: Failed reading geometry , ret = %d",
+			__func__, ret);
+		return ret;
+	}
+
+	qTotalRawDeviceCapacity = (uint64_t)buffer[0x0b]
+		| ((uint64_t)buffer[0x0a] << 8)
+		| ((uint64_t)buffer[0x09] << 16)
+		| ((uint64_t)buffer[0x08] << 24)
+		| ((uint64_t)buffer[0x07] << 32)
+		| ((uint64_t)buffer[0x06] << 40)
+		| ((uint64_t)buffer[0x05] << 48)
+		| ((uint64_t)buffer[0x04] << 56);
+
+	i = fls(qTotalRawDeviceCapacity);
+
+	if (i > 21) {
+		/*4GB or above*/
+		hba->ufs_total_size = (int)(qTotalRawDeviceCapacity >>
+					(i - 1)) << (i - 21);
+	} else
+		dev_err(hba->dev, "%s: wrong sector count\n", __func__);
+
+	kfree(buffer);
+
+	return 0;
+}
+
+static int ufshcd_get_health_report(struct ufs_hba *hba)
+{
+	int err = 0;
+	int buff_len = QUERY_DESC_HEALTH_MAX_SIZE;
+	u8 desc_buf[QUERY_DESC_HEALTH_MAX_SIZE];
+
+	pm_runtime_get_sync(hba->dev);
+	err = ufshcd_read_health_desc(hba, desc_buf, buff_len);
+	pm_runtime_put_sync(hba->dev);
+
+	if (err) {
+		dev_err(hba->dev,
+			"%s: Failed reading health , err = %d", __func__, err);
+		return err;
+	}
+
+	pre_Pre_EOL = hba->device_pre_eol = desc_buf[2];
+	pre_life_time_A = hba->device_life_time_A = desc_buf[3];
+	pre_life_time_B = hba->device_life_time_B = desc_buf[4];
+
+	return 0;
+}
+
+static void _ufs_asusevent_log(struct ufs_hba *hba)
+{
+	char *vendor;
+	char *ufs_version;
+
+	switch (hba->ufs_vendor) {
+	case 0x0198:
+		vendor = "TOSHIBA"; break;
+	case 0x01AD:
+		vendor = "HYNIX"; break;
+	case 0x01CE:
+		vendor = "Samsung"; break;
+	default:
+		vendor = "Unknown_vendor"; break;
+	}
+
+	switch (hba->ufs_spec_version) {
+	case 0x0200:
+		ufs_version = "2.0"; break;
+	case 0x0210:
+		ufs_version = "2.1"; break;
+	default:
+		ufs_version = "Unknown_emmc_version"; break;
+	}
+
+	pr_info("624000.ufshc [EMMC_STATUS] vendor=%s, ufs_version=%s, "
+		"ufs_size=%dG, fw_version=%s, lifeA=0x%02x, lifeB=0x%02x, "
+		"preEOL=0x%02x\n", vendor, ufs_version, hba->ufs_total_size,
+		hba->rev, hba->device_life_time_A, hba->device_life_time_B,
+		hba->device_pre_eol);
+
+	ASUSEvtlog("[EMMC_STATUS] vendor=%s, ufs_version=%s, "
+		"ufs_size=%dG, fw_version=%s, lifeA=0x%02x, lifeB=0x%02x, "
+		"preEOL=0x%02x\n", vendor, ufs_version, hba->ufs_total_size,
+		hba->rev, hba->device_life_time_A, hba->device_life_time_B,
+		hba->device_pre_eol);
+}
+
+
+static int ufs_asusevent_log(struct ufs_hba *hba)
+{
+	int err = 0;
+	int buff_len = QUERY_DESC_HEALTH_MAX_SIZE;
+	u8 desc_buf[QUERY_DESC_HEALTH_MAX_SIZE];
+
+	pm_runtime_get_sync(hba->dev);
+	err = ufshcd_read_health_desc(hba, desc_buf, buff_len);
+	pm_runtime_put_sync(hba->dev);
+
+	if (err) {
+		dev_err(hba->dev,
+			"%s: Failed reading health , err = %d", __func__, err);
+		return err;
+	}
+
+	hba->device_pre_eol = desc_buf[2];
+	hba->device_life_time_A = desc_buf[3];
+	hba->device_life_time_B = desc_buf[4];
+
+	if (pre_Pre_EOL != hba->device_pre_eol ||
+		pre_life_time_A != hba->device_life_time_A ||
+		pre_life_time_B != hba->device_life_time_B)
+		_ufs_asusevent_log(hba);
+
+	pre_Pre_EOL = hba->device_pre_eol;
+	pre_life_time_A = hba->device_life_time_A;
+	pre_life_time_B = hba->device_life_time_B;
+
+	return 0;
+}
+
+
 /**
  * ufshcd_init - Driver initialization routine
  * @hba: per-adapter instance
@@ -9276,6 +9495,7 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	host->set_dbd_for_caching = 1;
 
 	hba->max_pwr_info.is_valid = false;
+
 
 	/* Initailize wait queue for task management */
 	init_waitqueue_head(&hba->tm_wq);
@@ -9377,6 +9597,8 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	/* Hold auto suspend until async scan completes */
 	pm_runtime_get_sync(dev);
 
+	ufshcd_init_latency_hist(hba);
+
 	/*
 	 * We are assuming that device wasn't put in sleep/power-down
 	 * state exclusively during the boot stage before kernel.
@@ -9397,6 +9619,7 @@ out_remove_scsi_host:
 	scsi_remove_host(hba->host);
 exit_gating:
 	ufshcd_exit_clk_gating(hba);
+	ufshcd_exit_latency_hist(hba);
 out_disable:
 	hba->is_irq_enabled = false;
 	ufshcd_hba_exit(hba);

@@ -213,6 +213,7 @@ error:
 
 static void __exit msm_sensor_exit_module(void)
 {
+
 	msm_sd_unregister(&s_init->msm_sd);
 	mutex_destroy(&s_init->imutex);
 	kfree(s_init);

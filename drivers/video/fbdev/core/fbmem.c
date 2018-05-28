@@ -1080,6 +1080,9 @@ fb_blank(struct fb_info *info, int blank)
 			fb_notifier_call_chain(FB_R_EARLY_EVENT_BLANK, &event);
 	}
 
+	if(*(int*)event.data == FB_BLANK_POWERDOWN)
+		get_active_wakeup_source(); // show wake lock before entering suspend.
+
  	return ret;
 }
 EXPORT_SYMBOL(fb_blank);
@@ -1096,6 +1099,13 @@ static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	struct fb_event event;
 	void __user *argp = (void __user *)arg;
 	long ret = 0;
+
+	memset(&var, 0, sizeof(var));
+	memset(&fix, 0, sizeof(fix));
+	memset(&con2fb, 0, sizeof(con2fb));
+	memset(&cmap_from, 0, sizeof(cmap_from));
+	memset(&cmap, 0, sizeof(cmap));
+	memset(&event, 0, sizeof(event));
 
 	switch (cmd) {
 	case FBIOGET_VSCREENINFO:

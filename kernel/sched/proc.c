@@ -5,8 +5,28 @@
  */
 
 #include <linux/export.h>
+#include <linux/cputime.h>
+#include <linux/cpumask.h>
+#include <linux/kernel_stat.h>
+#include <linux/tick.h>
+
+//#include <linux/vmstat.h>
+
+#include <linux/vm_event_item.h>
+#include <linux/mm.h>
+#include <linux/cpu.h>
+#include <linux/mm_inline.h>
+#include <linux/percpu.h>
+#include <linux/mmzone.h>
+#include <linux/genhd.h>
+#include <linux/workqueue.h>
 
 #include "sched.h"
+#define LOAD_INT(x) ((x) >> FSHIFT)
+#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
+
+static void check_block_state(struct work_struct *work);
+static DECLARE_WORK(check_block_state_work, check_block_state);
 
 /*
  * Global load-average calculations
@@ -60,6 +80,66 @@ atomic_long_t calc_load_tasks;
 unsigned long calc_load_update;
 unsigned long avenrun[3];
 EXPORT_SYMBOL(avenrun); /* should be removed */
+
+#ifdef arch_idle_time
+
+static cputime64_t get_idle_time(int cpu)
+{
+	cputime64_t idle;
+
+	idle = kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
+	if (cpu_online(cpu) && !nr_iowait_cpu(cpu))
+		idle += arch_idle_time(cpu);
+	return idle;
+}
+
+static cputime64_t get_iowait_time(int cpu)
+{
+	cputime64_t iowait;
+
+	iowait = kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
+	if (cpu_online(cpu) && nr_iowait_cpu(cpu))
+		iowait += arch_idle_time(cpu);
+	return iowait;
+}
+
+#else
+
+static u64 get_idle_time(int cpu)
+{
+	u64 idle, idle_time = -1ULL;
+
+	if (cpu_online(cpu))
+		idle_time = get_cpu_idle_time_us(cpu, NULL);
+
+	if (idle_time == -1ULL)
+		/* !NO_HZ or cpu offline so we can rely on cpustat.idle */
+		idle = kcpustat_cpu(cpu).cpustat[CPUTIME_IDLE];
+	else
+		idle = usecs_to_cputime64(idle_time);
+
+	return idle;
+}
+
+static u64 get_iowait_time(int cpu)
+{
+	u64 iowait, iowait_time = -1ULL;
+
+	if (cpu_online(cpu))
+		iowait_time = get_cpu_iowait_time_us(cpu, NULL);
+
+	if (iowait_time == -1ULL)
+		/* !NO_HZ or cpu offline so we can rely on cpustat.iowait */
+		iowait = kcpustat_cpu(cpu).cpustat[CPUTIME_IOWAIT];
+	else
+		iowait = usecs_to_cputime64(iowait_time);
+
+	return iowait;
+}
+
+#endif
+
+
 
 /**
  * get_avenrun - get the load average array
@@ -298,6 +378,84 @@ calc_load_n(unsigned long load, unsigned long exp,
  * Once we've updated the global active value, we need to apply the exponential
  * weights adjusted to the number of cycles missed.
  */
+static u64 user_pre=0;
+static u64 nice_pre=0;
+static u64 system_pre=0;
+static u64 idle_pre=0;
+static u64 iowait_pre=0;
+static u64 irq_pre=0;
+static u64 softirq_pre=0;
+static unsigned long pgpgin_pre=0;
+static unsigned long pgpgout_pre=0;
+
+static void get_cpu_stat(void)
+{
+	int i;
+	unsigned long pgpgin,pgpgout;
+	u64 user,nice,system,idle,iowait,irq,softirq;
+	pgpgin = pgpgout = 0;
+	user = nice = system = idle = iowait = irq = softirq = 0;
+
+	for_each_online_cpu(i) {
+			struct vm_event_state *this=&per_cpu(vm_event_states, i);
+			pgpgin += this ->event[PGPGIN];
+			pgpgout += this->event[PGPGOUT];
+			user += kcpustat_cpu(i).cpustat[CPUTIME_USER];
+			nice += kcpustat_cpu(i).cpustat[CPUTIME_NICE];
+			system += kcpustat_cpu(i).cpustat[CPUTIME_SYSTEM];
+			idle += get_idle_time(i);;
+			iowait +=  get_iowait_time(i);
+			irq += kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
+			softirq += kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ];
+	}
+
+	pgpgin = pgpgin >> 1; /*sectors -> kbytes*/
+	pgpgout = pgpgout >> 1;
+
+	printk("[IO_STATS]: USER\tNICE\tSYSTEM\tIDLE\tIOWAIT\tIRQ\tSOFTIRQ\tUNUT:10ms\n");
+	printk("[IO_STATS]: %4llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n", (user-user_pre), (nice-nice_pre),(system-system_pre), 
+			(idle-idle_pre), (iowait-iowait_pre), (irq-irq_pre),(softirq-softirq_pre));
+	printk("[IO_STATS]: PGPGIN\tPGPGOUT\tUNIT:Kbyte\n");
+	printk("[IO_STATS]: %6lu\t%lu\n", (pgpgin-pgpgin_pre),(pgpgout-pgpgout_pre));
+
+	user_pre = user;
+	nice_pre = nice;
+	system_pre = system;
+	idle_pre = idle;
+	iowait_pre = iowait;
+	irq_pre = irq;
+	softirq_pre = softirq;
+	pgpgin_pre = pgpgin;
+	pgpgout_pre = pgpgout;
+
+	asus_get_disk_stat();
+}
+
+static int nr_running_count_10s = 0;
+static int nr_running_count_3min = 0;
+
+
+static void check_block_state(struct work_struct *work)
+{
+	if (nr_running() >= 20 ){
+		nr_running_count_10s ++;
+		if (nr_running_count_10s >= 3 && LOAD_INT(avenrun[0]) >= 40 && !nr_running_count_3min){  /*nr over 20 in 30 s*/
+			nr_running_count_3min = 1;
+			pr_info("nr_running is continue over 20 in past 30s  and loadavg is over 40 now\n");
+			show_state_filter(TASK_UNINTERRUPTIBLE);
+			nr_running_count_10s = 0 ;
+		}else if (nr_running_count_3min && nr_running_count_10s >= 9 && LOAD_INT(avenrun[0]) >= 40){ /*nr over 20 in 1.5 mins*/
+			pr_info("nr_running is continue over  20 in past 1.5 mins and loadavg is over 40 now\n");
+			show_state_filter(TASK_UNINTERRUPTIBLE);
+			nr_running_count_10s = 0 ;
+		}
+	}else if (nr_running_count_10s || nr_running_count_3min){
+		nr_running_count_3min = 0;
+		nr_running_count_10s= 0;
+	}
+
+}
+
 static void calc_global_nohz(void)
 {
 	long delta, active, n;
@@ -318,6 +476,14 @@ static void calc_global_nohz(void)
 
 		calc_load_update += n * LOAD_FREQ;
 	}
+
+	if (calc_load_idx & 1){
+		printk("loadavg %lu.%02lu  %ld/%d \n", LOAD_INT(avenrun[0]), LOAD_FRAC(avenrun[0]), nr_running(), nr_threads);
+		queue_work(system_unbound_wq,&check_block_state_work);
+	}
+	printk("[IO_STATS]: Get IO Stats Start\n");
+	get_cpu_stat();
+	printk("[IO_STATS]: Get IO Stats done\n");
 
 	/*
 	 * Flip the idle index...

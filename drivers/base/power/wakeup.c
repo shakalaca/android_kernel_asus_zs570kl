@@ -16,9 +16,18 @@
 #include <linux/debugfs.h>
 #include <linux/types.h>
 #include <trace/events/power.h>
-#include <linux/asusdebug.h>
+
 #include "power.h"
 
+extern bool g_resume_status;
+extern int pmsp_flag;
+extern int pm_stay_unattended_period;
+extern void pmsp_print(void);
+extern void print_pm_cpuinfo(void);
+
+struct atctive_wakelock {
+	char wakelock_name[64];
+};
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
  * if wakeup events are registered during or immediately before the transition.
@@ -732,13 +741,18 @@ EXPORT_SYMBOL_GPL(pm_get_active_wakeup_sources);
 void pm_print_active_wakeup_sources(void)
 {
 	struct wakeup_source *ws;
-	int active = 0;
+	int active = 0, wakelock_count = 0, i =0;
 	struct wakeup_source *last_activity_ws = NULL;
+	struct atctive_wakelock wakelock[8];
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
 		if (ws->active) {
-			pr_info("active wakeup source: %s\n", ws->name);
+			pr_info("[PM] active wakeup source: %s\n", ws->name);
+			if(wakelock_count <= 7) {
+				strncpy(wakelock[wakelock_count].wakelock_name, ws->name, sizeof(wakelock[wakelock_count].wakelock_name));
+				wakelock_count ++;
+			}
 			active = 1;
 		} else if (!active &&
 			   (!last_activity_ws ||
@@ -752,8 +766,50 @@ void pm_print_active_wakeup_sources(void)
 		pr_info("last active wakeup source: %s\n",
 			last_activity_ws->name);
 	rcu_read_unlock();
+
+	if(wakelock_count > 0 && 1 == active) {
+		for(i = 0; i < wakelock_count; i++)
+		{
+			ASUSEvtlog("[PM] active wake lock: %s\n", wakelock[i].wakelock_name);
+		}
+	}
+	else if(!active && last_activity_ws && 0 == wakelock_count) {
+		ASUSEvtlog("[PM] last active wake lock: %s\n", last_activity_ws->name);
+	}
 }
 EXPORT_SYMBOL_GPL(pm_print_active_wakeup_sources);
+
+void asus_uts_print_active_locks(void)
+{
+	struct wakeup_source *ws;
+	int wl_active_cnt = 0;
+
+	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
+		if (ws->active) {
+			wl_active_cnt++;
+			printk("[PM] active wake lock %s\n", ws->name);
+			ASUSEvtlog("[PM] active wake lock: %s\n", ws->name);
+			if (pmsp_flag == 1) {
+				pmsp_print();
+				printk("[PM] pm_stay_unattended_period: %d\n", pm_stay_unattended_period);
+
+				if( pm_stay_unattended_period >= PM_UNATTENDED_TIMEOUT * 3 ) {
+					pm_stay_unattended_period = 0;
+					print_pm_cpuinfo();
+				}
+			}
+			pmsp_flag = 0;
+		}
+	}
+
+	if (wl_active_cnt == 0) {
+		printk("[PM] all wakelock are inactive\n");
+		ASUSEvtlog("[PM] all wakelock are inactive\n");
+	}
+
+	return;
+}
+EXPORT_SYMBOL(asus_uts_print_active_locks);
 
 /**
  * pm_wakeup_pending - Check if power transition in progress should be aborted.
@@ -781,6 +837,12 @@ bool pm_wakeup_pending(void)
 	if (ret) {
 		pr_info("PM: Wakeup pending, aborting suspend\n");
 		pm_print_active_wakeup_sources();
+
+		if (!g_resume_status) {
+			printk("[PM] try to suspend wakelock in get_active_wakeup_source()\n");
+			ASUSEvtlog("[PM] try to suspend wakelock in get_active_wakeup_source()\n");
+			asus_uts_print_active_locks();
+		}
 	}
 
 	return ret || pm_abort_suspend;
@@ -795,6 +857,24 @@ void pm_system_wakeup(void)
 void pm_wakeup_clear(void)
 {
 	pm_abort_suspend = false;
+}
+
+void get_active_wakeup_source(void)
+{
+	unsigned long flags;
+	bool ret = false;
+	unsigned int cnt, inpr;
+
+	spin_lock_irqsave(&events_lock, flags);
+	split_counters(&cnt, &inpr);
+
+	if (inpr > 0)
+		ret = true;
+
+	spin_unlock_irqrestore(&events_lock, flags);
+
+	if (ret)
+		pm_print_active_wakeup_sources();
 }
 
 /**
@@ -926,7 +1006,7 @@ static int print_wakeup_source_stats(struct seq_file *m,
 		active_time = ktime_set(0, 0);
 	}
 
-	ret = seq_printf(m, "%-12s\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t"
+	ret = seq_printf(m, "%-32s\t%lu\t\t%lu\t\t%lu\t\t%lu\t\t"
 			"%lld\t\t%lld\t\t%lld\t\t%lld\t\t%lld\n",
 			ws->name, active_count, ws->event_count,
 			ws->wakeup_count, ws->expire_count,
@@ -947,7 +1027,7 @@ static int wakeup_sources_stats_show(struct seq_file *m, void *unused)
 {
 	struct wakeup_source *ws;
 
-	seq_puts(m, "name\t\tactive_count\tevent_count\twakeup_count\t"
+	seq_puts(m, "name\t\t\t\t\tactive_count\tevent_count\twakeup_count\t"
 		"expire_count\tactive_since\ttotal_time\tmax_time\t"
 		"last_change\tprevent_suspend_time\n");
 

@@ -15,10 +15,60 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
-
+#include <linux/switch.h>
+#include <linux/module.h>
 #include "power.h"
 
 DEFINE_MUTEX(pm_mutex);
+
+static struct switch_dev pmsp_dev;
+static struct switch_dev pmsp_logcat_dev;
+struct work_struct pms_printer;
+static struct switch_dev pm_dumpthread_dev;
+struct work_struct pm_cpuinfo_printer;
+
+extern struct timer_list unattended_timer;
+extern int pm_stay_unattended_period;
+
+void pmsp_print(void)
+{
+	schedule_work(&pms_printer);
+	return;
+}
+EXPORT_SYMBOL(pmsp_print);
+
+void print_pm_cpuinfo(void)
+{
+	schedule_work(&pm_cpuinfo_printer);
+	return;
+}
+EXPORT_SYMBOL(print_pm_cpuinfo);
+
+void pms_printer_func(struct work_struct *work)
+{
+	static int pmsp_counter = 0;
+
+	if(pmsp_counter % 2) {
+		printk("[PM] %s:enter pmsprinter ready to send uevent 0 \n",__func__);
+		switch_set_state(&pmsp_dev,0);
+		switch_set_state(&pmsp_logcat_dev,0);
+		pmsp_counter++;
+		} else {
+			printk("[PM] %s:enter pmsprinter ready to send uevent 1 \n",__func__);
+			switch_set_state(&pmsp_dev,1);
+			switch_set_state(&pmsp_logcat_dev,1);
+			pmsp_counter++;
+		}
+	}
+
+void pm_cpuinfo_func(struct work_struct *work)
+{
+	static bool toggle = false;
+
+	toggle = !toggle;
+	printk("[PM] %s: Dump PowerManagerService wakelocks, toggle %d\n",__func__, toggle ? 1 : 0);
+	switch_set_state(&pm_dumpthread_dev, toggle);
+}
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -38,11 +88,18 @@ int unregister_pm_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(unregister_pm_notifier);
 
-int pm_notifier_call_chain(unsigned long val)
+int __pm_notifier_call_chain(unsigned long val, int nr_to_call, int *nr_calls)
 {
-	int ret = blocking_notifier_call_chain(&pm_chain_head, val, NULL);
+	int ret;
+
+	ret = __blocking_notifier_call_chain(&pm_chain_head, val, NULL,
+						nr_to_call, nr_calls);
 
 	return notifier_to_errno(ret);
+}
+int pm_notifier_call_chain(unsigned long val)
+{
+	return __pm_notifier_call_chain(val, -1, NULL);
 }
 
 /* If set, devices may be suspended and resumed asynchronously. */
@@ -341,6 +398,7 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 	suspend_state_t state;
 	int error;
 
+	printk("[PM] state_store: %s ++\n", buf);
 	error = pm_autosleep_lock();
 	if (error)
 		return error;
@@ -351,8 +409,18 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 	}
 
 	state = decode_state(buf, n);
-	if (state < PM_SUSPEND_MAX)
+	if (state < PM_SUSPEND_MAX) {
+		printk("[PM] going to pm_suspend: %d\n", state);
+		if (state == PM_SUSPEND_ON) {
+			printk("[PM]unattended_timer: del_timer (state_store on)\n");
+			del_timer(&unattended_timer);
+			pm_stay_unattended_period =0;
+		} else {
+			printk("[PM]unattended_timer: mod_timer (state_store mem)\n");
+			mod_timer(&unattended_timer, jiffies + msecs_to_jiffies(PM_UNATTENDED_TIMEOUT));
+		}
 		error = pm_suspend(state);
+	}
 	else if (state == PM_SUSPEND_MAX)
 		error = hibernate();
 	else
@@ -360,10 +428,34 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 
  out:
 	pm_autosleep_unlock();
+	printk("[PM] state_store: %s --\n", buf);
 	return error ? error : n;
 }
 
 power_attr(state);
+
+static ssize_t unattended_timer_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	printk("[PM]unattended_timer : unattended_timer_show \n");
+	return 0;
+}
+
+static ssize_t unattended_timer_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t n)
+{
+	printk("[PM]unattended_timer : unattended_timer_store\n");
+
+	if (strcmp(buf, "pre-mem") == 0) {
+		printk("[PM]unattended_timer: mod_timer(unattended_timer_store pre-mem)\n");
+		mod_timer(&unattended_timer, jiffies + msecs_to_jiffies(PM_UNATTENDED_TIMEOUT));
+	} else {
+		printk("[PM]unattended_timer: del_timer(unattended_timer_store on\n");
+		del_timer(&unattended_timer);
+		pm_stay_unattended_period =0;
+	}
+	return 0;
+}
+
+power_attr(unattended_timer);
 
 #ifdef CONFIG_PM_SLEEP
 /*
@@ -464,6 +556,7 @@ static ssize_t autosleep_store(struct kobject *kobj,
 	suspend_state_t state = decode_state(buf, n);
 	int error;
 
+	printk("[PM] autosleep_store: %s\n", buf);
 	if (state == PM_SUSPEND_ON
 	    && strcmp(buf, "off") && strcmp(buf, "off\n"))
 		return -EINVAL;
@@ -585,6 +678,7 @@ power_attr(pm_freeze_timeout);
 
 static struct attribute * g[] = {
 	&state_attr.attr,
+	&unattended_timer_attr.attr,
 #ifdef CONFIG_PM_TRACE
 	&pm_trace_attr.attr,
 	&pm_trace_dev_match_attr.attr,
@@ -628,7 +722,37 @@ static int __init pm_start_workqueue(void)
 
 static int __init pm_init(void)
 {
-	int error = pm_start_workqueue();
+	int ret, error;
+	pmsp_dev.name = "PowerManagerServicePrinter";
+	pmsp_dev.index = 0;
+	pmsp_logcat_dev.name = "PowerManagerWakelocksPointer";
+	pmsp_logcat_dev.index = 0;
+	INIT_WORK(&pms_printer, pms_printer_func);
+	ret = switch_dev_register(&pmsp_dev);
+
+	if (ret < 0)
+		printk("[PM] %s:fail to register switch power_manager_printer \n",__func__);
+	else
+		printk("[PM] %s:success to register pmsp switch \n",__func__);
+
+	ret = switch_dev_register(&pmsp_logcat_dev);
+
+	if (ret < 0)
+		printk("[PM] %s:fail to register switch power_manager_printer_logcat \n",__func__);
+	else
+		printk("[PM] %s:success to register pmsp_logcat switch \n",__func__);
+
+	pm_dumpthread_dev.name = "UnattendedTimerDumpBusyThread";
+	pm_dumpthread_dev.index = 0;
+	INIT_WORK(&pm_cpuinfo_printer, pm_cpuinfo_func);
+	ret = switch_dev_register(&pm_dumpthread_dev);
+
+	if (ret < 0)
+		printk("[PM] %s:fail to register switch device pm_dumpthread_dev\n",__func__);
+	else
+		printk("[PM] %s:success to register switch device pm_dumpthread_dev\n",__func__);
+
+	error = pm_start_workqueue();
 	if (error)
 		return error;
 	hibernate_image_size_init();

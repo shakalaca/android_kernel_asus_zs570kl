@@ -13,7 +13,7 @@
  * for more details.
 
 
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  */
 
 
@@ -42,8 +42,8 @@
 #define V4L2_STATUS_OFF '0'  // No procol drivers registered
 
 /* BT err flag values (bt_err) */
-#define  V4L2_ERR_FLAG_RESET '0'
-#define  V4L2_ERR_FLAG_SET   '1'
+#define V4L2_ERR_FLAG_RESET '0'
+#define V4L2_ERR_FLAG_SET   '1'
 
 /*
  * enum proto-type - The protocol on chips which share a

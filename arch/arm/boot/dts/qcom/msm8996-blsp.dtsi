@@ -117,7 +117,7 @@
 		pinctrl-1 = <&spi_5_sleep>;
 		clock-names = "iface_clk", "core_clk";
 		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
-			 <&clock_gcc clk_gcc_blsp1_qup5_spi_apps_clk>;
+		         <&clock_gcc clk_gcc_blsp1_qup5_spi_apps_clk>;
 		status = "ok";
 	};
 

@@ -109,10 +109,10 @@
 #include <linux/blkdev.h>
 #include <linux/gfp.h>
 #include <linux/blk-mq.h>
+#include "blk-mq-tag.h"
 
 #include "blk.h"
 #include "blk-mq.h"
-#include "blk-mq-tag.h"
 
 /* FLUSH/FUA sequences */
 enum {

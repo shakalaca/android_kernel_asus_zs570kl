@@ -107,6 +107,7 @@ FSC_U8           loopCounter = 0;        // Used to count the number of Unattach
 static USBTypeCCurrent  toggleCurrent;          // Current used for toggle state machine
 USBTypeCCurrent  SourceCurrent;                 // Variable to indicate the current capability we are broadcasting
 
+extern int asus_cc_ready(void);
 
 /////////////////////////////////////////////////////////////////////////////
 // Tick at 100us
@@ -1620,6 +1621,8 @@ void SetStateAttachedSink(void)
 
     USBPDEnable(TRUE, FALSE);                                      // Enable the USB PD state machine (no need to write Device again since we are doing it here)
     StateTimer = T_TIMER_DISABLE;                                         // Disable the state timer, not used in this state
+
+    asus_cc_ready();
 }
 #endif // FSC_HAVE_SNK
 

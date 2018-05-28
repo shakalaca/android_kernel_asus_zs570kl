@@ -2929,6 +2929,20 @@
 			};
 		};
 
+                pinctrl_pps: ppsgrp {
+                        mux {
+                                pins = "gpio128";
+                                function = "nav_dr";
+                        };
+
+                        config {
+                                pins =  "gpio128";
+                                drive-strength = <16>;
+                                bias-pull-down;
+                        };
+                };
+
+
 		hall_int_pin {
 			gpio_hall_active: gpio_hall_active {
 				mux {

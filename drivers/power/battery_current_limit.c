@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -203,6 +203,7 @@ static uint32_t bcl_hotplug_request, bcl_hotplug_mask, bcl_soc_hotplug_mask;
 static uint32_t bcl_frequency_mask;
 static struct work_struct bcl_hotplug_work;
 static DEFINE_MUTEX(bcl_hotplug_mutex);
+static DEFINE_MUTEX(bcl_cpufreq_mutex);
 static bool bcl_hotplug_enabled;
 static uint32_t battery_soc_val = 100;
 static uint32_t soc_low_threshold;
@@ -214,6 +215,7 @@ static void bcl_handle_hotplug(struct work_struct *work)
 	int ret = 0, cpu = 0;
 	union device_request curr_req;
 
+	pr_info("bcl start hotplug mitigation\n");
 	trace_bcl_sw_mitigation_event("start hotplug mitigation");
 	mutex_lock(&bcl_hotplug_mutex);
 
@@ -230,6 +232,7 @@ static void bcl_handle_hotplug(struct work_struct *work)
 		if (bcl_hotplug_request & BIT(cpu))
 			cpumask_set_cpu(cpu, &curr_req.offline_mask);
 	}
+	pr_info("bcl Start hotplug CPU:%d\n", bcl_hotplug_request);
 	trace_bcl_sw_mitigation("Start hotplug CPU", bcl_hotplug_request);
 	ret = devmgr_client_request_mitigation(
 		gbcl->hotplug_handle,
@@ -242,6 +245,7 @@ static void bcl_handle_hotplug(struct work_struct *work)
 
 handle_hotplug_exit:
 	mutex_unlock(&bcl_hotplug_mutex);
+	pr_info("bcl stop hotplug mitigation\n");
 	trace_bcl_sw_mitigation_event("stop hotplug mitigation");
 	return;
 }
@@ -252,6 +256,7 @@ static void update_cpu_freq(void)
 	union device_request cpufreq_req;
 
 	trace_bcl_sw_mitigation_event("Start Frequency Mitigate");
+	mutex_lock(&bcl_cpufreq_mutex);
 	cpufreq_req.freq.max_freq = UINT_MAX;
 	cpufreq_req.freq.min_freq = CPUFREQ_MIN_NO_MITIGATION;
 
@@ -276,6 +281,7 @@ static void update_cpu_freq(void)
 			pr_err("Error updating freq for CPU%d. ret:%d\n",
 				cpu, ret);
 	}
+	mutex_unlock(&bcl_cpufreq_mutex);
 	trace_bcl_sw_mitigation_event("End Frequency Mitigation");
 }
 

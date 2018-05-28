@@ -13,7 +13,7 @@
  * for more details.
 
 
- *  Copyright (C) 2009-2016 Broadcom Corporation
+ *  Copyright (C) 2009-2017 Broadcom Corporation
  */
 
 
@@ -254,6 +254,12 @@ static int brcm_flush(struct hci_uart *hu)
 {
     struct brcm_struct *brcm = hu->priv;
 
+    if (brcm == NULL)
+    {
+        BRCM_HCI_ERR("hu->priv is NULL");
+        return -EINVAL;
+    }
+
     BRCM_HCI_DBG(V4L2_DBG_INIT, "hu %p", hu);
 
     if (!skb_queue_empty(&brcm->tx_wait_q))
@@ -276,6 +282,12 @@ static int brcm_flush(struct hci_uart *hu)
 static int brcm_close(struct hci_uart *hu)
 {
     struct brcm_struct *brcm = hu->priv;
+
+    if (brcm == NULL)
+    {
+        BRCM_HCI_ERR("hu->priv is NULL");
+        return -EINVAL;
+    }
 
     BRCM_HCI_DBG(V4L2_DBG_INIT, "hu %p", hu);
 
@@ -312,6 +324,13 @@ static int brcm_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 {
     struct brcm_struct *brcm = hu->priv;
     unsigned long lock_flags;
+
+    if (brcm == NULL)
+    {
+        BRCM_HCI_ERR("hu->priv is NULL");
+        return -EINVAL;
+    }
+
     BRCM_HCI_DBG(V4L2_DBG_TX, "hu %p skb %p", hu, skb);
 
     spin_lock_irqsave(&hu->lock, lock_flags);
@@ -378,6 +397,12 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
     static enum proto_type protoid = PROTO_SH_MAX;
     received_bytes = 0;
 
+    if (brcm == NULL)
+    {
+        BRCM_HCI_ERR("hu->priv is NULL");
+        return -EINVAL;
+    }
+
     BRCM_HCI_DBG(V4L2_DBG_RX, "hu %p count %d rx_state %ld rx_count %ld", hu,
                        count, brcm->rx_state, brcm->rx_count);
 
@@ -388,7 +413,7 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
             memcpy(skb_put(brcm->rx_skb, len), ptr, len);
             brcm->rx_count -= len; count -= len; ptr += len;
             received_bytes += len;
-            BRCM_HCI_DBG(V4L2_DBG_RX, "brcm_recv received_bytes= %d\n", \
+            BRCM_HCI_DBG(V4L2_DBG_RX, "brcm_recv received_bytes= %d", \
                                                                 received_bytes);
             if (brcm->rx_count)
                 continue;
@@ -601,6 +626,13 @@ static int brcm_recv(struct hci_uart *hu, void *data, int count)
 static struct sk_buff *brcm_dequeue(struct hci_uart *hu)
 {
     struct brcm_struct *brcm = hu->priv;
+
+    if (brcm == NULL)
+    {
+        BRCM_HCI_ERR("hu->priv is NULL");
+        return NULL;
+    }
+
     return skb_dequeue(&brcm->txq);
 }
 

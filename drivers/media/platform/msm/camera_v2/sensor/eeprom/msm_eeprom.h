@@ -21,7 +21,6 @@
 #include "msm_camera_spi.h"
 #include "msm_camera_io_util.h"
 #include "msm_camera_dt_util.h"
-#include "media/msm_cam_sensor.h"
 
 struct msm_eeprom_ctrl_t;
 
@@ -47,7 +46,6 @@ struct msm_eeprom_ctrl_t {
 	int32_t userspace_probe;
 	struct msm_eeprom_memory_block_t cal_data;
 	uint8_t is_supported;
-	struct msm_eeprom_data_info_t eeprom_data_info;
 };
 
 #endif

@@ -4,12 +4,12 @@
 *	Time:	2015-05
 *
 */
-#if 0
+
 #include "show_parser.h"
 #include "show_log.h"
 
 /** @brief Parse GPIO information from dtsi
-*	
+*
 *	@param of_node the device node
 *	@param sensordata the sensor board information
 *
@@ -23,10 +23,10 @@ int32_t dtsi_gpio_parser(struct device_node *of_node, struct msm_camera_sensor_b
 	uint16_t *gpio_array = NULL;
 	uint16_t gpio_array_size = 0;
 
-	LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
+	//LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
 
 	power_info = &sensordata->power_info;
-	
+
 	power_info->gpio_conf = kzalloc(sizeof(struct msm_camera_gpio_conf), GFP_KERNEL);
 	if(!power_info->gpio_conf){
 		LOG_Handler(LOG_ERR, "%s: failed %d\n", __func__, __LINE__);
@@ -35,7 +35,7 @@ int32_t dtsi_gpio_parser(struct device_node *of_node, struct msm_camera_sensor_b
 	}
 
 	gconf = power_info->gpio_conf;
-	
+
 	gpio_array_size = of_gpio_count(of_node);
 	LOG_Handler(LOG_DBG, "%s: gpio count %d\n", __func__, gpio_array_size);
 
@@ -47,7 +47,6 @@ int32_t dtsi_gpio_parser(struct device_node *of_node, struct msm_camera_sensor_b
 			rc = -ENOMEM;
 			return rc;
 		}
-		
 		for(i=0; i < gpio_array_size; i++){
 			gpio_array[i] = of_get_gpio(of_node, i);
 			LOG_Handler(LOG_DBG, "%s: gpio_array[%d] = %d\n", __func__, i, gpio_array[i]);
@@ -59,30 +58,30 @@ int32_t dtsi_gpio_parser(struct device_node *of_node, struct msm_camera_sensor_b
 			kfree(gconf);
 			return rc;
 		}
-
+		/*undefined func , mark here
 		rc = msm_camera_get_dt_gpio_set_tbl(of_node, gconf, gpio_array, gpio_array_size);
 		if(rc < 0){
 			LOG_Handler(LOG_ERR, "%s: failed %d\n", __func__, __LINE__);
 			kfree(gconf->cam_gpio_req_tbl);
 			return rc;
 		}
-
+		*/
 		rc = msm_camera_init_gpio_pin_tbl(of_node, gconf, gpio_array, gpio_array_size);
 		if(rc < 0){
 			LOG_Handler(LOG_ERR, "%s: failed %d\n", __func__, __LINE__);
-			kfree(gconf->cam_gpio_set_tbl);
+			//kfree(gconf->cam_gpio_set_tbl);//not alloc?
 			return rc;
 		}
 	}
 	kfree(gpio_array);
 
-	LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
-	
+	////LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
+
 	return rc;
 }
 
 /** @brief Parse information from dtsi
-*	
+*
 *	@param of_node the device node
 *	@param dev_t the laser focus controller
 *
@@ -94,7 +93,7 @@ int32_t get_dtsi_data(struct device_node *of_node, struct msm_laser_focus_ctrl_t
 	uint32_t id_info[3];
 	struct msm_laser_focus_vreg *vreg_cfg = NULL;
 
-	LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
+	//LOG_Handler(LOG_FUN, "%s: Enter\n", __func__);
 
 	/* Check device node */
 	if (!of_node) {
@@ -145,6 +144,14 @@ int32_t get_dtsi_data(struct device_node *of_node, struct msm_laser_focus_ctrl_t
 			return rc;
 		}
 	}
+	if (dev_t->act_device_type == MSM_CAMERA_PLATFORM_DEVICE) {
+		/* Handle GPIO (e.g. CAM_1V2_EN) */
+		rc = dtsi_gpio_parser(of_node, sensordata);
+		if(rc < 0){
+			LOG_Handler(LOG_ERR, "%s: failed %d\n", __func__, __LINE__);
+			goto ERROR;
+		}
+	}
 
 	sensordata->slave_info = kzalloc(sizeof(struct msm_camera_slave_info), GFP_KERNEL);
 	if (!sensordata->slave_info) {
@@ -152,7 +159,6 @@ int32_t get_dtsi_data(struct device_node *of_node, struct msm_laser_focus_ctrl_t
 		rc = -ENOMEM;
 		goto ERROR;
 	}
-
 	/* Get slave information */
 	rc = of_property_read_u32_array(of_node, "qcom,slave-id", id_info, 3);
 	if (rc < 0) {
@@ -168,22 +174,14 @@ int32_t get_dtsi_data(struct device_node *of_node, struct msm_laser_focus_ctrl_t
 		dev_t->sensordata->slave_info->sensor_id_reg_addr,
 		dev_t->sensordata->slave_info->sensor_id);
 
-	/* Handle GPIO (e.g. CAM_1V2_EN) */
-/*	rc = dtsi_gpio_parser(of_node, sensordata);
-	if(rc < 0){
-		LOG_Handler(LOG_ERR, "%s: failed %d\n", __func__, __LINE__);
-		goto ERROR;
-	}*/
-
-	LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
+	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
 
 	return rc;
 
 ERROR:
 	kfree(dev_t->sensordata->slave_info);
 
-	LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
+	//LOG_Handler(LOG_FUN, "%s: Exit\n", __func__);
 
 	return rc;
 }
-#endif

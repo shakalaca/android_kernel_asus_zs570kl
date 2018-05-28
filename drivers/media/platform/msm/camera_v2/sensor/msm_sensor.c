@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,9 +17,13 @@
 #include "msm_camera_i2c_mux.h"
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
+#include "debugfs/msm_debugfs.h"
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
+
+static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl;
+static struct msm_camera_i2c_fn_t msm_sensor_secure_func_tbl;
 
 static void msm_sensor_adjust_mclk(struct msm_camera_power_ctrl_t *ctrl)
 {
@@ -85,6 +89,7 @@ int32_t msm_sensor_free_sensor_data(struct msm_sensor_ctrl_t *s_ctrl)
 	kfree(s_ctrl->sensordata->actuator_info);
 	kfree(s_ctrl->sensordata->power_info.gpio_conf->gpio_num_info);
 	kfree(s_ctrl->sensordata->power_info.gpio_conf->cam_gpio_req_tbl);
+	kfree(s_ctrl->sensordata->power_info.gpio_conf->cam_gpio_set_tbl);
 	kfree(s_ctrl->sensordata->power_info.gpio_conf);
 	kfree(s_ctrl->sensordata->power_info.cam_vreg);
 	kfree(s_ctrl->sensordata->power_info.power_setting);
@@ -113,7 +118,7 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_power_ctrl_t *power_info;
 	enum msm_camera_device_type_t sensor_device_type;
 	struct msm_camera_i2c_client *sensor_i2c_client;
-
+	const char *sensor_name;
 	if (!s_ctrl) {
 		pr_err("%s:%d failed: s_ctrl %pK\n",
 			__func__, __LINE__, s_ctrl);
@@ -126,12 +131,22 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 	power_info = &s_ctrl->sensordata->power_info;
 	sensor_device_type = s_ctrl->sensor_device_type;
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
+	sensor_name = s_ctrl->sensordata->sensor_name;
 
 	if (!power_info || !sensor_i2c_client) {
 		pr_err("%s:%d failed: power_info %pK sensor_i2c_client %pK\n",
 			__func__, __LINE__, power_info, sensor_i2c_client);
 		return -EINVAL;
 	}
+	else {
+		if (!strcmp(sensor_name,"imx318")) {
+			imx318_power_state(0);
+		}
+	}
+	/* Power down secure session if it exist*/
+	if (s_ctrl->is_secure)
+		msm_camera_tz_i2c_power_down(sensor_i2c_client);
+
 	return msm_camera_power_down(power_info, sensor_device_type,
 		sensor_i2c_client);
 }
@@ -144,7 +159,7 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	struct msm_camera_slave_info *slave_info;
 	const char *sensor_name;
 	uint32_t retry = 0;
-	
+
 	if (!s_ctrl) {
 		pr_err("%s:%d failed: %pK\n",
 			__func__, __LINE__, s_ctrl);
@@ -153,8 +168,6 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 
 	if (s_ctrl->is_csid_tg_mode)
 		return 0;
-	
-	pr_err("[8996_camera]%s\t +++ \n",__func__);
 
 	power_info = &s_ctrl->sensordata->power_info;
 	sensor_i2c_client = s_ctrl->sensor_i2c_client;
@@ -172,7 +185,27 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	if (s_ctrl->set_mclk_23880000)
 		msm_sensor_adjust_mclk(power_info);
 
+	CDBG("Sensor %d tagged as %s\n", s_ctrl->id,
+		(s_ctrl->is_secure)?"SECURE":"NON-SECURE");
+
 	for (retry = 0; retry < 3; retry++) {
+		if (s_ctrl->is_secure) {
+			rc = msm_camera_tz_i2c_power_up(sensor_i2c_client);
+			if (rc < 0) {
+#ifdef CONFIG_MSM_SEC_CCI_DEBUG
+				CDBG("Secure Sensor %d use cci\n", s_ctrl->id);
+				/* session is not secure */
+				s_ctrl->sensor_i2c_client->i2c_func_tbl =
+					&msm_sensor_cci_func_tbl;
+#else  /* CONFIG_MSM_SEC_CCI_DEBUG */
+				return rc;
+#endif /* CONFIG_MSM_SEC_CCI_DEBUG */
+			} else {
+				/* session is secure */
+				s_ctrl->sensor_i2c_client->i2c_func_tbl =
+					&msm_sensor_secure_func_tbl;
+			}
+		}
 		rc = msm_camera_power_up(power_info, s_ctrl->sensor_device_type,
 			sensor_i2c_client);
 		if (rc < 0)
@@ -184,10 +217,13 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 			msleep(20);
 			continue;
 		} else {
+			if (!strcmp(sensor_name,"imx318")) {
+				imx318_power_state(1);
+			}
 			break;
 		}
 	}
-	printk("[8996_camera]%s\t --- \n",__func__);
+
 	return rc;
 }
 
@@ -209,169 +245,6 @@ static uint16_t msm_sensor_id_by_mask(struct msm_sensor_ctrl_t *s_ctrl,
 	}
 	return sensor_id;
 }
-
-//ASUS_BSP+++, jungchi for File nodes for cci read/write to imx318
-static struct msm_camera_i2c_client *m_cci_client;
-static struct class *actuator_debug_class;
-static struct device *actuator_debug_dev;
-extern struct mutex *msm_sensor_global_mutex;
-
-static ssize_t imx318_temperature_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    int ret = 0;
-	uint16_t reg_data;
-	mutex_lock(msm_sensor_global_mutex);
-	m_cci_client->i2c_func_tbl->i2c_read(m_cci_client, 0x0016, &reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	if (reg_data != 0x03) {
-		pr_err("@imx318_temperature_show, reg_data is 0x%x, camera no open \n", reg_data);
-		ret = sprintf(buf, "999\n");
-		mutex_unlock(msm_sensor_global_mutex);
-		return ret;
-	}
-	m_cci_client->i2c_func_tbl->i2c_read(m_cci_client, 0x0018, &reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	if (reg_data == 0x00 || reg_data == 0xFF || reg_data == 0x01) {
-		pr_err("@imx318_temperature_show, reg_data is 0x%x, camera no calibration \n", reg_data);
-		ret = sprintf(buf, "888\n");
-		mutex_unlock(msm_sensor_global_mutex);
-		return ret;
-	}
-	m_cci_client->i2c_func_tbl->i2c_read(m_cci_client, 0x013A, &reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	mutex_unlock(msm_sensor_global_mutex);
-	pr_err("@imx318_temperature_show, reg_data is 0x%x\n", reg_data);
-	reg_data = reg_data & 0xFF;
-	if (reg_data<0x77) {
-	    ret = sprintf(buf, "%d\n", reg_data);
-	} else if (reg_data<0x80){
-		ret = sprintf(buf, "120\n");
-	} else if (reg_data == 0x80){
-		ret = sprintf(buf, "0\n");
-	} else if (reg_data < 0xED){
-		ret = sprintf(buf, "-20\n");
-	} else {
-		reg_data = (~reg_data+1)&0x7F;
-		ret = sprintf(buf, "-%d\n", reg_data);
-	}
-	return ret;
-}
-
-static ssize_t imx318_temperature_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    return 0;
-}
-
-DEVICE_ATTR(imx318_temperature, 0664, imx318_temperature_show, imx318_temperature_store);
-
-static ssize_t cci_write_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    int ret = 0;
-    return ret;
-}
-static ssize_t cci_write_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    uint32_t reg_addr, cmd;
-	uint16_t reg_data;
-
-    cmd = -1;
-    sscanf(buf, "%x", &cmd);
-	reg_data = cmd & 0xFF;
-	reg_addr = (cmd >> 8) & 0xFFFF;
-	mutex_lock(msm_sensor_global_mutex);
-	m_cci_client->i2c_func_tbl->i2c_write(m_cci_client, reg_addr, reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	mutex_unlock(msm_sensor_global_mutex);
-    pr_err("@cci_write_store, reg_addr is 0x%x, reg_data is 0x%x\n", reg_addr, reg_data);
-
-    return count;
-}
-DEVICE_ATTR(cci_debug_write, 0664, cci_write_show, cci_write_store);
-
-static ssize_t cci_read_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    int ret = 0;
-    return ret;
-}
-static ssize_t cci_read_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    uint32_t reg_addr, cmd;
-	uint16_t reg_data;
-
-    cmd = -1;
-    sscanf(buf, "%x", &cmd);
-	reg_data = cmd & 0xFF;
-	reg_addr = (cmd >> 8) & 0xFFFF;
-	mutex_lock(msm_sensor_global_mutex);
-	m_cci_client->i2c_func_tbl->i2c_read(m_cci_client, reg_addr, &reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	mutex_unlock(msm_sensor_global_mutex);
-    pr_err("@cci_read_store, reg_addr is 0x%x, reg_data is 0x%x\n", reg_addr, reg_data);
-
-    return count;
-}
-DEVICE_ATTR(cci_debug_read, 0664, cci_read_show, cci_read_store);
-
-/*+++front camera+++*/
-static struct msm_camera_i2c_client *m_front_camera_cci_client;
-static struct class *front_camera_debug_class;
-static struct device *front_camera_debug_dev;
-static ssize_t front_camera_cci_write_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    int ret = 0;
-    return ret;
-}
-static ssize_t front_camera_cci_write_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    uint32_t reg_addr, cmd;
-	uint16_t reg_data;
-
-    cmd = -1;
-    sscanf(buf, "%x", &cmd);
-	reg_data = cmd & 0xFF;
-	reg_addr = (cmd >> 8) & 0xFFFF;
-	mutex_lock(msm_sensor_global_mutex);
-	m_front_camera_cci_client->i2c_func_tbl->i2c_write(m_front_camera_cci_client, reg_addr, reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	mutex_unlock(msm_sensor_global_mutex);
-    pr_err("@front_camera_cci_write_store, reg_addr is 0x%x, reg_data is 0x%x\n", reg_addr, reg_data);
-
-    return count;
-}
-DEVICE_ATTR(front_camera_cci_debug_write, 0664, front_camera_cci_write_show,front_camera_cci_write_store);
-
-static ssize_t front_camera_cci_read_show(struct device *dev,
-        struct device_attribute *attr, char *buf)
-{
-    int ret = 0;
-    return ret;
-}
-static ssize_t front_camera_cci_read_store(struct device *dev,
-        struct device_attribute *attr,
-        const char *buf, size_t count)
-{
-    uint32_t reg_addr, cmd;
-	uint16_t reg_data;
-
-    cmd = -1;
-    sscanf(buf, "%x", &cmd);
-	reg_data = cmd & 0xFF;
-	reg_addr = (cmd >> 8) & 0xFFFF;
-	mutex_lock(msm_sensor_global_mutex);
-	m_front_camera_cci_client->i2c_func_tbl->i2c_read(m_front_camera_cci_client, reg_addr, &reg_data, MSM_CAMERA_I2C_BYTE_DATA);
-	mutex_unlock(msm_sensor_global_mutex);
-    pr_err("@front_camera_cci_read_store, reg_addr is 0x%x, reg_data is 0x%x\n", reg_addr, reg_data);
-
-    return count;
-}
-DEVICE_ATTR(front_camera_cci_debug_read, 0664, front_camera_cci_read_show, front_camera_cci_read_store);
-//ASUS_BSP---, jungchi for File nodes for cci read/write to imx318
 
 int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 {
@@ -405,34 +278,13 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 		return rc;
 	}
 
-	pr_err("[8996_camera]%s: read id: 0x%x expected id 0x%x:\n",
+	pr_debug("%s: read id: 0x%x expected id 0x%x:\n",
 			__func__, chipid, slave_info->sensor_id);
 	if (msm_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		pr_err("%s chip id %x does not match %x\n",
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
-	//ASUS_BSP+++, jungchi for File nodes for cci read/write to imx318
-	if(!m_cci_client && slave_info->sensor_id == 0x0318) {
-		m_cci_client = sensor_i2c_client;
-		actuator_debug_class = class_create(THIS_MODULE, "imx318_cci_debug");
-		actuator_debug_dev = device_create(actuator_debug_class,
-			NULL, 0, "%s", "imx318_cci_debug");
-
-		(void) device_create_file(actuator_debug_dev, &dev_attr_cci_debug_write);
-		(void) device_create_file(actuator_debug_dev, &dev_attr_cci_debug_read);
-		(void) device_create_file(actuator_debug_dev, &dev_attr_imx318_temperature);
-	}else if(!m_front_camera_cci_client && slave_info->sensor_id == 0x885a){
-		m_front_camera_cci_client = sensor_i2c_client;
-		front_camera_debug_class = class_create(THIS_MODULE, "ov8856_cci_debug");
-		front_camera_debug_dev = device_create(front_camera_debug_class,
-			NULL, 0, "%s", "ov8856_cci_debug");
-
-		(void) device_create_file(front_camera_debug_dev, &dev_attr_front_camera_cci_debug_write);
-		(void) device_create_file(front_camera_debug_dev, &dev_attr_front_camera_cci_debug_read);
-			pr_err("%s ov8856 device_create_file\n",__func__);
-	}
-	//ASUS_BSP---, jungchi for File nodes for cci read/write to imx318
 	return rc;
 }
 
@@ -445,8 +297,11 @@ static struct msm_sensor_ctrl_t *get_sctrl(struct v4l2_subdev *sd)
 static void msm_sensor_stop_stream(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int32_t rc = 0;
-
-	mutex_lock(s_ctrl->msm_sensor_mutex);
+	const char *sensor_name = s_ctrl->sensordata->sensor_name;
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_lock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_lock(s_ctrl->msm_sensor_mutex);
 	if (s_ctrl->sensor_state == MSM_SENSOR_POWER_UP) {
 		s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write_table(
 			s_ctrl->sensor_i2c_client, &s_ctrl->stop_setting);
@@ -469,7 +324,10 @@ static void msm_sensor_stop_stream(struct msm_sensor_ctrl_t *s_ctrl)
 			pr_err("s_ctrl->func_tbl NULL\n");
 		}
 	}
-	mutex_unlock(s_ctrl->msm_sensor_mutex);
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_unlock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_unlock(s_ctrl->msm_sensor_mutex);
 	return;
 }
 
@@ -542,7 +400,11 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	struct sensorb_cfg_data32 *cdata = (struct sensorb_cfg_data32 *)argp;
 	int32_t rc = 0;
 	int32_t i = 0;
-	mutex_lock(s_ctrl->msm_sensor_mutex);
+	const char *sensor_name = s_ctrl->sensordata->sensor_name;
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_lock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_lock(s_ctrl->msm_sensor_mutex);
 	CDBG("%s:%d %s cfgtype = %d\n", __func__, __LINE__,
 		s_ctrl->sensordata->sensor_name, cdata->cfgtype);
 	switch (cdata->cfgtype) {
@@ -1059,7 +921,10 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 	}
 
 DONE:
-	mutex_unlock(s_ctrl->msm_sensor_mutex);
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_unlock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_unlock(s_ctrl->msm_sensor_mutex);
 
 	return rc;
 }
@@ -1070,7 +935,11 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 	struct sensorb_cfg_data *cdata = (struct sensorb_cfg_data *)argp;
 	int32_t rc = 0;
 	int32_t i = 0;
-	mutex_lock(s_ctrl->msm_sensor_mutex);
+	const char *sensor_name = s_ctrl->sensordata->sensor_name;
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_lock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_lock(s_ctrl->msm_sensor_mutex);
 	CDBG("%s:%d %s cfgtype = %d\n", __func__, __LINE__,
 		s_ctrl->sensordata->sensor_name, cdata->cfgtype);
 	switch (cdata->cfgtype) {
@@ -1541,7 +1410,10 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 	}
 
 DONE:
-	mutex_unlock(s_ctrl->msm_sensor_mutex);
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_unlock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_unlock(s_ctrl->msm_sensor_mutex);
 
 	return rc;
 }
@@ -1563,12 +1435,19 @@ static int msm_sensor_power(struct v4l2_subdev *sd, int on)
 {
 	int rc = 0;
 	struct msm_sensor_ctrl_t *s_ctrl = get_sctrl(sd);
-	mutex_lock(s_ctrl->msm_sensor_mutex);
+	const char *sensor_name = s_ctrl->sensordata->sensor_name;
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_lock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_lock(s_ctrl->msm_sensor_mutex);
 	if (!on && s_ctrl->sensor_state == MSM_SENSOR_POWER_UP) {
 		s_ctrl->func_tbl->sensor_power_down(s_ctrl);
 		s_ctrl->sensor_state = MSM_SENSOR_POWER_DOWN;
 	}
-	mutex_unlock(s_ctrl->msm_sensor_mutex);
+	if (!strcmp(sensor_name, "imx318") || !strcmp(sensor_name, "ov8856"))
+		mutex_unlock(s_ctrl->msm_cci0_mutex);
+	else
+		mutex_unlock(s_ctrl->msm_sensor_mutex);
 	return rc;
 }
 
@@ -1638,6 +1517,21 @@ static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
 	.i2c_write_table_sync_block = msm_camera_qup_i2c_write_table,
 };
 
+static struct msm_camera_i2c_fn_t msm_sensor_secure_func_tbl = {
+	.i2c_read = msm_camera_tz_i2c_read,
+	.i2c_read_seq = msm_camera_tz_i2c_read_seq,
+	.i2c_write = msm_camera_tz_i2c_write,
+	.i2c_write_table = msm_camera_tz_i2c_write_table,
+	.i2c_write_seq_table = msm_camera_tz_i2c_write_seq_table,
+	.i2c_write_table_w_microdelay =
+		msm_camera_tz_i2c_write_table_w_microdelay,
+	.i2c_util = msm_sensor_tz_i2c_util,
+	.i2c_write_conf_tbl = msm_camera_tz_i2c_write_conf_tbl,
+	.i2c_write_table_async = msm_camera_tz_i2c_write_table_async,
+	.i2c_write_table_sync = msm_camera_tz_i2c_write_table_sync,
+	.i2c_write_table_sync_block = msm_camera_tz_i2c_write_table_sync_block,
+};
+
 int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 {
 	struct msm_camera_cci_client *cci_client = NULL;
@@ -1670,6 +1564,9 @@ int32_t msm_sensor_init_default_params(struct msm_sensor_ctrl_t *s_ctrl)
 
 		/* Get CCI subdev */
 		cci_client->cci_subdev = msm_cci_get_subdev();
+
+		if (s_ctrl->is_secure)
+			msm_camera_tz_i2c_register_sensor((void *)s_ctrl);
 
 		/* Update CCI / I2C function table */
 		if (!s_ctrl->sensor_i2c_client->i2c_func_tbl)

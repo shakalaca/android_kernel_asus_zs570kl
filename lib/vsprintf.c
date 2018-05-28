@@ -1728,7 +1728,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
 	/* Reject out-of-range values early.  Large positive sizes are
 	   used for unknown buffer sizes. */
-	if (WARN_ON_ONCE((int) size < 0))
+	if (WARN_ON_ONCE(size > INT_MAX))
 		return 0;
 
 	str = buf;
@@ -1752,8 +1752,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 			if (str < end) {
 				if (copy > end - str)
 					copy = end - str;
-				//~ memcpy(str, old_fmt, copy);
-                                strncpy(str, old_fmt, copy);
+				memcpy(str, old_fmt, copy);
 			}
 			str += read;
 			break;
