@@ -324,28 +324,39 @@ void ProtocolTransmitMessage(void)
 
 void ProtocolSendingMessage(void)
 {
-    FSC_U8 data = 0x02;
     if (Registers.Status.I_TXSENT)
     {
         Registers.Status.I_TXSENT = 0;
         ProtocolVerifyGoodCRC();
     }
-    else if (Registers.Status.I_COLLISION)       // If there was a collision on the bus
+    else if (Registers.Status.I_COLLISION)
     {
-        // TODO: Update collision handling (protocol + policy)
         Registers.Status.I_COLLISION = 0;
-        PDTxStatus = txCollision;                                               // Indicate to the policy engine that there was a collision with the last transmission
-        DeviceWrite(regReset, 1, &data);                                       // Reset the PD logic
-        //ProtocolFlushTxFIFO();
-        ProtocolState = PRLIdle;                                              // Go to the RxWait state to receive whatever message is incoming...
+        PDTxStatus = txCollision;
+        ProtocolState = PRLIdle;
     }
-    else if (Registers.Status.I_RETRYFAIL)                                      // If we have timed out waiting for the transmitter to complete...
+    else if (Registers.Status.I_RETRYFAIL)
     {
         Registers.Status.I_RETRYFAIL = 0;
-        PDTxStatus = txError;                                                   // Set the transmission status to error to signal the policy engine
-        ProtocolState = PRLIdle;                                                // Set the state variable to the idle state
+        PDTxStatus = txError;
+        ProtocolState = PRLIdle;
     }
+    else if (Registers.Status.I_GCRCSENT)
+    {
+        PDTxStatus = txError;
+        ProtocolGetRxPacket();
+        Registers.Status.I_GCRCSENT = 0;
+        ProtocolState = PRLIdle;
+    }
+    else if (Registers.Status.I_CRC_CHK)
+    {
+        Registers.Status.I_TXSENT = 0;
+        ProtocolVerifyGoodCRC();
+    }
+
+    if(ProtocolState == PRLIdle) ProtocolIdle();
 }
+
 
 void ProtocolVerifyGoodCRC(void)
 {
