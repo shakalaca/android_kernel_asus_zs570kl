@@ -7658,14 +7658,19 @@ static int synaptics_rmi4_suspend(struct device *dev)
 		printk("[Power] %s: skip this driver in charger mode\n", __func__);
 		return 0;
 	}
-    
+
     printk("%s suspend start\n", __func__);
+
+    if(rmi4_data->suspend) {
+	    printk("[Touch] %s : already suspend !!!!!!!!!!\n", __func__);
+	    return 0;
+    }
 
     if (rmi4_data->enable_wakeup_gesture && ((dclick_mode == 1) || (swipe_mode == 1) || (gesture_mode & GESTURE_SWITCH))) {//<ASUS_DTP+>
         synaptics_rmi4_sw_reset(rmi4_data);
     }
 
-    if(rmi4_data->suspend) {
+    /*if(rmi4_data->suspend) {
         if (rmi4_data->enable_wakeup_gesture && ((dclick_mode == 1) || (swipe_mode == 1) || (gesture_mode & GESTURE_SWITCH))) {//<ASUS_DTP+>
             printk("%s gesture suspend again\n", __func__);
             synaptics_rmi4_free_fingers(rmi4_data);
@@ -7675,7 +7680,7 @@ static int synaptics_rmi4_suspend(struct device *dev)
             goto exit;
         }
         return 0;
-    }
+    }*/
 
     //<ASUS_cap_sensor+>
     //<ASUS_focal+>    
